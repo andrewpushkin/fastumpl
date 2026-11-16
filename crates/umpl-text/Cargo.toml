@@ -1,0 +1,10 @@
+[package]
+name = "umpl-text"
+description = "Reads and writes fastumpl .umpl diagram files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+umpl-core.workspace = true
