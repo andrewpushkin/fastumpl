@@ -14,7 +14,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::graph::*;
-use crate::score::{bundle_of, crossing_points};
+use crate::score::{bundle_of, crossing_points, segment_crossing};
 
 const STEP: u32 = 10;
 /// Step along a lane already used by the same bundle.
@@ -223,40 +223,74 @@ impl Grid {
     }
 }
 
+/// Which lines use one grid point in one direction. Keeps the count, sum
+/// and sum of squares of the (dense) bundle ids, so lines can be removed
+/// again and "all the same bundle" is still known exactly.
+#[derive(Clone, Copy, Default)]
+struct Users {
+    count: u16,
+    sum: u64,
+    squares: u64,
+}
+
+impl Users {
+    fn apply(&mut self, bundle: u32, add: bool) {
+        let b = bundle as u64;
+        if add {
+            self.count += 1;
+            self.sum += b;
+            self.squares += b * b;
+        } else {
+            self.count -= 1;
+            self.sum -= b;
+            self.squares -= b * b;
+        }
+    }
+
+    /// NONE, the single bundle using it, or MULTI.
+    fn owner(&self) -> u32 {
+        match self.count {
+            0 => NONE,
+            c if self.sum * self.sum == self.squares * c as u64 => (self.sum / c as u64) as u32,
+            _ => MULTI,
+        }
+    }
+}
+
 /// Where the already-routed lines are.
 #[derive(Clone)]
 struct Occupancy {
-    /// Bundle using each point horizontally / vertically (NONE, MULTI).
-    h: Vec<u32>,
-    v: Vec<u32>,
-    ports: HashMap<usize, u32>,
-}
-
-fn mark(slot: &mut u32, b: u32) {
-    if *slot == NONE {
-        *slot = b;
-    } else if *slot != b {
-        *slot = MULTI;
-    }
+    h: Vec<Users>,
+    v: Vec<Users>,
+    ports: HashMap<usize, Users>,
 }
 
 impl Occupancy {
     fn new(grid: &Grid) -> Occupancy {
         Occupancy {
-            h: vec![NONE; grid.owner.len()],
-            v: vec![NONE; grid.owner.len()],
+            h: vec![Users::default(); grid.owner.len()],
+            v: vec![Users::default(); grid.owner.len()],
             ports: HashMap::new(),
         }
     }
 
-    fn add(&mut self, grid: &Grid, route: &Route, bundle: u32) {
+    fn h(&self, i: usize) -> u32 {
+        self.h[i].owner()
+    }
+
+    fn v(&self, i: usize) -> u32 {
+        self.v[i].owner()
+    }
+
+    fn apply(&mut self, grid: &Grid, route: &Route, bundle: u32, add: bool) {
         for (p, q) in route.segments() {
             let hz = p.1 == q.1;
             let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
             let mut c = p;
             loop {
                 if let Some(i) = grid.idx(c) {
-                    mark(if hz { &mut self.h[i] } else { &mut self.v[i] }, bundle);
+                    let slot = if hz { &mut self.h[i] } else { &mut self.v[i] };
+                    slot.apply(bundle, add);
                 }
                 if c == q {
                     break;
@@ -269,15 +303,27 @@ impl Occupancy {
             .flatten()
         {
             if let Some(i) = grid.idx(*p) {
-                mark(self.ports.entry(i).or_insert(NONE), bundle);
+                self.ports.entry(i).or_default().apply(bundle, add);
             }
         }
+    }
+
+    fn add(&mut self, grid: &Grid, route: &Route, bundle: u32) {
+        self.apply(grid, route, bundle, true);
+    }
+
+    fn remove(&mut self, grid: &Grid, route: &Route, bundle: u32) {
+        self.apply(grid, route, bundle, false);
     }
 
     /// Cost of using port `i`: high if another bundle uses it, lower if
     /// another bundle uses a port next to it (the lines would look doubled).
     fn port_cost(&self, grid: &Grid, i: usize, bundle: u32) -> u32 {
-        let other = |j: usize| self.ports.get(&j).is_some_and(|&b| b != bundle);
+        let other = |j: usize| {
+            self.ports
+                .get(&j)
+                .is_some_and(|u| u.count > 0 && u.owner() != bundle)
+        };
         if other(i) {
             return PORT_USED;
         }
@@ -323,6 +369,8 @@ struct Router<'a> {
     graph: &'a Graph,
     grid: Grid,
     search: Search,
+    /// Dense bundle id of each edge (small numbers, for `Users`).
+    bundle: Vec<u32>,
 }
 
 fn rect_distance(r: &Rect, p: (i32, i32)) -> i32 {
@@ -335,10 +383,18 @@ impl<'a> Router<'a> {
     fn new(graph: &'a Graph, nodes: &[(i32, i32)]) -> Router<'a> {
         let grid = Grid::new(graph, nodes);
         let n = grid.owner.len();
+        let mut dense: HashMap<u32, u32> = HashMap::new();
+        let bundle = (0..graph.edges.len())
+            .map(|e| {
+                let next = dense.len() as u32;
+                *dense.entry(bundle_of(graph, e)).or_insert(next)
+            })
+            .collect();
         Router {
             graph,
             grid,
             search: Search::new(n),
+            bundle,
         }
     }
 
@@ -391,7 +447,7 @@ impl<'a> Router<'a> {
             points: vec![(cx, child.y), (cx, bar), (px, bar), (px, py)],
         };
         route.simplify();
-        let bundle = bundle_of(graph, e);
+        let bundle = self.bundle[e];
         let last = route.points.len() - 1;
         for (k, (p, q)) in route.segments().enumerate() {
             let hz = p.1 == q.1;
@@ -406,9 +462,9 @@ impl<'a> Router<'a> {
                         return None;
                     }
                     let (same, other) = if hz {
-                        (occ.h[i], occ.v[i])
+                        (occ.h(i), occ.v(i))
                     } else {
-                        (occ.v[i], occ.h[i])
+                        (occ.v(i), occ.h(i))
                     };
                     if (same != NONE && same != bundle) || (other != NONE && other != bundle) {
                         return None;
@@ -429,7 +485,7 @@ impl<'a> Router<'a> {
     fn astar(&mut self, e: usize, occ: &Occupancy, window: Option<Rect>) -> Option<Route> {
         let graph = self.graph;
         let edge = &graph.edges[e];
-        let bundle = bundle_of(graph, e);
+        let bundle = self.bundle[e];
         let (from, to) = (edge.from as i32, edge.to as i32);
         let (src, dst) = (self.grid.rects[edge.from], self.grid.rects[edge.to]);
         let (src_sides, dst_sides) = allowed_sides(edge.kind);
@@ -437,7 +493,14 @@ impl<'a> Router<'a> {
         let s = &mut self.search;
         s.reset();
         let mut counter = 0u32;
-        let h = |p: (i32, i32)| rect_distance(&dst, p) as u32 * BUNDLE_STEP.min(STEP);
+        // Only inheritance lines get the cheaper bundle step, so ordinary
+        // lines can use the full step: a tighter estimate, a faster search.
+        let unit = if edge.kind == EdgeKind::Hierarchy {
+            BUNDLE_STEP
+        } else {
+            STEP
+        };
+        let h = |p: (i32, i32)| rect_distance(&dst, p) as u32 * unit;
 
         for &side in src_sides {
             let d = side.outward();
@@ -508,9 +571,9 @@ impl<'a> Router<'a> {
                     cost += STEP + off as u32 + occ.port_cost(grid, j, bundle);
                 } else {
                     let (same, other) = if horizontal(d2) {
-                        (occ.h[j], occ.v[j])
+                        (occ.h(j), occ.v(j))
                     } else {
-                        (occ.v[j], occ.h[j])
+                        (occ.v(j), occ.h(j))
                     };
                     cost += if same == bundle { BUNDLE_STEP } else { STEP };
                     if same != NONE && same != bundle {
@@ -605,26 +668,40 @@ fn crossings_per_edge(graph: &Graph, routes: &[Route]) -> Vec<usize> {
     count
 }
 
-fn occupancy_without(router: &Router, routes: &[Route], skip: usize) -> Occupancy {
+fn occupancy_of(router: &Router, routes: &[Route]) -> Occupancy {
     let mut occ = Occupancy::new(&router.grid);
     for (e, r) in routes.iter().enumerate() {
-        if e != skip && !r.points.is_empty() {
-            occ.add(&router.grid, r, bundle_of(router.graph, e));
+        if !r.points.is_empty() {
+            occ.add(&router.grid, r, router.bundle[e]);
         }
     }
     occ
 }
 
+/// Crossings of `candidate` (as edge `e`) with every other line, counted
+/// once per crossing point and bundle.
+fn crossings_against(router: &Router, routes: &[Route], e: usize, candidate: &Route) -> usize {
+    let mut seen = std::collections::HashSet::new();
+    for (o, r) in routes.iter().enumerate() {
+        if o == e || router.bundle[o] == router.bundle[e] {
+            continue;
+        }
+        for sa in candidate.segments() {
+            for sb in r.segments() {
+                if let Some(p) = segment_crossing(sa, sb) {
+                    seen.insert((p, router.bundle[o]));
+                }
+            }
+        }
+    }
+    seen.len()
+}
+
 /// Rips up lines that cross others and routes them again, keeping the new
 /// route when it crosses less (or equally, but is shorter).
-fn improve(
-    router: &mut Router,
-    nodes: &[(i32, i32)],
-    routes: &mut [Route],
-    candidates: &[usize],
-    passes: usize,
-) {
+fn improve(router: &mut Router, routes: &mut [Route], candidates: &[usize], passes: usize) {
     let graph = router.graph;
+    let mut occ = occupancy_of(router, routes);
     for _ in 0..passes {
         let counts = crossings_per_edge(graph, routes);
         let mut bad: Vec<usize> = candidates
@@ -641,11 +718,12 @@ fn improve(
             if graph.edges[e].from == graph.edges[e].to {
                 continue;
             }
-            let occ = occupancy_without(router, routes, e);
+            let b = router.bundle[e];
             let old = std::mem::take(&mut routes[e]);
-            let old_cross = crossings_of(graph, routes, e, &old);
+            occ.remove(&router.grid, &old, b);
+            let old_cross = crossings_against(router, routes, e, &old);
             let new = router.route_edge(e, &occ, 0);
-            let new_cross = crossings_of(graph, routes, e, &new);
+            let new_cross = crossings_against(router, routes, e, &new);
             // Inheritance lines keep their tree shape unless crossings drop.
             let shorter =
                 (new.length() + 4 * new.bends() as i32) < (old.length() + 4 * old.bends() as i32);
@@ -659,18 +737,12 @@ fn improve(
             } else {
                 old
             };
+            occ.add(&router.grid, &routes[e], b);
         }
         if !improved {
             return;
         }
     }
-    let _ = nodes;
-}
-
-fn crossings_of(graph: &Graph, routes: &[Route], e: usize, candidate: &Route) -> usize {
-    let mut tmp: Vec<Route> = routes.to_vec();
-    tmp[e] = candidate.clone();
-    crossings_per_edge(graph, &tmp)[e]
 }
 
 /// Routes every edge with the nodes at `nodes`.
@@ -682,7 +754,9 @@ pub fn route_all(graph: &Graph, nodes: &[(i32, i32)]) -> Vec<Route> {
     let mut router = Router::new(graph, nodes);
     let all: Vec<usize> = (0..graph.edges.len()).collect();
     route_edges(&mut router, nodes, &mut routes, &all);
-    improve(&mut router, nodes, &mut routes, &all, 3);
+    // Rip-up passes pay off most on small diagrams; large ones get one.
+    let passes = if graph.edges.len() <= 100 { 3 } else { 1 };
+    improve(&mut router, &mut routes, &all, passes);
     routes
 }
 
@@ -692,7 +766,7 @@ fn route_edges(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], 
     let set: std::collections::HashSet<usize> = edges.iter().copied().collect();
     for (e, r) in routes.iter().enumerate() {
         if !set.contains(&e) && !r.points.is_empty() {
-            occ.add(&router.grid, r, bundle_of(graph, e));
+            occ.add(&router.grid, r, router.bundle[e]);
         }
     }
     let mut loops: HashMap<usize, i32> = HashMap::new();
@@ -706,7 +780,7 @@ fn route_edges(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], 
             0
         };
         let r = router.route_edge(e, &occ, k);
-        occ.add(&router.grid, &r, bundle_of(graph, e));
+        occ.add(&router.grid, &r, router.bundle[e]);
         routes[e] = r;
     }
 }

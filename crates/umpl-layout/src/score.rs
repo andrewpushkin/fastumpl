@@ -62,6 +62,17 @@ fn cross_point(h: &Seg, v: &Seg) -> Option<(i32, i32)> {
     (x > x1 && x < x2 && y > y1 && y < y2).then_some((x, y))
 }
 
+/// Where two segments cross at interior points of both, if they do.
+pub(crate) fn segment_crossing(sa: Seg, sb: Seg) -> Option<(i32, i32)> {
+    if horizontal(&sa) && vertical(&sb) {
+        cross_point(&sa, &sb)
+    } else if vertical(&sa) && horizontal(&sb) {
+        cross_point(&sb, &sa)
+    } else {
+        None
+    }
+}
+
 /// Every crossing point between routes of different bundles, each counted
 /// once per pair of bundles. Returns `(point, edge_a, edge_b)`.
 pub fn crossing_points(graph: &Graph, routes: &[Route]) -> Vec<((i32, i32), usize, usize)> {

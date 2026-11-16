@@ -51,6 +51,27 @@ fn reaches(succ: &[Vec<usize>], from: usize, to: usize) -> bool {
     false
 }
 
+/// New layers when `v` moves to `to` and everything below it is pushed
+/// down just enough to stay below.
+fn push_down(succ: &[Vec<usize>], layer: &[usize], v: usize, to: usize) -> Vec<(usize, usize)> {
+    let mut new: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    new.insert(v, to);
+    let mut stack = vec![v];
+    while let Some(u) = stack.pop() {
+        let lu = new[&u];
+        for &s in &succ[u] {
+            let ls = new.get(&s).copied().unwrap_or(layer[s]);
+            if ls <= lu {
+                new.insert(s, lu + 1);
+                stack.push(s);
+            }
+        }
+    }
+    let mut out: Vec<(usize, usize)> = new.into_iter().collect();
+    out.sort_unstable();
+    out
+}
+
 /// Returns a layer (0 = top) for each of the `n` items.
 pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) -> Vec<usize> {
     if n == 0 {
@@ -104,11 +125,13 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         for &(o, w) in &soft[v] {
             c += w * (l as f64 - layer[o] as f64).abs();
         }
+        // Stretched hard edges cost a little; broken ones a lot.
+        let stretch = |d: i64| if d < 0 { 100.0 } else { d as f64 };
         for &u in &pred[v] {
-            c += 1.0 * (l - layer[u] - 1) as f64;
+            c += stretch(l as i64 - layer[u] as i64 - 1);
         }
         for &s in &succ[v] {
-            c += 1.0 * (layer[s] - l - 1) as f64;
+            c += stretch(layer[s] as i64 - l as i64 - 1);
         }
         c + 0.01 * l as f64
     };
@@ -148,28 +171,52 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         .sum();
     let widest = sizes.iter().map(|s| s.0).max().unwrap_or(0) as f64;
     let target = widest.max((total * 1.6).sqrt() * 1.8);
+    // Layers where nothing can move; skipped so other layers still balance.
+    let mut stuck: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for _ in 0..n * 4 {
         let max_layer = *layer.iter().max().unwrap();
         let mut width = vec![0.0f64; max_layer + 1];
         for v in 0..n {
             width[layer[v]] += (sizes[v].0 + NODE_GAP) as f64;
         }
-        let Some(k) = (0..=max_layer)
-            .find(|&k| width[k] > target && layer.iter().filter(|&&l| l == k).count() > 1)
-        else {
+        let Some(k) = (0..=max_layer).find(|&k| {
+            !stuck.contains(&k)
+                && width[k] > target
+                && layer.iter().filter(|&&l| l == k).count() > 1
+        }) else {
             break;
         };
-        // Cheapest box to move one layer down without breaking a rule.
+        // Cheapest box to move one layer down. Rows of siblings stay
+        // together, so only boxes without a parent move: association-held
+        // boxes alone, roots together with everything below them.
         let movable = (0..n)
-            .filter(|&v| layer[v] == k)
-            // Rows of siblings stay together: only boxes held by
-            // associations alone move.
-            .filter(|&v| pred[v].is_empty() && succ[v].is_empty())
-            .map(|v| (cost(v, k + 1, &layer) - cost(v, k, &layer), v))
+            .filter(|&v| layer[v] == k && pred[v].is_empty())
+            .map(|v| {
+                let moved = push_down(&succ, &layer, v, k + 1);
+                let mut after = layer.clone();
+                for &(u, l) in &moved {
+                    after[u] = l;
+                }
+                // Change in cost of every edge touching a moved box.
+                let mut c = 0.0;
+                for &(u, l) in &moved {
+                    c += cost(u, l, &after) - cost(u, layer[u], &layer);
+                }
+                // Moving a big subtree is a bigger change.
+                (c + 0.2 * moved.len() as f64, v, moved)
+            })
             .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         match movable {
-            Some((_, v)) => layer[v] = k + 1,
-            None => break,
+            Some((_, _, moved)) => {
+                for (u, l) in moved {
+                    layer[u] = l;
+                }
+                // Layers below changed; give them another chance.
+                stuck.retain(|&l| l <= k);
+            }
+            None => {
+                stuck.insert(k);
+            }
         }
     }
 

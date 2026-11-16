@@ -358,8 +358,14 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
         starts.push(Start::Hint);
     }
     starts.push(Start::DepthFirst);
+    // Every candidate is routed in full, so large diagrams get fewer.
+    let wanted = match graph.nodes.len() {
+        0..=60 => opts.candidates,
+        61..=150 => opts.candidates.min(6),
+        _ => opts.candidates.min(3),
+    };
     let mut k = 1;
-    while starts.len() < opts.candidates.max(1) {
+    while starts.len() < wanted.max(1) {
         starts.push(Start::Random(opts.seed.wrapping_add(k)));
         k += 1;
     }
