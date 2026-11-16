@@ -11,12 +11,18 @@
 //! - [`route_only`]: keep every node where it is and route the lines.
 //! - [`reroute`]: re-route some lines after a node moved.
 
+mod coords;
 mod graph;
+mod labels;
+mod layering;
+mod ordering;
+mod place;
 mod rng;
 mod router;
 mod score;
 
 pub use graph::*;
+pub use place::{layout_all, place_new, route_only, Options};
 pub use rng::Rng;
 pub use router::{reroute, route_all};
 pub use score::{crossing_points, measure, Stats};
