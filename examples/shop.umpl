@@ -1,0 +1,34 @@
+diagram "Shop"
+
+package billing {
+  abstract class Payment {
+    +amount: Money
+    +pay(): Receipt {abstract}
+  }
+  class CardPayment
+}
+
+class Order {
+  +id: OrderId
+  -lines: List<OrderLine>
+  +total(): Money
+}
+
+interface Priced {
+  +price(): Money
+}
+
+enum Status { New, Paid, Shipped }
+
+# an order owns its lines
+Order "1" *-- "1..*" OrderLine : contains
+billing.CardPayment --|> billing.Payment
+Order ..|> Priced
+Order --> billing.Payment : paid by
+
+layout {
+  Order               at 24, 8
+  OrderLine           at 24, 22
+  billing.Payment     at 48, 8
+  billing.CardPayment at 48, 22
+}
