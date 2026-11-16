@@ -13,8 +13,10 @@
 
 mod graph;
 mod rng;
+mod router;
 mod score;
 
 pub use graph::*;
 pub use rng::Rng;
+pub use router::{reroute, route_all};
 pub use score::{crossing_points, measure, Stats};
