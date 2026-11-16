@@ -1,0 +1,541 @@
+//! The flat shape list both the screen and SVG export paint.
+
+use umpl_core::*;
+use umpl_layout::crossing_points;
+
+use crate::diagram::{Diagram, NodeRef};
+use crate::measure::*;
+use crate::theme::{Color, Theme};
+use crate::GRID;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RectF {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl RectF {
+    pub fn new(x: f32, y: f32, w: f32, h: f32) -> RectF {
+        RectF { x, y, w, h }
+    }
+
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+
+    pub fn center(&self) -> (f32, f32) {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
+    pub fn contains(&self, p: (f32, f32)) -> bool {
+        p.0 >= self.x && p.0 <= self.right() && p.1 >= self.y && p.1 <= self.bottom()
+    }
+
+    pub fn intersects(&self, o: &RectF) -> bool {
+        self.x < o.right() && o.x < self.right() && self.y < o.bottom() && o.y < self.bottom()
+    }
+
+    pub fn union(&self, o: &RectF) -> RectF {
+        let x = self.x.min(o.x);
+        let y = self.y.min(o.y);
+        RectF::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
+    }
+
+    pub fn expand(&self, by: f32) -> RectF {
+        RectF::new(self.x - by, self.y - by, self.w + 2.0 * by, self.h + 2.0 * by)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextStyle {
+    pub size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub color: Color,
+    /// Centred on `pos.0` instead of starting there.
+    pub centered: bool,
+}
+
+impl TextStyle {
+    fn new(size: f32, color: Color) -> TextStyle {
+        TextStyle {
+            size,
+            bold: false,
+            italic: false,
+            underline: false,
+            color,
+            centered: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Shape {
+    Rect {
+        rect: RectF,
+        fill: Option<Color>,
+        stroke: Option<(Color, f32)>,
+        radius: f32,
+    },
+    Path {
+        points: Vec<(f32, f32)>,
+        stroke: Option<(Color, f32)>,
+        fill: Option<Color>,
+        closed: bool,
+        dashed: bool,
+    },
+    Circle {
+        center: (f32, f32),
+        radius: f32,
+        fill: Color,
+    },
+    /// `pos.1` is the vertical centre of the line of text.
+    Text {
+        pos: (f32, f32),
+        text: String,
+        style: TextStyle,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SceneOptions<'a> {
+    /// Draw names only (far zoomed out).
+    pub hide_members: bool,
+    pub selected_elements: &'a [ElementId],
+    pub selected_relations: &'a [RelationId],
+    pub selected_packages: &'a [PackageId],
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Scene {
+    pub shapes: Vec<Shape>,
+    /// Everything drawn, with a margin.
+    pub bounds: RectF,
+    pub elements: Vec<(ElementId, RectF)>,
+    /// Full line paths, for hit testing.
+    pub relations: Vec<(RelationId, Vec<(f32, f32)>)>,
+    pub packages: Vec<(PackageId, RectF)>,
+}
+
+const LINE_W: f32 = 1.5;
+const BOX_W: f32 = 1.5;
+const CORNER: f32 = 6.0;
+const GAP: f32 = 4.0;
+const TRIANGLE: f32 = 12.0;
+const DIAMOND: f32 = 16.0;
+const ARROW: f32 = 10.0;
+const TAB_H: f32 = 20.0;
+
+fn px(p: (i32, i32)) -> (f32, f32) {
+    (p.0 as f32 * GRID, p.1 as f32 * GRID)
+}
+
+fn unit(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+    (dx / len, dy / len)
+}
+
+fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
+    ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
+}
+
+/// Replaces each corner with a short flattened curve of radius `r`.
+pub fn round_corners(points: &[(f32, f32)], r: f32) -> Vec<(f32, f32)> {
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let mut out = vec![points[0]];
+    for i in 1..points.len() - 1 {
+        let (a, p, b) = (points[i - 1], points[i], points[i + 1]);
+        let rr = r.min(dist(a, p) / 2.0).min(dist(p, b) / 2.0);
+        let u1 = unit(p, a);
+        let u2 = unit(p, b);
+        let s = (p.0 + u1.0 * rr, p.1 + u1.1 * rr);
+        let e = (p.0 + u2.0 * rr, p.1 + u2.1 * rr);
+        // Quadratic Bézier from s to e with control point p.
+        for k in 0..=4 {
+            let t = k as f32 / 4.0;
+            let mt = 1.0 - t;
+            out.push((
+                mt * mt * s.0 + 2.0 * mt * t * p.0 + t * t * e.0,
+                mt * mt * s.1 + 2.0 * mt * t * p.1 + t * t * e.1,
+            ));
+        }
+    }
+    out.push(*points.last().unwrap());
+    out
+}
+
+/// Splits a polyline at `gaps` (points on its vertical segments), leaving
+/// `GAP` pixels free on each side.
+pub fn cut_gaps(points: &[(f32, f32)], gaps: &[(f32, f32)]) -> Vec<Vec<(f32, f32)>> {
+    let mut pieces = vec![vec![points[0]]];
+    for w in points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let mut here: Vec<(f32, f32)> = gaps
+            .iter()
+            .copied()
+            .filter(|g| {
+                (a.0 - b.0).abs() < 0.01
+                    && (g.0 - a.0).abs() < 0.01
+                    && g.1 > a.1.min(b.1) + GAP
+                    && g.1 < a.1.max(b.1) - GAP
+            })
+            .collect();
+        here.sort_by(|p, q| dist(a, *p).total_cmp(&dist(a, *q)));
+        let u = unit(a, b);
+        for g in here {
+            pieces.last_mut().unwrap().push((g.0 - u.0 * GAP, g.1 - u.1 * GAP));
+            pieces.push(vec![(g.0 + u.0 * GAP, g.1 + u.1 * GAP)]);
+        }
+        pieces.last_mut().unwrap().push(b);
+    }
+    pieces
+}
+
+/// Moves the first point `len` pixels along the first segment.
+fn shorten_start(points: &mut [(f32, f32)], len: f32) {
+    if points.len() >= 2 && dist(points[0], points[1]) > len {
+        let u = unit(points[0], points[1]);
+        points[0] = (points[0].0 + u.0 * len, points[0].1 + u.1 * len);
+    }
+}
+
+fn shorten_end(points: &mut [(f32, f32)], len: f32) {
+    let n = points.len();
+    if n >= 2 && dist(points[n - 1], points[n - 2]) > len {
+        let u = unit(points[n - 1], points[n - 2]);
+        points[n - 1] = (points[n - 1].0 + u.0 * len, points[n - 1].1 + u.1 * len);
+    }
+}
+
+fn kind_letter(k: ElementKind) -> &'static str {
+    match k {
+        ElementKind::Class => "C",
+        ElementKind::Abstract => "A",
+        ElementKind::Interface => "I",
+        ElementKind::Enum => "E",
+        ElementKind::Note => "",
+    }
+}
+
+/// Builds the shape list for `diagram` (whose layout must be current).
+pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &SceneOptions) -> Scene {
+    let (graph, mapping, layout) = (&diagram.graph, &diagram.mapping, &diagram.layout);
+    let mut s = Scene::default();
+
+    // Packages, outermost first.
+    for (gi, pid) in mapping.packages.iter().enumerate() {
+        let Some(g) = layout.groups.get(gi) else { continue };
+        let Some(pkg) = doc.packages.get(pid) else { continue };
+        let r = RectF::new(g.x as f32 * GRID, g.y as f32 * GRID, g.w as f32 * GRID, g.h as f32 * GRID);
+        let selected = opts.selected_packages.contains(pid);
+        let stroke = if selected { (theme.accent, 2.0) } else { (theme.package_stroke, 1.0) };
+        let tab_w = (text_width(&pkg.name, 12.0) + 20.0).min(r.w);
+        s.shapes.push(Shape::Rect {
+            rect: RectF::new(r.x, r.y, tab_w, TAB_H + 4.0),
+            fill: Some(theme.package_fill),
+            stroke: Some(stroke),
+            radius: 3.0,
+        });
+        s.shapes.push(Shape::Rect {
+            rect: RectF::new(r.x, r.y + TAB_H, r.w, r.h - TAB_H),
+            fill: Some(theme.package_fill),
+            stroke: Some(stroke),
+            radius: 4.0,
+        });
+        // Hide the tab's bottom border where it joins the body.
+        s.shapes.push(Shape::Rect {
+            rect: RectF::new(r.x + 1.0, r.y + TAB_H - 1.0, tab_w - 2.0, 3.0),
+            fill: Some(theme.package_fill),
+            stroke: None,
+            radius: 0.0,
+        });
+        let mut st = TextStyle::new(12.0, theme.muted);
+        st.bold = true;
+        s.shapes.push(Shape::Text {
+            pos: (r.x + 10.0, r.y + TAB_H / 2.0 + 1.0),
+            text: pkg.name.clone(),
+            style: st,
+        });
+        s.packages.push((*pid, r));
+    }
+
+    // Lines.
+    let mut gaps: Vec<Vec<(f32, f32)>> = vec![Vec::new(); graph.edges.len()];
+    for (p, a, b) in crossing_points(graph, &layout.routes) {
+        let vertical_in = |e: usize| {
+            layout.routes[e]
+                .segments()
+                .any(|(u, v)| u.0 == v.0 && u.0 == p.0 && p.1 > u.1.min(v.1) && p.1 < u.1.max(v.1))
+        };
+        let e = if vertical_in(a) { a } else { b };
+        gaps[e].push(px(p));
+    }
+    let mut markers = Vec::new();
+    for (e, rid) in mapping.relations.iter().enumerate() {
+        let Some(rel) = doc.relations.get(rid) else { continue };
+        let Some(route) = layout.routes.get(e) else { continue };
+        if route.points.len() < 2 {
+            continue;
+        }
+        let full: Vec<(f32, f32)> = route.points.iter().map(|p| px(*p)).collect();
+        s.relations.push((*rid, full.clone()));
+        let selected = opts.selected_relations.contains(rid);
+        let color = if selected { theme.accent } else { theme.line };
+        let width = if selected { 2.5 } else { LINE_W };
+
+        let mut pts = full.clone();
+        match rel.kind {
+            RelationKind::Generalization | RelationKind::Realization => shorten_end(&mut pts, TRIANGLE),
+            _ => {}
+        }
+        if matches!(rel.kind, RelationKind::Composition | RelationKind::Aggregation) {
+            shorten_start(&mut pts, DIAMOND);
+        }
+        for piece in cut_gaps(&pts, &gaps[e]) {
+            s.shapes.push(Shape::Path {
+                points: round_corners(&piece, CORNER),
+                stroke: Some((color, width)),
+                fill: None,
+                closed: false,
+                dashed: rel.kind.is_dashed(),
+            });
+        }
+
+        let n = full.len();
+        let tip = full[n - 1];
+        let u = unit(full[n - 2], tip);
+        let nrm = (-u.1, u.0);
+        match rel.kind {
+            RelationKind::Generalization | RelationKind::Realization => {
+                let base = (tip.0 - u.0 * TRIANGLE, tip.1 - u.1 * TRIANGLE);
+                markers.push(Shape::Path {
+                    points: vec![tip, (base.0 + nrm.0 * 7.0, base.1 + nrm.1 * 7.0), (base.0 - nrm.0 * 7.0, base.1 - nrm.1 * 7.0)],
+                    stroke: Some((color, width)),
+                    fill: Some(theme.box_fill),
+                    closed: true,
+                    dashed: false,
+                });
+            }
+            RelationKind::Directed | RelationKind::Dependency => {
+                let base = (tip.0 - u.0 * ARROW, tip.1 - u.1 * ARROW);
+                markers.push(Shape::Path {
+                    points: vec![(base.0 + nrm.0 * 5.0, base.1 + nrm.1 * 5.0), tip, (base.0 - nrm.0 * 5.0, base.1 - nrm.1 * 5.0)],
+                    stroke: Some((color, width)),
+                    fill: None,
+                    closed: false,
+                    dashed: false,
+                });
+            }
+            _ => {}
+        }
+        if matches!(rel.kind, RelationKind::Composition | RelationKind::Aggregation) {
+            let f = full[0];
+            let v = unit(full[1], f);
+            let m = (-v.1, v.0);
+            let mid = (f.0 - v.0 * DIAMOND / 2.0, f.1 - v.1 * DIAMOND / 2.0);
+            let fill = if rel.kind == RelationKind::Composition { color } else { theme.box_fill };
+            markers.push(Shape::Path {
+                points: vec![
+                    f,
+                    (mid.0 + m.0 * 5.5, mid.1 + m.1 * 5.5),
+                    (f.0 - v.0 * DIAMOND, f.1 - v.1 * DIAMOND),
+                    (mid.0 - m.0 * 5.5, mid.1 - m.1 * 5.5),
+                ],
+                stroke: Some((color, width)),
+                fill: Some(fill),
+                closed: true,
+                dashed: false,
+            });
+        }
+
+        // Labels.
+        let texts = [rel.from.label.as_ref(), rel.to.label.as_ref(), rel.name.as_ref()];
+        for (k, text) in texts.iter().enumerate() {
+            let (Some(text), Some(Some(p))) = (text, layout.labels.get(e).map(|l| l[k])) else { continue };
+            let (x, y) = px(p);
+            let mut st = TextStyle::new(LABEL_SIZE, if k == 2 { theme.text } else { theme.muted });
+            st.italic = k == 2;
+            s.shapes.push(Shape::Text {
+                pos: (x + 2.0, y + GRID),
+                text: (*text).clone(),
+                style: st,
+            });
+        }
+    }
+    s.shapes.extend(markers);
+
+    // Boxes.
+    for (i, nref) in mapping.nodes.iter().enumerate() {
+        let NodeRef::Element(id) = nref else { continue };
+        let Some(Some(content)) = mapping.contents.get(i) else { continue };
+        let Some(&p) = layout.nodes.get(i) else { continue };
+        let (x, y) = px(p);
+        let r = RectF::new(x, y, graph.nodes[i].w as f32 * GRID, graph.nodes[i].h as f32 * GRID);
+        s.elements.push((*id, r));
+        draw_box(&mut s.shapes, content, r, theme, opts.hide_members);
+        if opts.selected_elements.contains(id) {
+            s.shapes.push(Shape::Rect {
+                rect: r.expand(3.0),
+                fill: None,
+                stroke: Some((theme.accent, 2.0)),
+                radius: 6.0,
+            });
+        }
+    }
+
+    let b = layout.bounds(graph);
+    s.bounds = RectF::new(b.x as f32 * GRID, b.y as f32 * GRID, b.w as f32 * GRID, b.h as f32 * GRID).expand(16.0);
+    s
+}
+
+fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hide_members: bool) {
+    if c.kind == ElementKind::Note {
+        let fold = 10.0;
+        shapes.push(Shape::Path {
+            points: vec![
+                (r.x, r.y),
+                (r.right() - fold, r.y),
+                (r.right(), r.y + fold),
+                (r.right(), r.bottom()),
+                (r.x, r.bottom()),
+            ],
+            stroke: Some((theme.note_stroke, 1.2)),
+            fill: Some(theme.note_fill),
+            closed: true,
+            dashed: false,
+        });
+        shapes.push(Shape::Path {
+            points: vec![(r.right() - fold, r.y), (r.right() - fold, r.y + fold), (r.right(), r.y + fold)],
+            stroke: Some((theme.note_stroke, 1.2)),
+            fill: None,
+            closed: false,
+            dashed: false,
+        });
+        if let Some(lines) = c.compartments.first() {
+            for (k, l) in lines.iter().enumerate() {
+                shapes.push(Shape::Text {
+                    pos: (r.x + NOTE_PAD, r.y + NOTE_PAD + MEMBER_LINE * (k as f32 + 0.5)),
+                    text: l.text.clone(),
+                    style: TextStyle::new(MEMBER_SIZE, theme.text),
+                });
+            }
+        }
+        return;
+    }
+
+    shapes.push(Shape::Rect {
+        rect: r,
+        fill: Some(theme.box_fill),
+        stroke: Some((theme.box_stroke, BOX_W)),
+        radius: 4.0,
+    });
+    let mut y = r.y + PAD_Y;
+    if let Some(st) = &c.stereotype {
+        let mut style = TextStyle::new(STEREO_SIZE, theme.muted);
+        style.centered = true;
+        shapes.push(Shape::Text {
+            pos: (r.x + r.w / 2.0, y + STEREO_LINE / 2.0),
+            text: format!("«{st}»"),
+            style,
+        });
+        y += STEREO_LINE;
+    }
+    let name_cy = y + NAME_LINE / 2.0;
+    shapes.push(Shape::Circle {
+        center: (r.x + 15.0, name_cy),
+        radius: 7.5,
+        fill: theme.mark(c.kind),
+    });
+    let mut badge = TextStyle::new(10.0, theme.mark_text);
+    badge.bold = true;
+    badge.centered = true;
+    shapes.push(Shape::Text {
+        pos: (r.x + 15.0, name_cy),
+        text: kind_letter(c.kind).into(),
+        style: badge,
+    });
+    let mut name = TextStyle::new(NAME_SIZE, theme.text);
+    name.bold = true;
+    name.italic = c.italic_name;
+    name.centered = true;
+    shapes.push(Shape::Text {
+        pos: (r.x + r.w / 2.0, name_cy),
+        text: c.name.clone(),
+        style: name,
+    });
+    y += NAME_LINE + PAD_Y;
+
+    for comp in &c.compartments {
+        shapes.push(Shape::Path {
+            points: vec![(r.x, y), (r.right(), y)],
+            stroke: Some((theme.box_stroke, 1.0)),
+            fill: None,
+            closed: false,
+            dashed: false,
+        });
+        y += 4.0;
+        for l in comp {
+            if !hide_members {
+                let mut st = TextStyle::new(MEMBER_SIZE, theme.text);
+                st.italic = l.italic;
+                st.underline = l.underline;
+                shapes.push(Shape::Text {
+                    pos: (r.x + PAD_X, y + MEMBER_LINE / 2.0),
+                    text: l.text.clone(),
+                    style: st,
+                });
+            }
+            y += MEMBER_LINE;
+        }
+        y += 4.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shop() -> (Document, Diagram) {
+        let p = umpl_text::parse(include_str!("../../../examples/shop.umpl"));
+        let d = Diagram::arrange(&p.doc);
+        (p.doc, d)
+    }
+
+    #[test]
+    fn scene_has_one_rect_per_element() {
+        let (doc, d) = shop();
+        let s = build_scene(&doc, &d, &Theme::light(), &SceneOptions::default());
+        assert_eq!(s.elements.len(), doc.elements.len());
+        assert_eq!(s.relations.len(), doc.relations.len());
+        assert_eq!(s.packages.len(), 1);
+        for (_, r) in &s.elements {
+            assert!(s.bounds.contains((r.x, r.y)) && s.bounds.contains((r.right(), r.bottom())));
+        }
+    }
+
+    #[test]
+    fn gap_cut_at_crossing() {
+        let pieces = cut_gaps(&[(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], &[(0.0, 40.0)]);
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0], vec![(0.0, 0.0), (0.0, 36.0)]);
+        assert_eq!(pieces[1], vec![(0.0, 44.0), (0.0, 100.0), (50.0, 100.0)]);
+    }
+
+    #[test]
+    fn rounded_corner_stays_near_corner() {
+        let out = round_corners(&[(0.0, 0.0), (0.0, 50.0), (50.0, 50.0)], 6.0);
+        assert_eq!(out.first(), Some(&(0.0, 0.0)));
+        assert_eq!(out.last(), Some(&(50.0, 50.0)));
+        assert!(out.iter().all(|p| p.0 >= 0.0 && p.1 <= 50.0));
+    }
+}
