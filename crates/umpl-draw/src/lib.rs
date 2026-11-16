@@ -8,6 +8,8 @@
 pub mod diagram;
 pub mod fonts;
 pub mod measure;
+#[cfg(feature = "png")]
+pub mod png;
 pub mod scene;
 pub mod svg;
 pub mod theme;

@@ -6,9 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# PNG output through resvg (used by the CLI and the app).
+png = ["dep:resvg"]
+
 [dependencies]
 umpl-core.workspace = true
 umpl-layout.workspace = true
+resvg = { version = "0.45.1", default-features = false, features = ["text"], optional = true }
 
 [dev-dependencies]
 umpl-text.workspace = true
