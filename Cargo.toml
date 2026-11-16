@@ -21,3 +21,9 @@ opt-level = 2
 
 [profile.dev]
 opt-level = 1
+
+# Smaller, faster release binaries.
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 4

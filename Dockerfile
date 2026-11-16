@@ -36,6 +36,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fontconfig \
         fonts-dejavu-core \
         xdg-utils \
+        mingw-w64 \
+        dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user whose UID/GID match the host, so files written into the
@@ -59,7 +61,14 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --no-modify-path --profile minimal \
             --default-toolchain ${RUST_VERSION} \
             --component rustfmt,clippy \
+            --target x86_64-pc-windows-gnu \
     && rustc --version && cargo --version
+
+# Packaging: cargo-deb builds the Linux .deb. The Windows GNU target above
+# (with mingw-w64) checks that Windows-only code compiles; release builds
+# for Windows use MSVC on GitHub Actions.
+RUN cargo install --locked cargo-deb@3.6.0 \
+    && rm -rf ${CARGO_HOME}/registry/cache ${CARGO_HOME}/registry/src
 
 WORKDIR /work
 CMD ["bash"]
