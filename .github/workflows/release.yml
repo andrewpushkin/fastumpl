@@ -85,6 +85,8 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/fastumpl.exe" $dir
           Copy-Item "target/${{ matrix.target }}/release/umpl.exe" $dir
           Copy-Item "packaging/windows/README.txt" $dir
+          Copy-Item "LICENSE" "$dir/LICENSE.txt"
+          Copy-Item "assets/fonts/DejaVu-LICENSE.txt" $dir
           Copy-Item "examples/*.umpl" "$dir/examples"
           Compress-Archive -Path "$dir/*" -DestinationPath "$name.zip"
 

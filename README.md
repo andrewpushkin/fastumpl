@@ -117,3 +117,7 @@ scripts/dev.sh cargo deb -p umpl-app        # after cargo build --release -p ump
 The design is in [docs/design.md](docs/design.md). Layout quality is guarded by a corpus test (`tests/corpus/scores.txt`): a change that adds crossings or worsens the score fails the build.
 
 Releases: push a tag `vX.Y.Z` and GitHub Actions builds the `.deb` and both Windows zips. The website in `site/` is published to GitHub Pages from `main` (set Pages to "GitHub Actions" once in the repository settings).
+
+## License
+
+MIT; see [LICENSE](LICENSE). The bundled DejaVu Sans Mono fonts have their own permissive license in [assets/fonts/DejaVu-LICENSE.txt](assets/fonts/DejaVu-LICENSE.txt).
