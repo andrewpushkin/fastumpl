@@ -10,6 +10,7 @@ on:
       - "site/**"
       - "examples/**"
       - "assets/**"
+      - "docs/images/**"
       - "crates/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -46,6 +47,7 @@ jobs:
             ./target/release/umpl render "$f" --tidy --dark -o "site/gallery/$n-dark.svg"
           done
           cp assets/icon.svg site/icon.svg
+          cp docs/images/editor.png site/editor.png
           sed -i "s#__REPO__#${GITHUB_REPOSITORY}#g" site/index.html
 
       - uses: actions/configure-pages@v5
