@@ -354,6 +354,25 @@ How:
 - **Speed.** Benchmarks for the targets in section 9.
 - **Editor.** Edit operations and undo are tested without a window. The window layer stays thin.
 
+## 10a. Distribution
+
+| Platform | Package | Contents |
+|---|---|---|
+| Linux x86-64 | `.deb` | `fastumpl` (editor) and `umpl` (CLI) in `/usr/bin`, desktop entry, icon, `.umpl` file type |
+| Windows x86-64 | Portable `.zip` | `fastumpl.exe`, `umpl.exe`, readme, examples. No installer |
+| Windows ARM64 | Portable `.zip` | Same, built for ARM64 |
+
+Portable means nothing is written outside the unpacked folder: on Windows, recent files and recovery copies live in a `data` folder next to `fastumpl.exe`. If that folder cannot be written (for example under Program Files), the app falls back to `%APPDATA%\fastumpl`. On Linux the app uses `~/.config/fastumpl` and `~/.cache/fastumpl`.
+
+Release asset names have no version in them, so the website can always link to `releases/latest/download/<name>`:
+`fastumpl-linux-x86_64.deb`, `fastumpl-windows-x86_64-portable.zip`, `fastumpl-windows-arm64-portable.zip`.
+
+GitHub Actions:
+
+- **CI** on every push and pull request: format check, clippy, tests on Linux; a build on Windows.
+- **Release** on a `v*` tag: builds the three packages (the ARM64 one is cross-compiled on an x86-64 Windows runner) and attaches them to a GitHub release.
+- **Website** on pushes to `main`: a static page in `site/` published to GitHub Pages. The workflow renders the diagrams in `examples/` with the CLI, so the gallery on the site always shows the real current layout.
+
 ## 11. Build order
 
 The riskiest part (layout quality) comes early, and it can be judged before any editor exists because the CLI can produce pictures.
