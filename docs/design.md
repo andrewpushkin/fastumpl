@@ -366,22 +366,24 @@ Placement takes a few milliseconds; nearly all the time is line routing on the f
 
 ## 10a. Distribution
 
-| Platform | Package | Contents |
+| Platform | Packages | Built by |
 |---|---|---|
-| Linux x86-64 | `.deb` | `fastumpl` (editor) and `umpl` (CLI) in `/usr/bin`, desktop entry, icon, `.umpl` file type |
-| Windows x86-64 | Portable `.zip` | `fastumpl.exe`, `umpl.exe`, readme, examples. No installer |
-| Windows ARM64 | Portable `.zip` | Same, built for ARM64 |
+| Linux x86-64 | `.deb` (`/usr/bin/fastumpl`, `/usr/bin/umpl`, desktop entry, icon, `.umpl` file type) and a portable `.tar.gz` | `make linux-x86_64-deb`, `make linux-x86_64` (Ubuntu 22.04 image, glibc 2.35) |
+| Windows x64 | Inno Setup 7 installer and a portable `.zip` | `make windows-x86_64-installer`, `make windows-x86_64` (MinGW; Inno Setup under Wine) |
+| Windows ARM64 | Same as x64 | `make windows-arm-installer`, `make windows-arm` (llvm-mingw) |
+| macOS 11+ | Universal `.dmg` (Apple Silicon and Intel) | macOS runner in CI; `make mac` in Docker only with your own macOS SDK |
 
-Portable means nothing is written outside the unpacked folder: on Windows, recent files and recovery copies live in a `data` folder next to `fastumpl.exe`. If that folder cannot be written (for example under Program Files), the app falls back to `%APPDATA%\fastumpl`. On Linux the app uses `~/.config/fastumpl` and `~/.cache/fastumpl`.
+All `make` targets run inside the Docker image. The installer lets the user install per user or for all users, adds a Start menu entry, optionally a desktop icon, the `.umpl` file type and `umpl` on PATH. The portable zip ships a `data` folder; when that folder exists next to `fastumpl.exe`, recent files and recovery copies go there, otherwise to `%APPDATA%\fastumpl`. On Linux and macOS the app uses `~/.config/fastumpl` and `~/.cache/fastumpl`.
 
-Release asset names have no version in them, so the website can always link to `releases/latest/download/<name>`:
-`fastumpl-linux-x86_64.deb`, `fastumpl-windows-x86_64-portable.zip`, `fastumpl-windows-arm64-portable.zip`.
+The macOS SDK may only be used on Apple hardware under Apple's license, so it is not part of the image; release `.dmg` files are built on GitHub's macOS runners.
 
-GitHub Actions:
+Versions are `0.1.N`, where N is the number of commits on `main` (`scripts/version.sh`). Builds pass it as `UMPL_VERSION`, so the source tree is not modified.
 
-- **CI** on every push and pull request: format check, clippy, tests on Linux; a build on Windows.
-- **Release** on every push to `main`: builds the three packages (the ARM64 one is cross-compiled on an x86-64 Windows runner) and publishes them as release `v0.1.N`, where N is the number of commits on `main`. The app and CLI report the same version.
-- **Website** on pushes to `main`: a static page in `site/` published to GitHub Pages. The workflow renders the diagrams in `examples/` with the CLI, so the gallery on the site always shows the real current layout.
+GitHub Actions run only for commits on `main`; pull requests and other branches do not trigger them:
+
+- **CI**: format check, clippy, tests on Linux; tests on Windows.
+- **Release**: `make all` in Docker on a Linux runner, the `.dmg` on a macOS runner, then a GitHub release `v0.1.N` with all packages and checksums.
+- **Website**: the page in `site/` with a gallery rendered from `examples/`, published to GitHub Pages.
 
 ## 11. Build order
 

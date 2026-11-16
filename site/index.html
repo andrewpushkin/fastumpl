@@ -29,9 +29,10 @@
           <h1>UML class diagrams that lay themselves out.</h1>
           <p class="lead">fastumpl is a native desktop editor for UML class diagrams. Draw or type your classes; it places the boxes and routes every line around them, keeping crossings to a minimum.</p>
           <div class="buttons">
+            <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-setup.exe">Windows</a>
+            <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-macos-universal.dmg">macOS</a>
             <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.deb">Linux .deb</a>
-            <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-portable.zip">Windows x64</a>
-            <a class="btn" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-portable.zip">Windows ARM64</a>
+            <a class="btn" href="#download">All downloads</a>
           </div>
           <p class="small">Free and open source (MIT). Written in Rust.</p>
         </div>
@@ -151,20 +152,28 @@ Order <span class="a">--&gt;</span> billing.Payment : paid by
       <h2>Download</h2>
       <div class="downloads">
         <div class="dl">
-          <h3>Linux x86-64</h3>
-          <p>Debian, Ubuntu and derivatives.</p>
-          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.deb">fastumpl-linux-x86_64.deb</a>
-          <pre class="code small"><code>sudo apt install ./fastumpl-linux-x86_64.deb</code></pre>
-        </div>
-        <div class="dl">
           <h3>Windows x64</h3>
-          <p>Portable: unzip and run <code>fastumpl.exe</code>. Nothing is installed.</p>
-          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-portable.zip">fastumpl-windows-x86_64-portable.zip</a>
+          <p>Installer with Start menu entry and .umpl file type, or a portable zip that installs nothing.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-setup.exe">Installer (.exe)</a>
+          <a class="btn" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-portable.zip">Portable (.zip)</a>
         </div>
         <div class="dl">
           <h3>Windows ARM64</h3>
-          <p>Portable build for Snapdragon and other ARM laptops.</p>
-          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-portable.zip">fastumpl-windows-arm64-portable.zip</a>
+          <p>For Snapdragon and other ARM laptops.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-setup.exe">Installer (.exe)</a>
+          <a class="btn" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-portable.zip">Portable (.zip)</a>
+        </div>
+        <div class="dl">
+          <h3>macOS</h3>
+          <p>Universal: Apple Silicon and Intel, macOS 11 or later. First launch: right-click the app, then Open.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-macos-universal.dmg">fastumpl.dmg</a>
+        </div>
+        <div class="dl">
+          <h3>Linux x86-64</h3>
+          <p>Package for Debian, Ubuntu and derivatives, or a portable archive (glibc 2.35+).</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.deb">Package (.deb)</a>
+          <a class="btn" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.tar.gz">Portable (.tar.gz)</a>
+          <pre class="code small"><code>sudo apt install ./fastumpl-linux-x86_64.deb</code></pre>
         </div>
       </div>
       <p class="small">All versions and checksums: <a href="https://github.com/__REPO__/releases">releases page</a>.</p>

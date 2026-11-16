@@ -15,13 +15,14 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 
 From the [latest release](../../releases/latest):
 
-| Platform | File |
+| Platform | Files |
 |---|---|
-| Linux x86-64 (Debian, Ubuntu) | `fastumpl-linux-x86_64.deb`, then `sudo apt install ./fastumpl-linux-x86_64.deb` |
-| Windows x64 | `fastumpl-windows-x86_64-portable.zip`: unzip and run `fastumpl.exe` |
-| Windows ARM64 | `fastumpl-windows-arm64-portable.zip` |
+| Windows x64 | `fastumpl-windows-x86_64-setup.exe` (installer) or `fastumpl-windows-x86_64-portable.zip` |
+| Windows ARM64 | `fastumpl-windows-arm64-setup.exe` or `fastumpl-windows-arm64-portable.zip` |
+| macOS 11+ (Apple Silicon and Intel) | `fastumpl-macos-universal.dmg`; first launch: right-click the app, then Open |
+| Linux x86-64 | `fastumpl-linux-x86_64.deb` (`sudo apt install ./fastumpl-linux-x86_64.deb`) or `fastumpl-linux-x86_64.tar.gz` (glibc 2.35+) |
 
-The Windows builds are portable. Recent files and recovery copies live in a `data` folder next to the program.
+The installer adds a Start menu entry, the `.umpl` file type and, optionally, `umpl` on PATH. The portable zip installs nothing and keeps its data in a `data` folder next to the program.
 
 ## The `.umpl` format
 
@@ -95,15 +96,28 @@ umpl stats diagram.umpl [--tidy]             # crossings, bends, score
 
 ## Building
 
-Everything builds in a container, so nothing needs installing on your machine except Docker:
+Everything builds in Docker, so nothing else needs installing on your machine:
+
+```
+make linux-x86_64              # dist/fastumpl-linux-x86_64.tar.gz
+make linux-x86_64-deb          # dist/fastumpl-linux-x86_64.deb
+make windows-x86_64            # dist/fastumpl-windows-x86_64-portable.zip
+make windows-x86_64-installer  # dist/fastumpl-windows-x86_64-setup.exe (Inno Setup 7)
+make windows-arm               # dist/fastumpl-windows-arm64-portable.zip
+make windows-arm-installer     # dist/fastumpl-windows-arm64-setup.exe
+make mac                       # dist/fastumpl-macos-universal.dmg (needs your macOS SDK)
+make all                       # everything except mac
+make test
+```
+
+`make mac` needs Apple's macOS SDK, which may only be used on Apple hardware and is not included; see [packaging/macos/README.md](packaging/macos/README.md). Release `.dmg` files are built on GitHub's macOS runners.
+
+For development, `scripts/dev.sh` runs any command in the same image with the repository mounted and the display forwarded (X11, including WSLg), so the editor window opens on your desktop:
 
 ```
 scripts/dev.sh cargo test --workspace
 scripts/dev.sh cargo run -p umpl-app -- examples/library.umpl
-scripts/dev.sh cargo deb -p umpl-app        # after cargo build --release -p umpl-app -p umpl-cli
 ```
-
-`scripts/dev.sh` builds the Ubuntu 26.04 development image (Rust 1.91), mounts the repository, and forwards the display (X11, including WSLg on Windows), so the editor window opens on your desktop.
 
 | Crate | Role |
 |---|---|
@@ -116,7 +130,7 @@ scripts/dev.sh cargo deb -p umpl-app        # after cargo build --release -p ump
 
 The design is in [docs/design.md](docs/design.md). Layout quality is guarded by a corpus test (`tests/corpus/scores.txt`): a change that adds crossings or worsens the score fails the build.
 
-Releases: every push to `main` builds the `.deb` and both Windows zips and publishes release `v0.1.N`, where N is the number of commits on `main`. The website in `site/` is published to GitHub Pages from `main` (set Pages to "GitHub Actions" once in the repository settings).
+Releases: every push to `main` builds all packages (with the `make` targets above, plus the `.dmg` on macOS) and publishes release `v0.1.N`, where N is the number of commits on `main`. CI runs only on `main`; pull requests do not trigger it. The website in `site/` is published to GitHub Pages from `main` (set Pages to "GitHub Actions" once in the repository settings).
 
 ## License
 
