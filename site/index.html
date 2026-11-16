@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fastumpl</title>
+  <meta name="description" content="fastumpl: a fast UML class diagram editor that lays out your diagrams with as few line crossings as possible.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <a class="brand" href="#"><img src="icon.svg" alt="" width="28" height="28"> fastumpl</a>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#format">File format</a>
+        <a href="#gallery">Gallery</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/__REPO__">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <h1>UML class diagrams that lay themselves out.</h1>
+          <p class="lead">fastumpl is a native desktop editor for UML class diagrams. Draw or type your classes; it places the boxes and routes every line around them, keeping crossings to a minimum.</p>
+          <div class="buttons">
+            <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.deb">Linux .deb</a>
+            <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-portable.zip">Windows x64</a>
+            <a class="btn" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-portable.zip">Windows ARM64</a>
+          </div>
+          <p class="small">Free and open source. Written in Rust.</p>
+        </div>
+        <figure class="hero-figure">
+          <picture>
+            <source srcset="gallery/shop-dark.svg" media="(prefers-color-scheme: dark)">
+            <img src="gallery/shop.svg" alt="A class diagram of an online shop laid out by fastumpl: orders, order lines, payments and their subclasses, with no crossing lines.">
+          </picture>
+        </figure>
+      </div>
+    </section>
+
+    <section id="features" class="wrap">
+      <h2>Why fastumpl</h2>
+      <div class="cards">
+        <article class="card">
+          <h3>Tidy in one key</h3>
+          <p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> and the whole diagram is laid out: parents above children, related classes side by side, no overlapping boxes, no lines through boxes.</p>
+        </article>
+        <article class="card">
+          <h3>Few crossings</h3>
+          <p>Crossings are removed at five stages, from box order to line routing, and several candidate layouts compete. The status bar shows the crossing count, so you can see when a tidy would help.</p>
+        </article>
+        <article class="card">
+          <h3>Lines follow you</h3>
+          <p>Drag a class and its lines reroute as you move. Auto layout never undoes your own placement unless you ask it to.</p>
+        </article>
+        <article class="card">
+          <h3>Type, don't click</h3>
+          <p>Double-click a class and type its members as text: <code>+total(): Money</code>. The same syntax as the file.</p>
+        </article>
+        <article class="card">
+          <h3>Files that diff well</h3>
+          <p>Diagrams are plain text. The model sits at the top, positions at the bottom, so a code review shows whether a change was to the design or only to the picture.</p>
+        </article>
+        <article class="card">
+          <h3>Fast and native</h3>
+          <p>A small native app that starts instantly and stays smooth on diagrams with hundreds of classes. A command-line tool renders SVG and PNG for docs and CI.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="format" class="wrap split">
+      <div>
+        <h2>The <code>.umpl</code> file</h2>
+        <p>A small text format close to PlantUML class syntax. Write it by hand, generate it, or let the editor write it for you. Elements without a position are placed automatically when the file opens.</p>
+        <ul class="ticks">
+          <li><code>--|&gt;</code> extends, <code>..|&gt;</code> implements</li>
+          <li><code>*--</code> composition, <code>o--</code> aggregation</li>
+          <li><code>--</code> association, <code>--&gt;</code> directed, <code>..&gt;</code> dependency</li>
+          <li><code>"1..*"</code> multiplicities and role names at each end</li>
+          <li>Packages, notes, stereotypes, comments</li>
+        </ul>
+      </div>
+      <pre class="code"><code><span class="k">diagram</span> <span class="s">"Shop"</span>
+
+<span class="k">package</span> billing {
+  <span class="k">abstract class</span> Payment {
+    +amount: Money
+    +pay(): Receipt {abstract}
+  }
+  <span class="k">class</span> CardPayment
+}
+
+<span class="k">class</span> Order {
+  +id: OrderId
+  -lines: List&lt;OrderLine&gt;
+  +total(): Money
+}
+
+<span class="c"># an order owns its lines</span>
+Order <span class="s">"1"</span> <span class="a">*--</span> <span class="s">"1..*"</span> OrderLine : contains
+billing.CardPayment <span class="a">--|&gt;</span> billing.Payment
+Order <span class="a">--&gt;</span> billing.Payment : paid by
+
+<span class="k">layout</span> {
+  Order           at 24, 8
+  billing.Payment at 48, 8
+}</code></pre>
+    </section>
+
+    <section id="gallery" class="wrap">
+      <h2>Gallery</h2>
+      <p>Every picture below is drawn by the current version of fastumpl from the files in the <a href="https://github.com/__REPO__/tree/main/examples">examples</a> folder, with automatic layout.</p>
+      <div class="gallery">
+        <figure>
+          <picture>
+            <source srcset="gallery/library-dark.svg" media="(prefers-color-scheme: dark)">
+            <img src="gallery/library.svg" alt="Library system class diagram" loading="lazy">
+          </picture>
+          <figcaption>Library system</figcaption>
+        </figure>
+        <figure>
+          <picture>
+            <source srcset="gallery/banking-dark.svg" media="(prefers-color-scheme: dark)">
+            <img src="gallery/banking.svg" alt="Banking domain class diagram" loading="lazy">
+          </picture>
+          <figcaption>Banking domain</figcaption>
+        </figure>
+        <figure>
+          <picture>
+            <source srcset="gallery/shapes-dark.svg" media="(prefers-color-scheme: dark)">
+            <img src="gallery/shapes.svg" alt="Shapes and visitors class diagram" loading="lazy">
+          </picture>
+          <figcaption>Shapes and visitors</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="download" class="wrap">
+      <h2>Download</h2>
+      <div class="downloads">
+        <div class="dl">
+          <h3>Linux x86-64</h3>
+          <p>Debian, Ubuntu and derivatives.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-linux-x86_64.deb">fastumpl-linux-x86_64.deb</a>
+          <pre class="code small"><code>sudo apt install ./fastumpl-linux-x86_64.deb</code></pre>
+        </div>
+        <div class="dl">
+          <h3>Windows x64</h3>
+          <p>Portable: unzip and run <code>fastumpl.exe</code>. Nothing is installed.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-x86_64-portable.zip">fastumpl-windows-x86_64-portable.zip</a>
+        </div>
+        <div class="dl">
+          <h3>Windows ARM64</h3>
+          <p>Portable build for Snapdragon and other ARM laptops.</p>
+          <a class="btn primary" href="https://github.com/__REPO__/releases/latest/download/fastumpl-windows-arm64-portable.zip">fastumpl-windows-arm64-portable.zip</a>
+        </div>
+      </div>
+      <p class="small">All versions and checksums: <a href="https://github.com/__REPO__/releases">releases page</a>.</p>
+    </section>
+  </main>
+
+  <footer class="wrap foot">
+    <span>fastumpl</span>
+    <a href="https://github.com/__REPO__">Source on GitHub</a>
+  </footer>
+</body>
+</html>
