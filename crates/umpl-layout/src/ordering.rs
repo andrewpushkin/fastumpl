@@ -18,6 +18,8 @@ pub(crate) struct Layered {
     pub links: Vec<(usize, usize, f64)>,
     /// Edges inside one layer.
     pub same: Vec<(usize, usize)>,
+    /// Minimum gap between the ends of labelled same-layer edges.
+    pub same_gap: std::collections::HashMap<(usize, usize), i32>,
     up: Vec<Vec<usize>>,
     down: Vec<Vec<usize>>,
     same_of: Vec<Vec<usize>>,
@@ -29,6 +31,7 @@ impl Layered {
         let mut layer_of = layer.to_vec();
         let mut links = Vec::new();
         let mut same = Vec::new();
+        let mut same_gap = std::collections::HashMap::new();
         for e in edges {
             if e.a == e.b {
                 continue;
@@ -36,6 +39,10 @@ impl Layered {
             let (la, lb) = (layer_of[e.a], layer_of[e.b]);
             if la == lb {
                 same.push((e.a, e.b));
+                for key in [(e.a, e.b), (e.b, e.a)] {
+                    let g = same_gap.entry(key).or_insert(0);
+                    *g = (*g).max(e.gap);
+                }
                 continue;
             }
             let (u, l) = if la < lb { (e.a, e.b) } else { (e.b, e.a) };
@@ -72,6 +79,7 @@ impl Layered {
             layers,
             links,
             same,
+            same_gap,
             up,
             down,
             same_of,
@@ -323,6 +331,7 @@ mod tests {
             a,
             b,
             kind: EdgeKind::Hierarchy,
+            gap: 0,
         }
     }
 

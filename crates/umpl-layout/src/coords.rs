@@ -44,6 +44,7 @@ fn separation(lay: &Layered, widths: &[i32], a: usize, b: usize) -> f64 {
         (true, true) => 2,
         _ => 3,
     };
+    let gap = gap.max(lay.same_gap.get(&(a, b)).copied().unwrap_or(0));
     (widths[a] + widths[b]) as f64 / 2.0 + gap as f64
 }
 
@@ -168,7 +169,8 @@ fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i3
                 yy = yy.max(y[u] + heights[u] + gap);
             }
             let (l, r) = (left[i] - 1, left[i] + widths[i] + 1);
-            for &j in &placed {
+            // Lines (dummies) do not push boxes down, and are not pushed.
+            for &j in placed.iter().filter(|&&j| !lay.is_dummy(j) && !lay.is_dummy(i)) {
                 if left[j] < r && l < left[j] + widths[j] {
                     yy = yy.max(y[j] + heights[j] + gap);
                 }

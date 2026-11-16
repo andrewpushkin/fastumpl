@@ -141,7 +141,7 @@ fn layout_scope(sizes: &[(i32, i32)], edges: &[FlatEdge], hint: Option<&[f64]>, 
             .map(|e| FlatEdge {
                 a: local[e.a],
                 b: local[e.b],
-                kind: e.kind,
+                ..*e
             })
             .collect();
         let sub_sizes: Vec<(i32, i32)> = comp.iter().map(|&i| sizes[i]).collect();
@@ -213,7 +213,7 @@ fn best_packing(rects: &[Rect]) -> Vec<(i32, i32)> {
         let row_width = widest + (all - widest) * k / 12;
         let (offsets, w, h) = pack_rows(rects, row_width);
         let (w, h) = (w.max(1) as f64, h.max(1) as f64);
-        let cost = w * h * (1.0 + ((w / h) / 1.6).ln().abs());
+        let cost = w * h * (1.0 + 0.3 * ((w / h) / 1.6).ln().abs());
         if best.as_ref().is_none_or(|(c, _)| cost < *c - 1e-9) {
             best = Some((cost, offsets));
         }
@@ -250,10 +250,13 @@ fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
             if a == b {
                 continue;
             }
+            // Labels laid end to end along the line, with a little air.
+            let gap = e.labels.iter().flatten().map(|l| l.0 + 2).sum::<i32>() + 2;
             edges.push(FlatEdge {
                 a: index(a).unwrap(),
                 b: index(b).unwrap(),
                 kind: e.kind,
+                gap,
             });
         }
         let hint = hints(graph, &items);

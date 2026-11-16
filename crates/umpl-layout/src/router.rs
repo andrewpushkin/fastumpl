@@ -25,8 +25,14 @@ const SHARE: u32 = 600;
 /// Points closer than this to a box cost extra, `CLEAR_W` per unit.
 const CLEAR_K: i32 = 4;
 const CLEAR_W: u32 = 4;
+/// Running along a package border.
+const BORDER: u32 = 300;
+/// Owner value of points under a package name tab.
+const TAB: i32 = -2;
 /// Using a port another bundle already uses.
 const PORT_USED: u32 = 900;
+/// Using a port right next to one another bundle uses.
+const PORT_NEAR: u32 = 150;
 /// Free space around the drawing where lines may go.
 const MARGIN: i32 = 6;
 /// The search first looks within this distance of both boxes.
@@ -111,8 +117,11 @@ struct Grid {
     y0: i32,
     w: i32,
     h: i32,
-    /// Index of the box covering each point, or -1.
+    /// Index of the box covering each point, `TAB` under a package name
+    /// tab, or -1 when free.
     owner: Vec<i32>,
+    /// Bit 1: on a horizontal package border; bit 2: on a vertical one.
+    border: Vec<u8>,
     /// Distance to the nearest box, capped at `CLEAR_K`.
     clear: Vec<u8>,
     rects: Vec<Rect>,
@@ -126,8 +135,9 @@ impl Grid {
             .zip(nodes)
             .map(|(n, p)| Rect::new(p.0, p.1, n.w, n.h))
             .collect();
+        let groups = group_rects(graph, nodes);
         let mut bounds = rects.first().copied().unwrap_or_default();
-        for r in &rects {
+        for r in rects.iter().chain(&groups) {
             bounds = bounds.union(r);
         }
         let b = bounds.expand(MARGIN);
@@ -140,11 +150,31 @@ impl Grid {
                 }
             }
         }
+        let mut border = vec![0u8; owner.len()];
+        for (g, r) in graph.groups.iter().zip(&groups) {
+            let at = |x: i32, y: i32| ((y - b.y) * w + (x - b.x)) as usize;
+            for x in r.x..=r.right() {
+                border[at(x, r.y)] |= 1;
+                border[at(x, r.bottom())] |= 1;
+            }
+            for y in r.y..=r.bottom() {
+                border[at(r.x, y)] |= 2;
+                border[at(r.right(), y)] |= 2;
+            }
+            let tab_w = (g.min_w - 4).clamp(0, r.w);
+            for y in r.y..r.y + g.header {
+                for x in r.x..r.x + tab_w {
+                    if owner[at(x, y)] == -1 {
+                        owner[at(x, y)] = TAB;
+                    }
+                }
+            }
+        }
         // Multi-source BFS distance from boxes.
         let mut clear = vec![CLEAR_K as u8; owner.len()];
         let mut queue = std::collections::VecDeque::new();
         for (i, o) in owner.iter().enumerate() {
-            if *o >= 0 {
+            if *o != -1 {
                 clear[i] = 0;
                 queue.push_back(i);
             }
@@ -173,6 +203,7 @@ impl Grid {
             w,
             h,
             owner,
+            border,
             clear,
             rects,
         }
@@ -236,11 +267,19 @@ impl Occupancy {
         }
     }
 
-    fn port_cost(&self, i: usize, bundle: u32) -> u32 {
-        match self.ports.get(&i) {
-            Some(&b) if b == bundle => 0,
-            Some(_) => PORT_USED,
-            None => 0,
+    /// Cost of using port `i`: high if another bundle uses it, lower if
+    /// another bundle uses a port next to it (the lines would look doubled).
+    fn port_cost(&self, grid: &Grid, i: usize, bundle: u32) -> u32 {
+        let other = |j: usize| self.ports.get(&j).is_some_and(|&b| b != bundle);
+        if other(i) {
+            return PORT_USED;
+        }
+        let w = grid.w as usize;
+        let near = [i.wrapping_sub(1), i + 1, i.wrapping_sub(w), i + w];
+        if near.iter().any(|&j| other(j)) {
+            PORT_NEAR
+        } else {
+            0
         }
     }
 }
@@ -302,6 +341,11 @@ impl<'a> Router<'a> {
         if edge.from == edge.to {
             return self_loop(&src, loops_before);
         }
+        if edge.kind == EdgeKind::Hierarchy {
+            if let Some(r) = self.tree_route(e, occ) {
+                return r;
+            }
+        }
         let window = src.union(&dst).expand(WINDOW);
         if let Some(r) = self.astar(e, occ, Some(window)) {
             return r;
@@ -310,6 +354,60 @@ impl<'a> Router<'a> {
             return r;
         }
         fallback(&src, &dst)
+    }
+
+    /// The classic inheritance tree: a stem under the middle of the parent,
+    /// a bar halfway down to the highest child, and a drop to each child.
+    /// Used when that path is clear of boxes and other lines.
+    fn tree_route(&self, e: usize, occ: &Occupancy) -> Option<Route> {
+        let graph = self.graph;
+        let edge = &graph.edges[e];
+        let (child, parent) = (self.grid.rects[edge.from], self.grid.rects[edge.to]);
+        let (px, py) = (parent.x + parent.w / 2, parent.bottom());
+        if child.y < py + 4 {
+            return None;
+        }
+        let min_top = graph
+            .edges
+            .iter()
+            .filter(|o| o.kind == EdgeKind::Hierarchy && o.to == edge.to && o.from != o.to)
+            .map(|o| self.grid.rects[o.from].y)
+            .filter(|&y| y >= py + 4)
+            .min()?;
+        let bar = py + ((min_top - py) / 2).max(2);
+        let cx = if child.x < px && px < child.right() { px } else { child.x + child.w / 2 };
+        let mut route = Route {
+            points: vec![(cx, child.y), (cx, bar), (px, bar), (px, py)],
+        };
+        route.simplify();
+        let bundle = bundle_of(graph, e);
+        let last = route.points.len() - 1;
+        for (k, (p, q)) in route.segments().enumerate() {
+            let hz = p.1 == q.1;
+            let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
+            let mut c = p;
+            loop {
+                let endpoint = (k == 0 && c == p) || (k + 1 == last && c == q);
+                let i = self.grid.idx(c)?;
+                if !endpoint {
+                    if self.grid.owner[i] != -1 || self.grid.border[i] & if hz { 1 } else { 2 } != 0 {
+                        return None;
+                    }
+                    let (same, other) = if hz { (occ.h[i], occ.v[i]) } else { (occ.v[i], occ.h[i]) };
+                    if (same != NONE && same != bundle) || (other != NONE && other != bundle) {
+                        return None;
+                    }
+                }
+                if c == q {
+                    break;
+                }
+                c = (c.0 + dx, c.1 + dy);
+            }
+        }
+        if occ.port_cost(&self.grid, self.grid.idx(route.points[0])?, bundle) > 0 {
+            return None;
+        }
+        Some(route)
     }
 
     fn astar(&mut self, e: usize, occ: &Occupancy, window: Option<Rect>) -> Option<Route> {
@@ -334,7 +432,7 @@ impl<'a> Router<'a> {
                     continue;
                 }
                 let state = i * 4 + d;
-                let g = off as u32 + occ.port_cost(i, bundle);
+                let g = off as u32 + occ.port_cost(grid, i, bundle);
                 if g < s.g[state] {
                     s.g[state] = g;
                     s.parent[state] = NONE;
@@ -366,6 +464,9 @@ impl<'a> Router<'a> {
                 }
                 let Some(j) = grid.idx(q) else { continue };
                 let mut cost = if d2 != d { BEND } else { 0 };
+                if grid.owner[j] == TAB {
+                    continue;
+                }
                 if grid.owner[j] >= 0 {
                     // Only arriving at the target, head-on, is allowed.
                     if grid.owner[j] != to {
@@ -388,7 +489,7 @@ impl<'a> Router<'a> {
                         .into_iter()
                         .find(|(pp, _)| *pp == q)
                         .unwrap_or((q, 0));
-                    cost += STEP + off as u32 + occ.port_cost(j, bundle);
+                    cost += STEP + off as u32 + occ.port_cost(grid, j, bundle);
                 } else {
                     let (same, other) = if horizontal(d2) { (occ.h[j], occ.v[j]) } else { (occ.v[j], occ.h[j]) };
                     cost += if same == bundle { BUNDLE_STEP } else { STEP };
@@ -399,6 +500,9 @@ impl<'a> Router<'a> {
                         cost += CROSS;
                     }
                     cost += CLEAR_W * (CLEAR_K - grid.clear[j] as i32).max(0) as u32;
+                    if grid.border[j] & if horizontal(d2) { 1 } else { 2 } != 0 {
+                        cost += BORDER;
+                    }
                 }
                 let ns = j * 4 + d2;
                 let ng = g + cost;
@@ -512,8 +616,10 @@ fn improve(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], cand
             let old_cross = crossings_of(graph, routes, e, &old);
             let new = router.route_edge(e, &occ, 0);
             let new_cross = crossings_of(graph, routes, e, &new);
+            // Inheritance lines keep their tree shape unless crossings drop.
+            let shorter = (new.length() + 4 * new.bends() as i32) < (old.length() + 4 * old.bends() as i32);
             let better = new_cross < old_cross
-                || (new_cross == old_cross && (new.length() + 4 * new.bends() as i32) < (old.length() + 4 * old.bends() as i32));
+                || (new_cross == old_cross && shorter && graph.edges[e].kind != EdgeKind::Hierarchy);
             routes[e] = if better {
                 improved = true;
                 new

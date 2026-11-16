@@ -14,6 +14,8 @@ pub(crate) struct FlatEdge {
     pub a: usize,
     pub b: usize,
     pub kind: EdgeKind,
+    /// Room the edge's labels need when its ends sit side by side.
+    pub gap: i32,
 }
 
 /// The `(upper, lower)` pair an edge asks for, if it is a hard rule.
@@ -103,10 +105,10 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
             c += w * (l as f64 - layer[o] as f64).abs();
         }
         for &u in &pred[v] {
-            c += 0.3 * (l - layer[u] - 1) as f64;
+            c += 1.0 * (l - layer[u] - 1) as f64;
         }
         for &s in &succ[v] {
-            c += 0.3 * (layer[s] - l - 1) as f64;
+            c += 1.0 * (layer[s] - l - 1) as f64;
         }
         c + 0.01 * l as f64
     };
@@ -145,7 +147,7 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         .map(|&(w, h)| ((w + NODE_GAP) * (h + LAYER_GAP)) as f64)
         .sum();
     let widest = sizes.iter().map(|s| s.0).max().unwrap_or(0) as f64;
-    let target = widest.max((total * 1.6).sqrt() * 1.15);
+    let target = widest.max((total * 1.6).sqrt() * 1.8);
     for _ in 0..n * 4 {
         let max_layer = *layer.iter().max().unwrap();
         let mut width = vec![0.0f64; max_layer + 1];
@@ -159,7 +161,9 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         // Cheapest box to move one layer down without breaking a rule.
         let movable = (0..n)
             .filter(|&v| layer[v] == k)
-            .filter(|&v| succ[v].iter().all(|&s| layer[s] > k + 1))
+            // Rows of siblings stay together: only boxes held by
+            // associations alone move.
+            .filter(|&v| pred[v].is_empty() && succ[v].is_empty())
             .map(|v| (cost(v, k + 1, &layer) - cost(v, k, &layer), v))
             .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         match movable {
@@ -183,7 +187,7 @@ mod tests {
     use super::*;
 
     fn e(a: usize, b: usize, kind: EdgeKind) -> FlatEdge {
-        FlatEdge { a, b, kind }
+        FlatEdge { a, b, kind, gap: 0 }
     }
 
     #[test]

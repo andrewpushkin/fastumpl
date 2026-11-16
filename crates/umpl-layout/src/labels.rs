@@ -15,14 +15,18 @@ fn rect_hits_route(r: &Rect, route: &Route) -> bool {
 /// `p` of a line whose first step goes from `p` towards `q`.
 fn end_candidates(p: (i32, i32), q: (i32, i32), (w, h): (i32, i32)) -> Vec<(i32, i32)> {
     let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
-    if dx == 0 {
-        // Vertical line: beside it, a little away from the box.
-        let y = if dy > 0 { p.1 + 1 } else { p.1 - 1 - h };
-        vec![(p.0 + 1, y), (p.0 - 1 - w, y), (p.0 + 1, y + dy * (h + 1)), (p.0 - 1 - w, y + dy * (h + 1))]
-    } else {
-        let x = if dx > 0 { p.0 + 1 } else { p.0 - 1 - w };
-        vec![(x, p.1 - h), (x, p.1 + 1), (x + dx * (w + 1), p.1 - h), (x + dx * (w + 1), p.1 + 1)]
+    let mut out = Vec::new();
+    // Beside the line near the box first, then further along it.
+    for step in 0..4 {
+        if dx == 0 {
+            let y = if dy > 0 { p.1 + 1 } else { p.1 - 1 - h } + dy * step * (h + 1);
+            out.extend([(p.0 + 1, y), (p.0 - 1 - w, y)]);
+        } else {
+            let x = if dx > 0 { p.0 + 1 } else { p.0 - 1 - w } + dx * step * (w + 1);
+            out.extend([(x, p.1 - h), (x, p.1 + 1)]);
+        }
     }
+    out
 }
 
 fn middle_candidates(route: &Route, (w, h): (i32, i32)) -> Vec<(i32, i32)> {
@@ -31,10 +35,14 @@ fn middle_candidates(route: &Route, (w, h): (i32, i32)) -> Vec<(i32, i32)> {
     let mut out = Vec::new();
     for (p, q) in segs {
         let mid = ((p.0 + q.0) / 2, (p.1 + q.1) / 2);
-        if p.1 == q.1 {
-            out.extend([(mid.0 - w / 2, mid.1 - h), (mid.0 - w / 2, mid.1 + 1)]);
-        } else {
-            out.extend([(mid.0 + 1, mid.1 - h / 2), (mid.0 - 1 - w, mid.1 - h / 2)]);
+        for shift in [0, -1, 1, -2, 2] {
+            if p.1 == q.1 {
+                let x = mid.0 - w / 2 + shift * (w / 2 + 1);
+                out.extend([(x, mid.1 - h), (x, mid.1 + 1), (x, mid.1 - h - 1), (x, mid.1 + 2)]);
+            } else {
+                let y = mid.1 - h / 2 + shift * (h + 1);
+                out.extend([(mid.0 + 1, y), (mid.0 - 1 - w, y), (mid.0 + 2, y), (mid.0 - 2 - w, y)]);
+            }
         }
     }
     out
@@ -62,13 +70,21 @@ pub(crate) fn place_labels(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]
                 1 => end_candidates(route.points[n - 1], route.points[n - 2], size),
                 _ => middle_candidates(route, size),
             };
-            let free = |c: &(i32, i32)| {
+            // Overlapping a box is worst, then another label, then a line.
+            let badness = |c: &(i32, i32)| {
                 let r = Rect::new(c.0, c.1, size.0, size.1);
-                !boxes.iter().any(|b| b.too_close(&r, 0))
-                    && !taken.iter().any(|t| t.too_close(&r, 0))
-                    && !routes.iter().any(|other| rect_hits_route(&r, other))
+                100 * boxes.iter().filter(|b| b.too_close(&r, 0)).count()
+                    + 10 * taken.iter().filter(|t| t.too_close(&r, 0)).count()
+                    + routes.iter().filter(|other| rect_hits_route(&r, other)).count()
             };
-            let pick = cands.iter().copied().find(free).or(cands.first().copied());
+            // First free spot, else the least bad one (earliest on ties).
+            let pick = cands
+                .iter()
+                .copied()
+                .map(|c| (badness(&c), c))
+                .enumerate()
+                .min_by_key(|(i, (b, _))| (*b, *i))
+                .map(|(_, (_, c))| c);
             if let Some(p) = pick {
                 taken.push(Rect::new(p.0, p.1, size.0, size.1));
                 out[e][k] = Some(p);
