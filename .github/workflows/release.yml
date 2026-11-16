@@ -62,7 +62,8 @@ jobs:
   macos:
     name: macOS universal (.dmg)
     needs: version
-    runs-on: macos-14
+    # The current macOS image (Apple Silicon); pinned versions get retired.
+    runs-on: macos-latest
     env:
       UMPL_VERSION: ${{ needs.version.outputs.version }}
     steps:
