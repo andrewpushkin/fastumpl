@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+umpl-core = { path = "crates/umpl-core" }
+umpl-text = { path = "crates/umpl-text" }
+umpl-layout = { path = "crates/umpl-layout" }
+umpl-draw = { path = "crates/umpl-draw" }
+
+# Dependencies are built optimised even in debug builds: layout and the
+# GUI are too slow to judge otherwise.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
