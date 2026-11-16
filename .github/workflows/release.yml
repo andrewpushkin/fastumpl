@@ -1,24 +1,47 @@
 name: Release
 
-# Push a tag such as v0.1.0 to build all packages and publish a release.
+# Every push to main publishes a release. The version is 0.1.N, where N is
+# the number of commits on main (scripts/set-version.sh).
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: echo "version=$(scripts/set-version.sh)" >> "$GITHUB_OUTPUT"
+
   linux-deb:
     name: Linux x86-64 (.deb)
+    needs: version
     # Oldest supported runner, so the package runs on older glibc too.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        run: scripts/set-version.sh
 
       - name: Install system libraries
         run: |
@@ -52,6 +75,7 @@ jobs:
 
   windows-portable:
     name: Windows ${{ matrix.arch }} (portable)
+    needs: version
     runs-on: windows-latest
     strategy:
       matrix:
@@ -62,6 +86,12 @@ jobs:
             target: aarch64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        shell: bash
+        run: scripts/set-version.sh
 
       - name: Install toolchain and target
         shell: bash
@@ -97,8 +127,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [linux-deb, windows-portable]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, linux-deb, windows-portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -110,6 +139,10 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: fastumpl ${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
           generate_release_notes: true
           files: |
             fastumpl-linux-x86_64.deb

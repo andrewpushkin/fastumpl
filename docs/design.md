@@ -380,7 +380,7 @@ Release asset names have no version in them, so the website can always link to `
 GitHub Actions:
 
 - **CI** on every push and pull request: format check, clippy, tests on Linux; a build on Windows.
-- **Release** on a `v*` tag: builds the three packages (the ARM64 one is cross-compiled on an x86-64 Windows runner) and attaches them to a GitHub release.
+- **Release** on every push to `main`: builds the three packages (the ARM64 one is cross-compiled on an x86-64 Windows runner) and publishes them as release `v0.1.N`, where N is the number of commits on `main`. The app and CLI report the same version.
 - **Website** on pushes to `main`: a static page in `site/` published to GitHub Pages. The workflow renders the diagrams in `examples/` with the CLI, so the gallery on the site always shows the real current layout.
 
 ## 11. Build order

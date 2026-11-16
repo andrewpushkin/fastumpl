@@ -7,6 +7,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.91"
 license = "MIT"
+repository = "https://github.com/andrewpushkin/fastumpl"
+homepage = "https://andrewpushkin.github.io/fastumpl/"
 
 [workspace.dependencies]
 umpl-core = { path = "crates/umpl-core" }
