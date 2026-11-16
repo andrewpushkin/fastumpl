@@ -348,6 +348,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "umpl-cli"
+version = "0.1.0"
+dependencies = [
+ "umpl-core",
+ "umpl-draw",
+ "umpl-layout",
+ "umpl-text",
+]
+
+[[package]]
 name = "umpl-core"
 version = "0.1.0"
 

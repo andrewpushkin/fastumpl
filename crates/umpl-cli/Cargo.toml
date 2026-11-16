@@ -1,0 +1,17 @@
+[package]
+name = "umpl-cli"
+description = "fastumpl command line: render, format and check .umpl diagrams"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "umpl"
+path = "src/main.rs"
+
+[dependencies]
+umpl-core.workspace = true
+umpl-text.workspace = true
+umpl-layout.workspace = true
+umpl-draw = { workspace = true, features = ["png"] }
