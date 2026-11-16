@@ -169,29 +169,56 @@ fn layout_scope(sizes: &[(i32, i32)], edges: &[FlatEdge], hint: Option<&[f64]>, 
         placed.push((comp.clone(), pos, bounds.unwrap_or_default()));
     }
 
-    // Pack the parts in rows, biggest first.
-    let total_area: i64 = placed.iter().map(|p| (p.2.w as i64 + 8) * (p.2.h as i64 + 8)).sum();
-    let widest = placed.iter().map(|p| p.2.w).max().unwrap_or(0);
-    let row_width = widest.max(((total_area as f64) * 1.6).sqrt() as i32);
+    // Pack the parts in rows, biggest first, trying several row widths and
+    // keeping the packing closest to a 16:10 drawing.
     let mut order: Vec<usize> = (0..placed.len()).collect();
     order.sort_by_key(|&i| (std::cmp::Reverse(placed[i].2.w as i64 * placed[i].2.h as i64), placed[i].0[0]));
+    let rects: Vec<Rect> = order.iter().map(|&i| placed[i].2).collect();
+    let offsets = best_packing(&rects);
     let mut out = vec![(0, 0); n];
-    let (mut x, mut y, mut row_h) = (0, 0, 0);
-    let gap = 2 * NODE_GAP;
-    for i in order {
+    for (k, &i) in order.iter().enumerate() {
         let (comp, pos, b) = &placed[i];
+        let (x, y) = offsets[k];
+        for (li, &item) in comp.iter().enumerate() {
+            out[item] = (pos[li].0 - b.x + x, pos[li].1 - b.y + y);
+        }
+    }
+    out
+}
+
+/// Shelf packing of `rects` (in order) into rows no wider than `row_width`.
+fn pack_rows(rects: &[Rect], row_width: i32) -> (Vec<(i32, i32)>, i32, i32) {
+    let gap = 2 * NODE_GAP;
+    let (mut x, mut y, mut row_h, mut width) = (0, 0, 0, 0);
+    let mut out = Vec::with_capacity(rects.len());
+    for b in rects {
         if x > 0 && x + b.w > row_width {
             x = 0;
             y += row_h + LAYER_GAP;
             row_h = 0;
         }
-        for (li, &item) in comp.iter().enumerate() {
-            out[item] = (pos[li].0 - b.x + x, pos[li].1 - b.y + y);
-        }
+        out.push((x, y));
+        width = width.max(x + b.w);
         x += b.w + gap;
         row_h = row_h.max(b.h);
     }
-    out
+    (out, width, y + row_h)
+}
+
+fn best_packing(rects: &[Rect]) -> Vec<(i32, i32)> {
+    let widest = rects.iter().map(|r| r.w).max().unwrap_or(0);
+    let all: i32 = rects.iter().map(|r| r.w + 2 * NODE_GAP).sum();
+    let mut best: Option<(f64, Vec<(i32, i32)>)> = None;
+    for k in 0..=12 {
+        let row_width = widest + (all - widest) * k / 12;
+        let (offsets, w, h) = pack_rows(rects, row_width);
+        let (w, h) = (w.max(1) as f64, h.max(1) as f64);
+        let cost = w * h * (1.0 + ((w / h) / 1.6).ln().abs());
+        if best.as_ref().is_none_or(|(c, _)| cost < *c - 1e-9) {
+            best = Some((cost, offsets));
+        }
+    }
+    best.map(|b| b.1).unwrap_or_default()
 }
 
 /// Computes node positions for one candidate.

@@ -137,18 +137,53 @@ pub(crate) fn assign_coords(lay: &Layered, widths: &[i32], heights: &[i32]) -> V
         }
     }
 
-    // Layer heights and gaps; more room where many lines pass.
-    let mut tops = vec![0i32; n_layers];
-    let mut y = 0;
-    for k in 0..n_layers {
-        tops[k] = y;
-        let h = lay.layers[k].iter().filter(|&&i| !lay.is_dummy(i)).map(|&i| heights[i]).max().unwrap_or(0);
-        let lines_below = lay.links.iter().filter(|&&(u, _, _)| lay.layer_of[u] == k).count() as i32;
-        y += h + LAYER_GAP + (lines_below / 3).min(10);
-    }
-
+    let y = compact_vertically(lay, &left, widths, heights);
     let min_x = (0..lay.real).map(|i| left[i]).min().unwrap_or(0);
-    (0..lay.real).map(|i| (left[i] - min_x, tops[lay.layer_of[i]])).collect()
+    (0..lay.real).map(|i| (left[i] - min_x, y[i])).collect()
+}
+
+/// Rows of the same layer closer than this are aligned.
+const ALIGN: i32 = 6;
+
+/// Gives each item the smallest y that keeps it a layer gap below its
+/// upper neighbours and below everything above it that it would overlap
+/// horizontally. A tall box then no longer pushes down everything in the
+/// next layer. Items of one layer that end up almost level are aligned.
+fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i32]) -> Vec<i32> {
+    let total = lay.total();
+    let mut y = vec![0i32; total];
+    let mut placed: Vec<usize> = Vec::with_capacity(total);
+    for k in 0..lay.layers.len() {
+        // More room where many lines pass between the layers.
+        let lines_above = if k == 0 {
+            0
+        } else {
+            lay.links.iter().filter(|&&(u, _, _)| lay.layer_of[u] == k - 1).count() as i32
+        };
+        let gap = LAYER_GAP + (lines_above / 3).min(10);
+        let layer = &lay.layers[k];
+        for &i in layer {
+            let mut yy = 0;
+            for &u in lay.neighbors_up(i) {
+                yy = yy.max(y[u] + heights[u] + gap);
+            }
+            let (l, r) = (left[i] - 1, left[i] + widths[i] + 1);
+            for &j in &placed {
+                if left[j] < r && l < left[j] + widths[j] {
+                    yy = yy.max(y[j] + heights[j] + gap);
+                }
+            }
+            y[i] = yy;
+        }
+        let top = layer.iter().map(|&i| y[i]).max().unwrap_or(0);
+        for &i in layer {
+            if top - y[i] < ALIGN {
+                y[i] = top;
+            }
+        }
+        placed.extend(layer.iter().copied());
+    }
+    y
 }
 
 #[cfg(test)]
