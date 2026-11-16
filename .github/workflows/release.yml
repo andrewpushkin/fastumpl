@@ -1,7 +1,9 @@
 name: Release
 
-# Every push to main publishes a release. The version is 0.1.N, where N is
-# the number of commits on main (scripts/set-version.sh).
+# Every push to main publishes a release, version 0.1.N, where N is the
+# number of commits on main (scripts/version.sh). Linux and Windows
+# packages are built with the same `make` targets as locally, inside the
+# Docker image; the macOS .dmg is built natively on a macOS runner.
 on:
   push:
     branches: [main]
@@ -11,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 env:
@@ -28,106 +30,96 @@ jobs:
         with:
           fetch-depth: 0
       - id: v
-        run: echo "version=$(scripts/set-version.sh)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(scripts/version.sh)" >> "$GITHUB_OUTPUT"
 
-  linux-deb:
-    name: Linux x86-64 (.deb)
+  linux-windows:
+    name: Linux and Windows packages (make, Docker)
     needs: version
-    # Oldest supported runner, so the package runs on older glibc too.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set version
-        run: scripts/set-version.sh
+      - name: Build packages
+        run: make all
 
-      - name: Install system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl-dev libegl-dev
-
-      - name: Install toolchain
-        run: rustup toolchain install
-
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deb
-
-      - name: Build
-        run: cargo build --release -p umpl-app -p umpl-cli
-
-      - name: Package
-        run: |
-          cargo deb -p umpl-app --no-build -o fastumpl-linux-x86_64.deb
-          dpkg-deb --info fastumpl-linux-x86_64.deb
-          dpkg-deb --contents fastumpl-linux-x86_64.deb
+      - name: List packages
+        run: ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-deb
-          path: fastumpl-linux-x86_64.deb
+          name: linux-windows
+          path: |
+            dist/fastumpl-linux-x86_64.tar.gz
+            dist/fastumpl-linux-x86_64.deb
+            dist/fastumpl-windows-x86_64-portable.zip
+            dist/fastumpl-windows-x86_64-setup.exe
+            dist/fastumpl-windows-arm64-portable.zip
+            dist/fastumpl-windows-arm64-setup.exe
+          if-no-files-found: error
 
-  windows-portable:
-    name: Windows ${{ matrix.arch }} (portable)
+  macos:
+    name: macOS universal (.dmg)
     needs: version
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - arch: x86_64
-            target: x86_64-pc-windows-msvc
-          - arch: arm64
-            target: aarch64-pc-windows-msvc
+    runs-on: macos-14
+    env:
+      UMPL_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set version
-        shell: bash
-        run: scripts/set-version.sh
-
-      - name: Install toolchain and target
-        shell: bash
+      - name: Install toolchain and targets
         run: |
           rustup toolchain install
-          rustup target add ${{ matrix.target }}
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p umpl-app -p umpl-cli
-
-      - name: Package
-        shell: pwsh
-        run: |
-          $name = "fastumpl-windows-${{ matrix.arch }}-portable"
-          $dir = "dist/$name"
-          New-Item -ItemType Directory -Force -Path "$dir/data", "$dir/examples" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/fastumpl.exe" $dir
-          Copy-Item "target/${{ matrix.target }}/release/umpl.exe" $dir
-          Copy-Item "packaging/windows/README.txt" $dir
-          Copy-Item "LICENSE" "$dir/LICENSE.txt"
-          Copy-Item "assets/fonts/DejaVu-LICENSE.txt" $dir
-          Copy-Item "examples/*.umpl" "$dir/examples"
-          Compress-Archive -Path "$dir/*" -DestinationPath "$name.zip"
+      - name: Build app and .dmg
+        run: packaging/macos/build.sh "$UMPL_VERSION" dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}
-          path: fastumpl-windows-${{ matrix.arch }}-portable.zip
+          name: macos
+          path: dist/fastumpl-macos-universal.dmg
+          if-no-files-found: error
+
+  check-windows:
+    name: Check Windows packages on Windows
+    needs: linux-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-windows
+
+      - name: Portable zip runs
+        shell: pwsh
+        run: |
+          Expand-Archive fastumpl-windows-x86_64-portable.zip -DestinationPath portable
+          $p = "portable\fastumpl-windows-x86_64-portable"
+          & "$p\umpl.exe" --version
+          & "$p\umpl.exe" render "$p\examples\shop.umpl" -o shop.svg
+          if (!(Test-Path shop.svg)) { exit 1 }
+
+      - name: Installer installs and uninstalls
+        shell: pwsh
+        run: |
+          $setup = Start-Process -Wait -PassThru -FilePath .\fastumpl-windows-x86_64-setup.exe `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/TASKS=association','/LOG=setup.log'
+          $dir = "$env:LOCALAPPDATA\Programs\fastumpl"
+          if ($setup.ExitCode -ne 0 -or !(Test-Path "$dir\fastumpl.exe")) { Get-Content setup.log; exit 1 }
+          & "$dir\umpl.exe" --version
+          if (!(Test-Path "HKCU:\Software\Classes\.umpl")) { Write-Error ".umpl not registered"; exit 1 }
+          Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\fastumpl.exe") { Write-Error "uninstall left files"; exit 1 }
 
   publish:
     name: Publish release
-    needs: [version, linux-deb, windows-portable]
+    needs: [version, linux-windows, macos, check-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -145,7 +137,11 @@ jobs:
           make_latest: true
           generate_release_notes: true
           files: |
+            fastumpl-linux-x86_64.tar.gz
             fastumpl-linux-x86_64.deb
             fastumpl-windows-x86_64-portable.zip
+            fastumpl-windows-x86_64-setup.exe
             fastumpl-windows-arm64-portable.zip
+            fastumpl-windows-arm64-setup.exe
+            fastumpl-macos-universal.dmg
             SHA256SUMS.txt
