@@ -278,8 +278,10 @@ impl Layered {
 
     /// Orders every layer. `hint_x` gives the current x of real items (used
     /// for the first candidate, so a good diagram changes little); `rng`
-    /// shuffles the starting order for the other candidates.
+    /// shuffles the starting order for the other candidates. A few extra
+    /// random restarts run as well, and the best order wins.
     pub fn order(&mut self, hint_x: Option<&[f64]>, rng: Option<&mut Rng>) {
+        let mut restart_rng = Rng::new(self.total() as u64 * 31 + self.layers.len() as u64);
         match (hint_x, rng) {
             (Some(hx), _) => {
                 // Dummies take the mean x of their chain's real ends.
@@ -290,6 +292,7 @@ impl Layered {
                 self.update_pos();
             }
             (None, Some(rng)) => {
+                restart_rng = Rng::new(rng.next_u64());
                 self.dfs_order();
                 for layer in &mut self.layers {
                     rng.shuffle(layer);
@@ -298,6 +301,34 @@ impl Layered {
             }
             (None, None) => self.dfs_order(),
         }
+        self.improve_order();
+        // Restarts are cheap for small diagrams and skipped for huge ones.
+        let restarts = match self.total() {
+            0..=60 => 8,
+            61..=200 => 3,
+            _ => 0,
+        };
+        let mut best = (self.cost(), self.layers.clone());
+        for _ in 0..restarts {
+            if best.0 == 0 {
+                break;
+            }
+            for layer in &mut self.layers {
+                restart_rng.shuffle(layer);
+            }
+            self.update_pos();
+            self.improve_order();
+            let c = self.cost();
+            if c < best.0 {
+                best = (c, self.layers.clone());
+            }
+        }
+        self.layers = best.1;
+        self.update_pos();
+    }
+
+    /// Barycenter sweeps, adjacent swaps and sifting from the current order.
+    fn improve_order(&mut self) {
         let mut best = self.layers.clone();
         let mut best_cost = self.cost();
         for it in 0..24 {
@@ -315,6 +346,80 @@ impl Layered {
         self.layers = best;
         self.update_pos();
         self.transpose();
+        for _ in 0..4 {
+            if !self.sift() {
+                break;
+            }
+            self.transpose();
+        }
+    }
+
+    /// Cost that changes when items move inside layer `k`.
+    fn local_cost(&self, k: usize) -> usize {
+        let mut c = self.same_layer_cost();
+        if k > 0 {
+            c += self.crossings_between(k - 1);
+        }
+        if k + 1 < self.layers.len() {
+            c += self.crossings_between(k);
+        }
+        c
+    }
+
+    /// Sifting: moves each item to the position in its layer where it
+    /// crosses the fewest lines. Escapes local optima that adjacent swaps
+    /// cannot. Returns whether anything improved.
+    fn sift(&mut self) -> bool {
+        let mut improved = false;
+        for k in 0..self.layers.len() {
+            let len = self.layers[k].len();
+            if !(2..=80).contains(&len) {
+                continue;
+            }
+            let items = self.layers[k].clone();
+            for u in items {
+                let before = self.local_cost(k);
+                let old_layer = self.layers[k].clone();
+                let mut rest = old_layer.clone();
+                rest.retain(|&x| x != u);
+                // Crossings between u and each other item, with u left of it
+                // (`left`) or right of it (`right`).
+                let left: Vec<usize> = rest
+                    .iter()
+                    .map(|&v| {
+                        self.pair_crossings(u, v, &self.up) + self.pair_crossings(u, v, &self.down)
+                    })
+                    .collect();
+                let right: Vec<usize> = rest
+                    .iter()
+                    .map(|&v| {
+                        self.pair_crossings(v, u, &self.up) + self.pair_crossings(v, u, &self.down)
+                    })
+                    .collect();
+                // Inserting u at index p: items before p are left of u.
+                let mut cost: usize = left.iter().sum();
+                let mut best = (cost, 0);
+                for p in 0..rest.len() {
+                    cost = cost - left[p] + right[p];
+                    if cost < best.0 {
+                        best = (cost, p + 1);
+                    }
+                }
+                rest.insert(best.1, u);
+                if rest == old_layer {
+                    continue;
+                }
+                self.layers[k] = rest;
+                self.update_pos();
+                if self.local_cost(k) < before {
+                    improved = true;
+                } else {
+                    self.layers[k] = old_layer;
+                    self.update_pos();
+                }
+            }
+        }
+        improved
     }
 
     fn dummy_hints(&self, hx: &[f64]) -> Vec<f64> {
@@ -349,6 +454,59 @@ mod tests {
             b,
             kind: EdgeKind::Hierarchy,
             gap: 0,
+        }
+    }
+
+    fn permutations(items: &[usize]) -> Vec<Vec<usize>> {
+        if items.len() <= 1 {
+            return vec![items.to_vec()];
+        }
+        let mut out = Vec::new();
+        for i in 0..items.len() {
+            let mut rest = items.to_vec();
+            let x = rest.remove(i);
+            for mut p in permutations(&rest) {
+                p.insert(0, x);
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// On small two-layer graphs, the ordering finds the true minimum
+    /// number of crossings (checked against every possible order).
+    #[test]
+    fn finds_minimum_crossings_on_small_graphs() {
+        for seed in 0..40 {
+            let mut rng = Rng::new(seed);
+            let (top, bottom) = (2 + rng.below(3), 2 + rng.below(4));
+            let n = top + bottom;
+            let mut edges = Vec::new();
+            for b in top..n {
+                // Every child has one or two parents.
+                edges.push(e(b, rng.below(top)));
+                if rng.below(2) == 0 {
+                    edges.push(e(b, rng.below(top)));
+                }
+            }
+            edges.sort_by_key(|x| (x.a, x.b));
+            edges.dedup_by_key(|x| (x.a, x.b));
+            let layers: Vec<usize> = (0..n).map(|i| usize::from(i >= top)).collect();
+            let mut lay = Layered::build(n, &layers, &edges);
+            lay.order(None, Some(&mut Rng::new(seed + 100)));
+            let found = lay.cost();
+
+            let mut best = usize::MAX;
+            let tops: Vec<usize> = (0..top).collect();
+            let bottoms: Vec<usize> = (top..n).collect();
+            for pt in permutations(&tops) {
+                for pb in permutations(&bottoms) {
+                    lay.layers = vec![pt.clone(), pb.clone()];
+                    lay.update_pos();
+                    best = best.min(lay.cost());
+                }
+            }
+            assert_eq!(found, best, "seed {seed}: found {found}, best {best}");
         }
     }
 

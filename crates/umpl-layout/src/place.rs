@@ -30,7 +30,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Options {
-            candidates: 8,
+            candidates: 12,
             seed: 1,
             cancel: None,
         }
