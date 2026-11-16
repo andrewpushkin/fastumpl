@@ -11,6 +11,9 @@
 //! - [`route_only`]: keep every node where it is and route the lines.
 //! - [`reroute`]: re-route some lines after a node moved.
 
+// Index loops read more clearly than iterator chains in these algorithms.
+#![allow(clippy::needless_range_loop)]
+
 mod coords;
 mod graph;
 mod labels;

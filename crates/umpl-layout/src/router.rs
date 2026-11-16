@@ -76,11 +76,15 @@ fn ports(r: &Rect, side: Side) -> Vec<((i32, i32), i32)> {
     match side {
         Side::Top | Side::Bottom => {
             let y = if side == Side::Top { r.y } else { r.bottom() };
-            (1..r.w).map(|i| ((r.x + i, y), (2 * i - r.w).abs())).collect()
+            (1..r.w)
+                .map(|i| ((r.x + i, y), (2 * i - r.w).abs()))
+                .collect()
         }
         Side::Left | Side::Right => {
             let x = if side == Side::Left { r.x } else { r.right() };
-            (1..r.h).map(|i| ((x, r.y + i), (2 * i - r.h).abs())).collect()
+            (1..r.h)
+                .map(|i| ((x, r.y + i), (2 * i - r.h).abs()))
+                .collect()
         }
     }
 }
@@ -260,7 +264,10 @@ impl Occupancy {
                 c = (c.0 + dx, c.1 + dy);
             }
         }
-        for p in [route.points.first(), route.points.last()].into_iter().flatten() {
+        for p in [route.points.first(), route.points.last()]
+            .into_iter()
+            .flatten()
+        {
             if let Some(i) = grid.idx(*p) {
                 mark(self.ports.entry(i).or_insert(NONE), bundle);
             }
@@ -375,7 +382,11 @@ impl<'a> Router<'a> {
             .filter(|&y| y >= py + 4)
             .min()?;
         let bar = py + ((min_top - py) / 2).max(2);
-        let cx = if child.x < px && px < child.right() { px } else { child.x + child.w / 2 };
+        let cx = if child.x < px && px < child.right() {
+            px
+        } else {
+            child.x + child.w / 2
+        };
         let mut route = Route {
             points: vec![(cx, child.y), (cx, bar), (px, bar), (px, py)],
         };
@@ -390,10 +401,15 @@ impl<'a> Router<'a> {
                 let endpoint = (k == 0 && c == p) || (k + 1 == last && c == q);
                 let i = self.grid.idx(c)?;
                 if !endpoint {
-                    if self.grid.owner[i] != -1 || self.grid.border[i] & if hz { 1 } else { 2 } != 0 {
+                    if self.grid.owner[i] != -1 || self.grid.border[i] & if hz { 1 } else { 2 } != 0
+                    {
                         return None;
                     }
-                    let (same, other) = if hz { (occ.h[i], occ.v[i]) } else { (occ.v[i], occ.h[i]) };
+                    let (same, other) = if hz {
+                        (occ.h[i], occ.v[i])
+                    } else {
+                        (occ.v[i], occ.h[i])
+                    };
                     if (same != NONE && same != bundle) || (other != NONE && other != bundle) {
                         return None;
                     }
@@ -481,7 +497,7 @@ impl<'a> Router<'a> {
                     if edge.kind == EdgeKind::Hierarchy && q != (dst.x + dst.w / 2, dst.bottom()) {
                         continue;
                     }
-                    if !(grid.owner[i] < 0) {
+                    if grid.owner[i] >= 0 {
                         // Do not slide along the target's border.
                         continue;
                     }
@@ -491,7 +507,11 @@ impl<'a> Router<'a> {
                         .unwrap_or((q, 0));
                     cost += STEP + off as u32 + occ.port_cost(grid, j, bundle);
                 } else {
-                    let (same, other) = if horizontal(d2) { (occ.h[j], occ.v[j]) } else { (occ.v[j], occ.h[j]) };
+                    let (same, other) = if horizontal(d2) {
+                        (occ.h[j], occ.v[j])
+                    } else {
+                        (occ.v[j], occ.h[j])
+                    };
                     cost += if same == bundle { BUNDLE_STEP } else { STEP };
                     if same != NONE && same != bundle {
                         cost += SHARE;
@@ -597,11 +617,21 @@ fn occupancy_without(router: &Router, routes: &[Route], skip: usize) -> Occupanc
 
 /// Rips up lines that cross others and routes them again, keeping the new
 /// route when it crosses less (or equally, but is shorter).
-fn improve(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], candidates: &[usize], passes: usize) {
+fn improve(
+    router: &mut Router,
+    nodes: &[(i32, i32)],
+    routes: &mut [Route],
+    candidates: &[usize],
+    passes: usize,
+) {
     let graph = router.graph;
     for _ in 0..passes {
         let counts = crossings_per_edge(graph, routes);
-        let mut bad: Vec<usize> = candidates.iter().copied().filter(|&e| counts[e] > 0).collect();
+        let mut bad: Vec<usize> = candidates
+            .iter()
+            .copied()
+            .filter(|&e| counts[e] > 0)
+            .collect();
         if bad.is_empty() {
             return;
         }
@@ -617,9 +647,12 @@ fn improve(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], cand
             let new = router.route_edge(e, &occ, 0);
             let new_cross = crossings_of(graph, routes, e, &new);
             // Inheritance lines keep their tree shape unless crossings drop.
-            let shorter = (new.length() + 4 * new.bends() as i32) < (old.length() + 4 * old.bends() as i32);
+            let shorter =
+                (new.length() + 4 * new.bends() as i32) < (old.length() + 4 * old.bends() as i32);
             let better = new_cross < old_cross
-                || (new_cross == old_cross && shorter && graph.edges[e].kind != EdgeKind::Hierarchy);
+                || (new_cross == old_cross
+                    && shorter
+                    && graph.edges[e].kind != EdgeKind::Hierarchy);
             routes[e] = if better {
                 improved = true;
                 new
@@ -707,7 +740,12 @@ pub fn reroute(graph: &Graph, nodes: &[(i32, i32)], routes: &mut Vec<Route>, mov
 
 fn route_hits(route: &Route, rects: &[Rect]) -> bool {
     route.segments().any(|(p, q)| {
-        let seg = Rect::new(p.0.min(q.0), p.1.min(q.1), (p.0 - q.0).abs(), (p.1 - q.1).abs());
+        let seg = Rect::new(
+            p.0.min(q.0),
+            p.1.min(q.1),
+            (p.0 - q.0).abs(),
+            (p.1 - q.1).abs(),
+        );
         rects.iter().any(|r| r.too_close(&seg, 1))
     })
 }
@@ -735,7 +773,10 @@ mod tests {
                     let rect = Rect::new(pos.0, pos.1, g.nodes[n].w, g.nodes[n].h);
                     let endpoint = c == r.points[0] || c == *r.points.last().unwrap();
                     let own = n == edge.from || n == edge.to;
-                    assert!(!rect.contains(c) || (own && endpoint), "point {c:?} hits box {n} in {r:?}");
+                    assert!(
+                        !rect.contains(c) || (own && endpoint),
+                        "point {c:?} hits box {n} in {r:?}"
+                    );
                 }
                 if c == q {
                     break;
@@ -763,8 +804,20 @@ mod tests {
         let nodes = vec![(0, 0), (0, 30), (-10, 14)];
         let routes = route_all(&g, &nodes);
         assert_clear_of_boxes(&g, &nodes, 0, &routes[0]);
-        assert_eq!(routes[0].points.first().map(|p| Rect::new(0, 0, 10, 4).contains(*p)), Some(true));
-        assert_eq!(routes[0].points.last().map(|p| Rect::new(0, 30, 10, 4).contains(*p)), Some(true));
+        assert_eq!(
+            routes[0]
+                .points
+                .first()
+                .map(|p| Rect::new(0, 0, 10, 4).contains(*p)),
+            Some(true)
+        );
+        assert_eq!(
+            routes[0]
+                .points
+                .last()
+                .map(|p| Rect::new(0, 30, 10, 4).contains(*p)),
+            Some(true)
+        );
     }
 
     #[test]

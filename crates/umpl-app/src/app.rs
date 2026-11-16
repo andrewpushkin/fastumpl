@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-use egui::{Button, Color32, Context, Frame, Key, Margin, RichText, ThemePreference, ViewportCommand};
+use egui::{
+    Button, Color32, Context, Frame, Key, Margin, RichText, ThemePreference, ViewportCommand,
+};
 use umpl_core::{ElementId, Pos};
 use umpl_draw::svg::to_svg;
 use umpl_draw::{build_scene, Diagram, SceneOptions, Theme};
@@ -157,7 +159,10 @@ impl App {
             self.storage.save_recent(&self.recent);
         }
         if !s.problems.is_empty() {
-            self.notify(format!("{} problem(s) in file — see Problems", s.problems.len()));
+            self.notify(format!(
+                "{} problem(s) in file — see Problems",
+                s.problems.len()
+            ));
         }
         self.cancel_tidy();
         self.session = Some(s);
@@ -199,8 +204,15 @@ impl App {
                 self.open_path(&path);
             }
             Pending::Open(None) => {
-                let mut dlg = rfd::FileDialog::new().add_filter("fastumpl diagram", &["umpl"]).add_filter("All files", &["*"]);
-                if let Some(dir) = self.session.as_ref().and_then(|s| s.path.as_ref()).and_then(|p| p.parent()) {
+                let mut dlg = rfd::FileDialog::new()
+                    .add_filter("fastumpl diagram", &["umpl"])
+                    .add_filter("All files", &["*"]);
+                if let Some(dir) = self
+                    .session
+                    .as_ref()
+                    .and_then(|s| s.path.as_ref())
+                    .and_then(|p| p.parent())
+                {
                     dlg = dlg.set_directory(dir);
                 }
                 if let Some(path) = dlg.pick_file() {
@@ -224,7 +236,9 @@ impl App {
 
     /// Saves; asks for a file name if there is none. Returns success.
     pub fn save(&mut self) -> bool {
-        let Some(s) = &mut self.session else { return false };
+        let Some(s) = &mut self.session else {
+            return false;
+        };
         match s.path.clone() {
             Some(p) => match s.save_to(&p) {
                 Ok(()) => {
@@ -249,7 +263,9 @@ impl App {
         if let Some(dir) = s.path.as_ref().and_then(|p| p.parent()) {
             dlg = dlg.set_directory(dir);
         }
-        let Some(mut path) = dlg.save_file() else { return false };
+        let Some(mut path) = dlg.save_file() else {
+            return false;
+        };
         if path.extension().is_none() {
             path.set_extension("umpl");
         }
@@ -272,12 +288,19 @@ impl App {
     fn export_svg_text(&self, ctx: &Context) -> Option<String> {
         let s = self.session.as_ref()?;
         let theme = self.diagram_theme(ctx);
-        let scene = build_scene(&s.editor.doc, &self.view.diagram, &theme, &SceneOptions::default());
+        let scene = build_scene(
+            &s.editor.doc,
+            &self.view.diagram,
+            &theme,
+            &SceneOptions::default(),
+        );
         Some(to_svg(&scene, &theme))
     }
 
     fn export(&mut self, ctx: &Context, png: bool) {
-        let Some(svg) = self.export_svg_text(ctx) else { return };
+        let Some(svg) = self.export_svg_text(ctx) else {
+            return;
+        };
         let s = self.session.as_ref().unwrap();
         let stem = s
             .path
@@ -286,7 +309,9 @@ impl App {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "diagram".into());
         let ext = if png { "png" } else { "svg" };
-        let mut dlg = rfd::FileDialog::new().add_filter(ext.to_uppercase(), &[ext]).set_file_name(format!("{stem}.{ext}"));
+        let mut dlg = rfd::FileDialog::new()
+            .add_filter(ext.to_uppercase(), &[ext])
+            .set_file_name(format!("{stem}.{ext}"));
         if let Some(dir) = s.path.as_ref().and_then(|p| p.parent()) {
             dlg = dlg.set_directory(dir);
         }
@@ -310,15 +335,28 @@ impl App {
     fn copy_image(&mut self, ctx: &Context) {
         let Some(s) = &self.session else { return };
         let theme = self.diagram_theme(ctx);
-        let mut scene = build_scene(&s.editor.doc, &self.view.diagram, &theme, &SceneOptions::default());
-        let picked: Vec<_> = scene.elements.iter().filter(|(id, _)| self.sel.elements.contains(id)).map(|(_, r)| *r).collect();
+        let mut scene = build_scene(
+            &s.editor.doc,
+            &self.view.diagram,
+            &theme,
+            &SceneOptions::default(),
+        );
+        let picked: Vec<_> = scene
+            .elements
+            .iter()
+            .filter(|(id, _)| self.sel.elements.contains(id))
+            .map(|(_, r)| *r)
+            .collect();
         if let Some(first) = picked.first() {
             scene.bounds = picked.iter().fold(*first, |a, b| a.union(b)).expand(16.0);
         }
         let svg = to_svg(&scene, &theme);
         match umpl_draw::png::svg_to_rgba(&svg, 2.0) {
             Ok(img) => {
-                let image = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.rgba);
+                let image = egui::ColorImage::from_rgba_unmultiplied(
+                    [img.width as usize, img.height as usize],
+                    &img.rgba,
+                );
                 ctx.copy_image(image);
                 self.notify("Copied image to clipboard");
             }
@@ -339,15 +377,25 @@ impl App {
             .and_then(|p| p.file_stem())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "untitled".into());
-        Some(self.storage.recovery_dir().join(format!("{stem}-{:016x}.umpl", h.finish())))
+        Some(
+            self.storage
+                .recovery_dir()
+                .join(format!("{stem}-{:016x}.umpl", h.finish())),
+        )
     }
 
     fn write_recovery(&mut self) {
-        let Some(file) = self.recovery_file() else { return };
+        let Some(file) = self.recovery_file() else {
+            return;
+        };
         let s = self.session.as_ref().unwrap();
         let _ = std::fs::create_dir_all(self.storage.recovery_dir());
         let _ = umpl_text::write_atomic(&file, s.text().as_bytes());
-        let origin = s.path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+        let origin = s
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let _ = std::fs::write(file.with_extension("path"), origin);
     }
 
@@ -359,7 +407,9 @@ impl App {
     }
 
     fn find_recovery(&self) -> Vec<PathBuf> {
-        let Ok(dir) = std::fs::read_dir(self.storage.recovery_dir()) else { return Vec::new() };
+        let Ok(dir) = std::fs::read_dir(self.storage.recovery_dir()) else {
+            return Vec::new();
+        };
         let mut v: Vec<PathBuf> = dir
             .flatten()
             .map(|e| e.path())
@@ -472,7 +522,13 @@ impl App {
         if self.sel.is_empty() {
             return;
         }
-        let rels: Vec<_> = self.sel.relations.iter().copied().filter(|r| s.editor.doc.relations.contains_key(r)).collect();
+        let rels: Vec<_> = self
+            .sel
+            .relations
+            .iter()
+            .copied()
+            .filter(|r| s.editor.doc.relations.contains_key(r))
+            .collect();
         if !rels.is_empty() && self.sel.elements.is_empty() && self.sel.packages.is_empty() {
             s.editor.delete_relations(&rels);
         } else {
@@ -481,7 +537,8 @@ impl App {
             let mut ops_rel = rels;
             ops_rel.retain(|r| {
                 let rel = &s.editor.doc.relations[r];
-                !self.sel.elements.contains(&rel.from.element) && !self.sel.elements.contains(&rel.to.element)
+                !self.sel.elements.contains(&rel.from.element)
+                    && !self.sel.elements.contains(&rel.to.element)
             });
             if !ops_rel.is_empty() {
                 s.editor.delete_relations(&ops_rel);
@@ -562,7 +619,13 @@ impl App {
     fn enabled(&self, cmd: Cmd) -> bool {
         let has = self.session.is_some();
         match cmd {
-            Cmd::New | Cmd::Open | Cmd::Quit | Cmd::Theme(_) | Cmd::Shortcuts | Cmd::About | Cmd::Palette => true,
+            Cmd::New
+            | Cmd::Open
+            | Cmd::Quit
+            | Cmd::Theme(_)
+            | Cmd::Shortcuts
+            | Cmd::About
+            | Cmd::Palette => true,
             Cmd::Undo => self.session.as_ref().is_some_and(|s| s.editor.can_undo()),
             Cmd::Redo => self.session.as_ref().is_some_and(|s| s.editor.can_redo()),
             Cmd::Delete => has && !self.sel.is_empty(),
@@ -579,7 +642,9 @@ impl App {
         for cmd in Cmd::keyboard_order() {
             let sc = cmd.shortcut().unwrap();
             // Single-key shortcuts must not fire while typing.
-            if typing && (sc.modifiers.is_none() || matches!(cmd, Cmd::Undo | Cmd::Redo | Cmd::SelectAll)) {
+            if typing
+                && (sc.modifiers.is_none() || matches!(cmd, Cmd::Undo | Cmd::Redo | Cmd::SelectAll))
+            {
                 continue;
             }
             if self.enabled(cmd) && ctx.input_mut(|i| i.consume_shortcut(&sc)) {
@@ -587,7 +652,12 @@ impl App {
             }
         }
         if !typing {
-            let redo_y = ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Y)));
+            let redo_y = ctx.input_mut(|i| {
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    egui::Modifiers::COMMAND,
+                    Key::Y,
+                ))
+            });
             if redo_y && self.enabled(Cmd::Redo) {
                 self.run(ctx, Cmd::Redo);
             }
@@ -651,7 +721,13 @@ impl App {
     // ----- frame -----------------------------------------------------------
 
     fn handle_events(&mut self, ctx: &Context) {
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
         if let Some(p) = dropped.into_iter().next() {
             self.request(ctx, Pending::Open(Some(p)));
         }
@@ -674,7 +750,9 @@ impl App {
             });
             if let Some(image) = shot {
                 let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
-                if let Ok(png) = umpl_draw::png::rgba_to_png(image.size[0] as u32, image.size[1] as u32, &rgba) {
+                if let Ok(png) =
+                    umpl_draw::png::rgba_to_png(image.size[0] as u32, image.size[1] as u32, &rgba)
+                {
                     let _ = std::fs::write(&path, png);
                 }
                 self.allow_close = true;
@@ -687,7 +765,8 @@ impl App {
     fn periodic(&mut self, ctx: &Context) {
         if self.last_disk_check.elapsed() > Duration::from_secs(1) {
             self.last_disk_check = Instant::now();
-            if self.dialog.is_none() && self.session.as_ref().is_some_and(Session::changed_on_disk) {
+            if self.dialog.is_none() && self.session.as_ref().is_some_and(Session::changed_on_disk)
+            {
                 self.dialog = Some(Dialog::DiskChanged);
             }
         }
@@ -702,7 +781,11 @@ impl App {
 
     fn update_title(&mut self, ctx: &Context) {
         let title = match &self.session {
-            Some(s) => format!("{}{} — fastumpl", s.display_name(), if s.is_dirty() { " •" } else { "" }),
+            Some(s) => format!(
+                "{}{} — fastumpl",
+                s.display_name(),
+                if s.is_dirty() { " •" } else { "" }
+            ),
             None => "fastumpl".into(),
         };
         if title != self.title {
@@ -785,14 +868,22 @@ impl App {
                         return;
                     }
                     let busy = self.tidy.is_some();
-                    let tidy = ui.add_enabled(!busy, Button::new(RichText::new("✨ Tidy").strong()));
-                    if tidy.on_hover_text("Lay out the whole diagram again (Ctrl+T)").clicked() {
+                    let tidy =
+                        ui.add_enabled(!busy, Button::new(RichText::new("✨ Tidy").strong()));
+                    if tidy
+                        .on_hover_text("Lay out the whole diagram again (Ctrl+T)")
+                        .clicked()
+                    {
                         self.run(ui.ctx(), Cmd::Tidy);
                     }
                     if busy {
                         ui.spinner();
                     }
-                    if ui.button("Fit").on_hover_text("Show the whole diagram (F)").clicked() {
+                    if ui
+                        .button("Fit")
+                        .on_hover_text("Show the whole diagram (F)")
+                        .clicked()
+                    {
                         self.run(ui.ctx(), Cmd::Fit);
                     }
                     ui.label(format!("{:.0}%", self.camera.zoom * 100.0));
@@ -816,12 +907,19 @@ impl App {
                 }
                 ui.separator();
                 let doc = &s.editor.doc;
-                let classes = doc.elements.values().filter(|e| e.kind != umpl_core::ElementKind::Note).count();
+                let classes = doc
+                    .elements
+                    .values()
+                    .filter(|e| e.kind != umpl_core::ElementKind::Note)
+                    .count();
                 ui.label(format!("{classes} classes"));
                 ui.label(format!("{} relations", doc.relations.len()));
                 ui.separator();
                 let crossings = self.view.diagram.layout.stats.crossings;
-                let text = format!("{crossings} crossing{}", if crossings == 1 { "" } else { "s" });
+                let text = format!(
+                    "{crossings} crossing{}",
+                    if crossings == 1 { "" } else { "s" }
+                );
                 if crossings > 0 {
                     ui.label(RichText::new(text).color(Color32::from_rgb(0xd0, 0x83, 0x2a)))
                         .on_hover_text("Tidy (Ctrl+T) may remove crossings");
@@ -851,21 +949,29 @@ impl App {
     }
 
     fn tools_panel(&mut self, ctx: &Context) {
-        egui::SidePanel::left("tools").resizable(false).exact_width(46.0).show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.vertical_centered(|ui| {
-                for t in Tool::ALL {
-                    let sel = self.tool == t;
-                    let r = ui.add_sized([34.0, 30.0], Button::selectable(sel, RichText::new(t.icon()).size(16.0)));
-                    if r.on_hover_text(format!("{} ({:?})", t.label(), t.key())).clicked() {
-                        self.run(ctx, Cmd::Tool(t));
+        egui::SidePanel::left("tools")
+            .resizable(false)
+            .exact_width(46.0)
+            .show(ctx, |ui| {
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    for t in Tool::ALL {
+                        let sel = self.tool == t;
+                        let r = ui.add_sized(
+                            [34.0, 30.0],
+                            Button::selectable(sel, RichText::new(t.icon()).size(16.0)),
+                        );
+                        if r.on_hover_text(format!("{} ({:?})", t.label(), t.key()))
+                            .clicked()
+                        {
+                            self.run(ctx, Cmd::Tool(t));
+                        }
+                        if t == Tool::Select || t == Tool::Element(umpl_core::ElementKind::Note) {
+                            ui.separator();
+                        }
                     }
-                    if t == Tool::Select || t == Tool::Element(umpl_core::ElementKind::Note) {
-                        ui.separator();
-                    }
-                }
+                });
             });
-        });
     }
 
     fn start_screen(&mut self, ctx: &Context) {
@@ -873,12 +979,19 @@ impl App {
             ui.add_space((ui.available_height() * 0.18).max(20.0));
             ui.vertical_centered(|ui| {
                 ui.heading(RichText::new("fastumpl").size(34.0).strong());
-                ui.label(RichText::new("UML class diagrams that lay themselves out.").size(16.0).weak());
+                ui.label(
+                    RichText::new("UML class diagrams that lay themselves out.")
+                        .size(16.0)
+                        .weak(),
+                );
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
                     let w = 300.0;
                     ui.add_space((ui.available_width() - w).max(0.0) / 2.0);
-                    if ui.add_sized([140.0, 34.0], Button::new("New diagram")).clicked() {
+                    if ui
+                        .add_sized([140.0, 34.0], Button::new("New diagram"))
+                        .clicked()
+                    {
                         self.run(ctx, Cmd::New);
                     }
                     ui.add_space(12.0);
@@ -891,8 +1004,13 @@ impl App {
                     ui.label(RichText::new("Recent").strong());
                     ui.add_space(6.0);
                     for p in self.recent.clone() {
-                        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        let r = ui.link(RichText::new(name).size(15.0)).on_hover_text(p.display().to_string());
+                        let name = p
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let r = ui
+                            .link(RichText::new(name).size(15.0))
+                            .on_hover_text(p.display().to_string());
                         if r.clicked() {
                             self.request(ctx, Pending::Open(Some(p)));
                         }

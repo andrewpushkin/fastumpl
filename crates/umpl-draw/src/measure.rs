@@ -45,7 +45,11 @@ pub struct BoxContent {
 
 impl BoxContent {
     pub fn header_height(&self) -> f32 {
-        let stereo = if self.stereotype.is_some() { STEREO_LINE } else { 0.0 };
+        let stereo = if self.stereotype.is_some() {
+            STEREO_LINE
+        } else {
+            0.0
+        };
         PAD_Y * 2.0 + stereo + NAME_LINE
     }
 
@@ -54,9 +58,15 @@ impl BoxContent {
         let units = |px: f32| (px / GRID).ceil() as i32;
         if self.kind == ElementKind::Note {
             let lines = self.compartments.first().map_or(&[][..], |c| &c[..]);
-            let w = lines.iter().map(|l| text_width(&l.text, MEMBER_SIZE)).fold(0.0, f32::max);
+            let w = lines
+                .iter()
+                .map(|l| text_width(&l.text, MEMBER_SIZE))
+                .fold(0.0, f32::max);
             let h = lines.len().max(1) as f32 * MEMBER_LINE;
-            return (units(w + 2.0 * NOTE_PAD + 8.0).max(6), units(h + 2.0 * NOTE_PAD).max(3));
+            return (
+                units(w + 2.0 * NOTE_PAD + 8.0).max(6),
+                units(h + 2.0 * NOTE_PAD).max(3),
+            );
         }
         let mut w = text_width(&self.name, NAME_SIZE) + 2.0 * BADGE_ROOM + 2.0 * PAD_X;
         if let Some(s) = &self.stereotype {
@@ -88,27 +98,39 @@ pub fn box_content(el: &Element) -> BoxContent {
         underline: m.is_static,
     };
     let compartments = match el.kind {
-        ElementKind::Note => vec![el.members.iter().map(|m| MemberLine {
-            text: m.text.clone(),
-            italic: false,
-            underline: false,
-        })
-        .collect()],
+        ElementKind::Note => vec![el
+            .members
+            .iter()
+            .map(|m| MemberLine {
+                text: m.text.clone(),
+                italic: false,
+                underline: false,
+            })
+            .collect()],
         ElementKind::Enum => vec![el.members.iter().map(line).collect()],
-        _ => vec![el.attributes().map(line).collect(), el.operations().map(line).collect()],
+        _ => vec![
+            el.attributes().map(line).collect(),
+            el.operations().map(line).collect(),
+        ],
     };
     BoxContent {
         kind: el.kind,
         stereotype: el.stereotype.clone(),
         name: el.name.clone(),
         italic_name: el.kind == ElementKind::Abstract,
-        compartments: compartments.into_iter().filter(|c: &Vec<MemberLine>| !c.is_empty()).collect(),
+        compartments: compartments
+            .into_iter()
+            .filter(|c: &Vec<MemberLine>| !c.is_empty())
+            .collect(),
     }
 }
 
 /// Size in grid units of a label showing `text`.
 pub fn label_size(text: &str) -> (i32, i32) {
-    (((text_width(text, LABEL_SIZE) + 4.0) / GRID).ceil() as i32, 2)
+    (
+        ((text_width(text, LABEL_SIZE) + 4.0) / GRID).ceil() as i32,
+        2,
+    )
 }
 
 #[cfg(test)]
@@ -122,7 +144,9 @@ mod tests {
         let empty = box_content(&el).size();
         el.members.push(Member::parse_line("+id: OrderId"));
         let one = box_content(&el).size();
-        el.members.push(Member::parse_line("+aVeryLongOperationName(argument: SomeType): Result"));
+        el.members.push(Member::parse_line(
+            "+aVeryLongOperationName(argument: SomeType): Result",
+        ));
         let two = box_content(&el).size();
         assert!(one.1 > empty.1);
         assert!(two.1 > one.1);

@@ -154,7 +154,8 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         for v in 0..n {
             width[layer[v]] += (sizes[v].0 + NODE_GAP) as f64;
         }
-        let Some(k) = (0..=max_layer).find(|&k| width[k] > target && layer.iter().filter(|&&l| l == k).count() > 1)
+        let Some(k) = (0..=max_layer)
+            .find(|&k| width[k] > target && layer.iter().filter(|&&l| l == k).count() > 1)
         else {
             break;
         };

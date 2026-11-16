@@ -151,13 +151,21 @@ impl Rect {
 
     /// Do the rectangles overlap or come closer than `gap`?
     pub fn too_close(&self, o: &Rect, gap: i32) -> bool {
-        self.x < o.right() + gap && o.x < self.right() + gap && self.y < o.bottom() + gap && o.y < self.bottom() + gap
+        self.x < o.right() + gap
+            && o.x < self.right() + gap
+            && self.y < o.bottom() + gap
+            && o.y < self.bottom() + gap
     }
 
     pub fn union(&self, o: &Rect) -> Rect {
         let x = self.x.min(o.x);
         let y = self.y.min(o.y);
-        Rect::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
+        Rect::new(
+            x,
+            y,
+            self.right().max(o.right()) - x,
+            self.bottom().max(o.bottom()) - y,
+        )
     }
 
     pub fn expand(&self, by: i32) -> Rect {
@@ -181,7 +189,9 @@ impl Route {
     }
 
     pub fn length(&self) -> i32 {
-        self.segments().map(|(a, b)| (a.0 - b.0).abs() + (a.1 - b.1).abs()).sum()
+        self.segments()
+            .map(|(a, b)| (a.0 - b.0).abs() + (a.1 - b.1).abs())
+            .sum()
     }
 
     /// Removes zero-length segments and merges collinear ones.
@@ -297,8 +307,16 @@ mod tests {
     #[test]
     fn nested_group_rects_contain_children() {
         let mut g = Graph::default();
-        g.groups.push(Group { parent: None, header: 3, min_w: 0 });
-        g.groups.push(Group { parent: Some(0), header: 3, min_w: 0 });
+        g.groups.push(Group {
+            parent: None,
+            header: 3,
+            min_w: 0,
+        });
+        g.groups.push(Group {
+            parent: Some(0),
+            header: 3,
+            min_w: 0,
+        });
         let a = g.add_node(10, 4);
         g.nodes[a].group = Some(1);
         let rects = group_rects(&g, &[(10, 10)]);

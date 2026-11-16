@@ -40,9 +40,9 @@ impl<'a> Cursor<'a> {
     pub fn eat_word(&mut self, word: &str) -> bool {
         self.skip_ws();
         let r = self.rest();
-        if r.starts_with(word) {
-            let after = &r[word.len()..];
-            if after.is_empty() || after.starts_with(char::is_whitespace) || after.starts_with('{') {
+        if let Some(after) = r.strip_prefix(word) {
+            if after.is_empty() || after.starts_with(char::is_whitespace) || after.starts_with('{')
+            {
                 self.pos += word.len();
                 return true;
             }
@@ -133,7 +133,9 @@ impl<'a> Cursor<'a> {
         for (text, kind, rev) in ARROWS {
             if let Some(after) = r.strip_prefix(text) {
                 // `--o` must not swallow the first letter of a name.
-                if text.ends_with('o') && after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+                if text.ends_with('o')
+                    && after.starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                {
                     continue;
                 }
                 // `o--` must be a separate word.

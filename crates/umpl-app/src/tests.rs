@@ -38,7 +38,9 @@ fn new_app() -> Harness<'static, App> {
 
 fn add(h: &mut Harness<'static, App>, name: &str, x: i32, y: i32) -> ElementId {
     let s = h.state_mut().session.as_mut().unwrap();
-    let id = s.editor.add_element(ElementKind::Class, name, None, Some(Pos::new(x, y)));
+    let id = s
+        .editor
+        .add_element(ElementKind::Class, name, None, Some(Pos::new(x, y)));
     h.run_steps(2);
     id
 }
@@ -48,7 +50,12 @@ fn rect_of(h: &Harness<'static, App>, id: ElementId) -> RectF {
     let i = d.mapping.node_of(id).unwrap();
     let p = d.layout.nodes[i];
     let n = &d.graph.nodes[i];
-    RectF::new(p.0 as f32 * GRID, p.1 as f32 * GRID, n.w as f32 * GRID, n.h as f32 * GRID)
+    RectF::new(
+        p.0 as f32 * GRID,
+        p.1 as f32 * GRID,
+        n.w as f32 * GRID,
+        n.h as f32 * GRID,
+    )
 }
 
 fn screen(h: &Harness<'static, App>, world: (f32, f32)) -> Pos2 {
@@ -142,7 +149,13 @@ fn dragging_from_edge_dot_connects_boxes() {
     h.key_press(Key::Num3);
     h.run_steps(3);
     let s = h.state().session.as_ref().unwrap();
-    let rel = s.editor.doc.relations.values().next().expect("relation created");
+    let rel = s
+        .editor
+        .doc
+        .relations
+        .values()
+        .next()
+        .expect("relation created");
     assert_eq!(rel.kind, RelationKind::Association);
     assert_eq!((rel.from.element, rel.to.element), (a, b));
     assert!(h.state().view.diagram.layout.routes[0].points.len() >= 2);
@@ -155,8 +168,16 @@ fn dragging_a_box_moves_it_and_undo_restores() {
     let r = rect_of(&h, a);
     let from = screen(&h, r.center());
     let zoom = h.state().camera.zoom;
-    drag(&mut h, from, from + Vec2::new(10.0 * GRID * zoom, 5.0 * GRID * zoom));
-    let pos = |h: &Harness<'static, App>| h.state().session.as_ref().unwrap().editor.doc.elements[&a].pos.unwrap();
+    drag(
+        &mut h,
+        from,
+        from + Vec2::new(10.0 * GRID * zoom, 5.0 * GRID * zoom),
+    );
+    let pos = |h: &Harness<'static, App>| {
+        h.state().session.as_ref().unwrap().editor.doc.elements[&a]
+            .pos
+            .unwrap()
+    };
     assert_eq!(pos(&h), Pos::new(10, 5));
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(2);
@@ -188,7 +209,10 @@ fn rubber_band_selects_and_delete_removes() {
     h.key_press(Key::Delete);
     h.run_steps(2);
     let s = h.state().session.as_ref().unwrap();
-    assert_eq!(s.editor.doc.elements.keys().copied().collect::<Vec<_>>(), vec![c]);
+    assert_eq!(
+        s.editor.doc.elements.keys().copied().collect::<Vec<_>>(),
+        vec![c]
+    );
     assert!(s.editor.doc.relations.is_empty());
 }
 
@@ -221,11 +245,14 @@ fn tool_click_creates_interface() {
 fn tidy_runs_in_background_and_is_one_undo_step() {
     let mut h = new_app();
     // All piled up on one spot.
-    let ids: Vec<ElementId> = (0..5).map(|i| add(&mut h, &format!("C{i}"), 0, 0)).collect();
+    let ids: Vec<ElementId> = (0..5)
+        .map(|i| add(&mut h, &format!("C{i}"), 0, 0))
+        .collect();
     {
         let s = h.state_mut().session.as_mut().unwrap();
         for i in 1..5 {
-            s.editor.connect(ids[i], ids[0], RelationKind::Generalization);
+            s.editor
+                .connect(ids[i], ids[0], RelationKind::Generalization);
         }
     }
     h.run_steps(2);
@@ -243,7 +270,9 @@ fn tidy_runs_in_background_and_is_one_undo_step() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(2);
     let s = h.state().session.as_ref().unwrap();
-    assert!(ids.iter().all(|id| s.editor.doc.elements[id].pos == Some(Pos::new(0, 0))));
+    assert!(ids
+        .iter()
+        .all(|id| s.editor.doc.elements[id].pos == Some(Pos::new(0, 0))));
 }
 
 #[test]

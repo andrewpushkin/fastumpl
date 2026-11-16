@@ -58,7 +58,10 @@ fn same_structure(a: &Graph, b: &Graph) -> bool {
     a.edges == b.edges
         && a.groups == b.groups
         && a.nodes.len() == b.nodes.len()
-        && a.nodes.iter().zip(&b.nodes).all(|(x, y)| x.w == y.w && x.h == y.h && x.group == y.group)
+        && a.nodes
+            .iter()
+            .zip(&b.nodes)
+            .all(|(x, y)| x.w == y.w && x.h == y.h && x.group == y.group)
 }
 
 impl View {
@@ -80,7 +83,10 @@ impl View {
         }
         let (mut graph, mapping) = build_graph(&ed.doc);
         let old = &self.diagram;
-        let layout = if self.revision.is_some() && same_structure(&graph, &old.graph) && graph.nodes.iter().all(|n| n.pos.is_some()) {
+        let layout = if self.revision.is_some()
+            && same_structure(&graph, &old.graph)
+            && graph.nodes.iter().all(|n| n.pos.is_some())
+        {
             let moved: Vec<usize> = (0..graph.nodes.len())
                 .filter(|&i| graph.nodes[i].pos != old.graph.nodes[i].pos)
                 .collect();
@@ -115,7 +121,11 @@ impl View {
             let ops = ed.position_changes(&missing);
             ed.amend(ops);
         }
-        self.diagram = Diagram { graph, mapping, layout };
+        self.diagram = Diagram {
+            graph,
+            mapping,
+            layout,
+        };
         self.revision = Some(ed.revision);
     }
 
@@ -151,7 +161,9 @@ impl View {
     }
 
     pub fn animating(&self) -> bool {
-        self.glide.as_ref().is_some_and(|g| g.start.elapsed() < GLIDE)
+        self.glide
+            .as_ref()
+            .is_some_and(|g| g.start.elapsed() < GLIDE)
     }
 
     /// Layout to draw right now: during a glide, boxes between their old
@@ -186,7 +198,13 @@ impl View {
     }
 
     /// The shapes to paint, rebuilt only when something they show changed.
-    pub fn scene(&mut self, ed: &Editor, sel: &Selection, theme: &Theme, hide_members: bool) -> &Scene {
+    pub fn scene(
+        &mut self,
+        ed: &Editor,
+        sel: &Selection,
+        theme: &Theme,
+        hide_members: bool,
+    ) -> &Scene {
         let (glide_step, layout) = self.current_layout();
         let key = SceneKey {
             revision: ed.revision,

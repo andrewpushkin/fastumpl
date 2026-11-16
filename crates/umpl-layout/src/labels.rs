@@ -6,8 +6,16 @@ use crate::graph::*;
 
 fn rect_hits_route(r: &Rect, route: &Route) -> bool {
     route.segments().any(|(p, q)| {
-        let seg = Rect::new(p.0.min(q.0), p.1.min(q.1), (p.0 - q.0).abs(), (p.1 - q.1).abs());
-        r.x < seg.right() + 1 && seg.x < r.right() + 1 && r.y < seg.bottom() + 1 && seg.y < r.bottom() + 1
+        let seg = Rect::new(
+            p.0.min(q.0),
+            p.1.min(q.1),
+            (p.0 - q.0).abs(),
+            (p.1 - q.1).abs(),
+        );
+        r.x < seg.right() + 1
+            && seg.x < r.right() + 1
+            && r.y < seg.bottom() + 1
+            && seg.y < r.bottom() + 1
     })
 }
 
@@ -38,17 +46,31 @@ fn middle_candidates(route: &Route, (w, h): (i32, i32)) -> Vec<(i32, i32)> {
         for shift in [0, -1, 1, -2, 2] {
             if p.1 == q.1 {
                 let x = mid.0 - w / 2 + shift * (w / 2 + 1);
-                out.extend([(x, mid.1 - h), (x, mid.1 + 1), (x, mid.1 - h - 1), (x, mid.1 + 2)]);
+                out.extend([
+                    (x, mid.1 - h),
+                    (x, mid.1 + 1),
+                    (x, mid.1 - h - 1),
+                    (x, mid.1 + 2),
+                ]);
             } else {
                 let y = mid.1 - h / 2 + shift * (h + 1);
-                out.extend([(mid.0 + 1, y), (mid.0 - 1 - w, y), (mid.0 + 2, y), (mid.0 - 2 - w, y)]);
+                out.extend([
+                    (mid.0 + 1, y),
+                    (mid.0 - 1 - w, y),
+                    (mid.0 + 2, y),
+                    (mid.0 - 2 - w, y),
+                ]);
             }
         }
     }
     out
 }
 
-pub(crate) fn place_labels(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]) -> Vec<[Option<(i32, i32)>; 3]> {
+pub(crate) fn place_labels(
+    graph: &Graph,
+    nodes: &[(i32, i32)],
+    routes: &[Route],
+) -> Vec<[Option<(i32, i32)>; 3]> {
     let boxes: Vec<Rect> = graph
         .nodes
         .iter()
@@ -75,7 +97,10 @@ pub(crate) fn place_labels(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]
                 let r = Rect::new(c.0, c.1, size.0, size.1);
                 100 * boxes.iter().filter(|b| b.too_close(&r, 0)).count()
                     + 10 * taken.iter().filter(|t| t.too_close(&r, 0)).count()
-                    + routes.iter().filter(|other| rect_hits_route(&r, other)).count()
+                    + routes
+                        .iter()
+                        .filter(|other| rect_hits_route(&r, other))
+                        .count()
             };
             // First free spot, else the least bad one (earliest on ties).
             let pick = cands
@@ -118,7 +143,10 @@ mod tests {
             let size = g.edges[0].labels[k].unwrap();
             let r = Rect::new(p.0, p.1, size.0, size.1);
             for (i, n) in nodes.iter().enumerate() {
-                assert!(!r.too_close(&Rect::new(n.0, n.1, g.nodes[i].w, g.nodes[i].h), 0), "label {k} on box {i}");
+                assert!(
+                    !r.too_close(&Rect::new(n.0, n.1, g.nodes[i].w, g.nodes[i].h), 0),
+                    "label {k} on box {i}"
+                );
             }
         }
     }

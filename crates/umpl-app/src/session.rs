@@ -37,7 +37,8 @@ impl Session {
     /// whole diagram is laid out if the file has no `layout` block); that
     /// does not count as an unsaved change.
     pub fn open(path: &Path) -> Result<Session, String> {
-        let src = std::fs::read_to_string(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        let src = std::fs::read_to_string(path)
+            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
         let mut s = Session::from_text(&src);
         s.path = Some(path.to_path_buf());
         s.disk_stamp = mtime(path);
@@ -87,7 +88,8 @@ impl Session {
     }
 
     pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
-        write_atomic(path, self.text().as_bytes()).map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
+        write_atomic(path, self.text().as_bytes())
+            .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
         self.path = Some(path.to_path_buf());
         self.saved_revision = self.editor.revision;
         self.disk_stamp = mtime(path);

@@ -84,7 +84,9 @@ fn random_document(seed: u64) -> Document {
     for i in 0..1 + rng.below(12) {
         let kind = ElementKind::ALL[rng.below(ElementKind::ALL.len())];
         let pkg = packages[rng.below(packages.len())];
-        let pos = rng.chance(70).then(|| Pos::new(rng.below(100) as i32 - 20, rng.below(100) as i32));
+        let pos = rng
+            .chance(70)
+            .then(|| Pos::new(rng.below(100) as i32 - 20, rng.below(100) as i32));
         let id = ed.add_element(kind, &format!("E{i}"), pkg, pos);
         let mut el = ed.doc.elements[&id].clone();
         for _ in 0..rng.below(5) {
@@ -150,9 +152,18 @@ fn print_parse_print_is_stable_for_random_documents() {
         assert_eq!(parsed.problems, vec![], "seed {seed}:\n{text}");
         assert_eq!(print(&parsed.doc), text, "seed {seed}");
         assert_eq!(parsed.doc.elements.len(), doc.elements.len(), "seed {seed}");
-        assert_eq!(parsed.doc.relations.len(), doc.relations.len(), "seed {seed}");
+        assert_eq!(
+            parsed.doc.relations.len(),
+            doc.relations.len(),
+            "seed {seed}"
+        );
         let mut names: Vec<_> = doc.elements.keys().map(|id| doc.full_name(*id)).collect();
-        let mut parsed_names: Vec<_> = parsed.doc.elements.keys().map(|id| parsed.doc.full_name(*id)).collect();
+        let mut parsed_names: Vec<_> = parsed
+            .doc
+            .elements
+            .keys()
+            .map(|id| parsed.doc.full_name(*id))
+            .collect();
         names.sort();
         parsed_names.sort();
         assert_eq!(names, parsed_names, "seed {seed}");

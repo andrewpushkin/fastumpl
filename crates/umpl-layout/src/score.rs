@@ -229,7 +229,11 @@ mod tests {
     #[test]
     fn overlap_and_shared_lane_detected() {
         let g = graph_with_edges(4);
-        let s = measure(&g, &[(0, 0), (1, 1), (50, 50), (80, 80)], &[route(&[(0, 5), (10, 5)]), route(&[(2, 5), (8, 5)])]);
+        let s = measure(
+            &g,
+            &[(0, 0), (1, 1), (50, 50), (80, 80)],
+            &[route(&[(0, 5), (10, 5)]), route(&[(2, 5), (8, 5)])],
+        );
         assert_eq!(s.overlaps, 1);
         assert_eq!(s.shared_lanes, 5);
     }

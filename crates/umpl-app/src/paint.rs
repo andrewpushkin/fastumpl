@@ -2,7 +2,10 @@
 //! skipped when it is off screen.
 
 use egui::epaint::{CircleShape, PathShape, PathStroke};
-use egui::{Align2, Color32, CornerRadius, FontFamily, FontId, Painter, Pos2, Rect, Shape as EShape, Stroke, StrokeKind};
+use egui::{
+    Align2, Color32, CornerRadius, FontFamily, FontId, Painter, Pos2, Rect, Shape as EShape,
+    Stroke, StrokeKind,
+};
 use umpl_draw::{Color, Scene, Shape};
 
 use crate::camera::Camera;
@@ -37,7 +40,9 @@ pub fn install_fonts(ctx: &egui::Context) {
         fonts
             .font_data
             .insert(name.into(), Arc::new(egui::FontData::from_static(bytes)));
-        fonts.families.insert(FontFamily::Name(name.into()), vec![name.into()]);
+        fonts
+            .families
+            .insert(FontFamily::Name(name.into()), vec![name.into()]);
     }
     ctx.set_fonts(fonts);
 }
@@ -55,12 +60,18 @@ pub fn paint_scene(painter: &Painter, scene: &Scene, cam: &Camera, clip: Rect) {
     let visible = clip.expand(20.0);
     for shape in &scene.shapes {
         match shape {
-            Shape::Rect { rect, fill, stroke, radius } => {
+            Shape::Rect {
+                rect,
+                fill,
+                stroke,
+                radius,
+            } => {
                 let r = cam.rect_to_screen(*rect);
                 if !visible.intersects(r) {
                     continue;
                 }
-                let stroke = stroke.map_or(Stroke::NONE, |(c, w)| Stroke::new((w * z).max(0.6), c32(c)));
+                let stroke =
+                    stroke.map_or(Stroke::NONE, |(c, w)| Stroke::new((w * z).max(0.6), c32(c)));
                 painter.rect(
                     r,
                     CornerRadius::same((radius * z).round().clamp(0.0, 255.0) as u8),
@@ -69,12 +80,19 @@ pub fn paint_scene(painter: &Painter, scene: &Scene, cam: &Camera, clip: Rect) {
                     StrokeKind::Middle,
                 );
             }
-            Shape::Path { points, stroke, fill, closed, dashed } => {
+            Shape::Path {
+                points,
+                stroke,
+                fill,
+                closed,
+                dashed,
+            } => {
                 let pts: Vec<Pos2> = points.iter().map(|p| cam.to_screen(*p)).collect();
                 if pts.len() < 2 || !visible.intersects(bbox(&pts)) {
                     continue;
                 }
-                let st = stroke.map_or(Stroke::NONE, |(c, w)| Stroke::new((w * z).max(0.6), c32(c)));
+                let st =
+                    stroke.map_or(Stroke::NONE, |(c, w)| Stroke::new((w * z).max(0.6), c32(c)));
                 if *closed {
                     painter.add(EShape::Path(PathShape {
                         points: pts,
@@ -88,12 +106,20 @@ pub fn paint_scene(painter: &Painter, scene: &Scene, cam: &Camera, clip: Rect) {
                     painter.add(EShape::line(pts, st));
                 }
             }
-            Shape::Circle { center, radius, fill } => {
+            Shape::Circle {
+                center,
+                radius,
+                fill,
+            } => {
                 let c = cam.to_screen(*center);
                 if !visible.contains(c) {
                     continue;
                 }
-                painter.add(EShape::Circle(CircleShape::filled(c, radius * z, c32(*fill))));
+                painter.add(EShape::Circle(CircleShape::filled(
+                    c,
+                    radius * z,
+                    c32(*fill),
+                )));
             }
             Shape::Text { pos, text, style } => {
                 let size = style.size * z;
@@ -101,11 +127,24 @@ pub fn paint_scene(painter: &Painter, scene: &Scene, cam: &Camera, clip: Rect) {
                 if size < 3.5 || !visible.contains(p) && !style.centered {
                     continue;
                 }
-                let anchor = if style.centered { Align2::CENTER_CENTER } else { Align2::LEFT_CENTER };
-                let r = painter.text(p, anchor, text, FontId::new(size, family(style.bold, style.italic)), c32(style.color));
+                let anchor = if style.centered {
+                    Align2::CENTER_CENTER
+                } else {
+                    Align2::LEFT_CENTER
+                };
+                let r = painter.text(
+                    p,
+                    anchor,
+                    text,
+                    FontId::new(size, family(style.bold, style.italic)),
+                    c32(style.color),
+                );
                 if style.underline {
                     let y = r.bottom() - size * 0.12;
-                    painter.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], Stroke::new((0.8 * z).max(0.5), c32(style.color)));
+                    painter.line_segment(
+                        [Pos2::new(r.left(), y), Pos2::new(r.right(), y)],
+                        Stroke::new((0.8 * z).max(0.5), c32(style.color)),
+                    );
                 }
             }
         }

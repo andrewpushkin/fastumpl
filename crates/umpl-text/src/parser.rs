@@ -112,7 +112,10 @@ impl Parser {
                     let el = self.doc.elements.get_mut(&id).unwrap();
                     if is_enum {
                         el.members.extend(
-                            t.split(',').map(str::trim).filter(|s| !s.is_empty()).map(Member::plain),
+                            t.split(',')
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .map(Member::plain),
                         );
                     } else {
                         el.members.push(Member::parse_line(t));
@@ -183,15 +186,10 @@ impl Parser {
         if name.contains('.') {
             return false;
         }
-        let open = if c.eat("{") {
-            if c.eat("}") {
-                false
-            } else {
-                true
-            }
-        } else {
+        if !c.eat("{") {
             return false;
-        };
+        }
+        let open = !c.eat("}");
         if !c.at_end() {
             return false;
         }
@@ -258,7 +256,11 @@ impl Parser {
             return name.to_string();
         }
         let new = self.doc.unique_name(name, container);
-        self.problem(n, 1, format!("`{name}` is declared twice; the second one was renamed to `{new}`"));
+        self.problem(
+            n,
+            1,
+            format!("`{name}` is declared twice; the second one was renamed to `{new}`"),
+        );
         new
     }
 
@@ -302,7 +304,11 @@ impl Parser {
         if let Some(inner) = inline {
             let sep = if is_enum { ',' } else { ';' };
             for part in inner.split(sep).map(str::trim).filter(|s| !s.is_empty()) {
-                el.members.push(if is_enum { Member::plain(part) } else { Member::parse_line(part) });
+                el.members.push(if is_enum {
+                    Member::plain(part)
+                } else {
+                    Member::parse_line(part)
+                });
             }
         }
         self.doc.elements.insert(id, el);
@@ -341,7 +347,9 @@ impl Parser {
         let mut c = Cursor::new(t);
         let Some(a) = c.ident() else { return false };
         let la = c.string();
-        let Some((kind, reversed)) = c.arrow() else { return false };
+        let Some((kind, reversed)) = c.arrow() else {
+            return false;
+        };
         let lb = c.string();
         let Some(b) = c.ident() else { return false };
         let name = if c.eat(":") {
@@ -409,12 +417,19 @@ impl Parser {
                     self.doc.relations.insert(rel.id, relation);
                 }
                 _ => {
-                    let bad = if ends[0].is_none() { &rel.from.0 } else { &rel.to.0 };
+                    let bad = if ends[0].is_none() {
+                        &rel.from.0
+                    } else {
+                        &rel.to.0
+                    };
                     let col = rel.text.find(bad.as_str()).map(|i| i + 1).unwrap_or(1);
                     let message = format!("unknown element `{bad}`; line kept as written");
                     self.problem(rel.line, col, message);
-                    let mut replacement: Vec<Decl> =
-                        rel.comments.iter().map(|c| Decl::Raw(comment_line(c))).collect();
+                    let mut replacement: Vec<Decl> = rel
+                        .comments
+                        .iter()
+                        .map(|c| Decl::Raw(comment_line(c)))
+                        .collect();
                     replacement.push(Decl::Raw(rel.text.clone()));
                     let body = match rel.container {
                         Some(p) => &mut self.doc.packages.get_mut(&p).unwrap().body,
@@ -430,7 +445,11 @@ impl Parser {
         for p in std::mem::take(&mut self.positions) {
             match names.get(&p.name) {
                 Some(id) => self.doc.elements.get_mut(id).unwrap().pos = Some(p.pos),
-                None => self.problem(p.line, 1, format!("position for unknown element `{}` ignored", p.name)),
+                None => self.problem(
+                    p.line,
+                    1,
+                    format!("position for unknown element `{}` ignored", p.name),
+                ),
             }
         }
 
@@ -464,7 +483,9 @@ impl Parser {
             return None;
         }
         let id = self.doc.new_element_id();
-        self.doc.elements.insert(id, Element::new(ElementKind::Class, name));
+        self.doc
+            .elements
+            .insert(id, Element::new(ElementKind::Class, name));
         self.doc.root.push(Decl::Element(id));
         names.insert(name.to_string(), id);
         Some(id)
@@ -543,13 +564,24 @@ layout {
         assert_eq!(el(d, "Priced").kind, ElementKind::Interface);
         let status = el(d, "Status");
         assert_eq!(status.kind, ElementKind::Enum);
-        assert_eq!(status.members.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["New", "Paid", "Shipped"]);
+        assert_eq!(
+            status
+                .members
+                .iter()
+                .map(|m| m.text.as_str())
+                .collect::<Vec<_>>(),
+            ["New", "Paid", "Shipped"]
+        );
         assert_eq!(el(d, "Order").pos, Some(Pos::new(24, 8)));
         assert_eq!(el(d, "billing.CardPayment").pos, Some(Pos::new(48, 22)));
         // OrderLine is only mentioned in a relation, so it was created.
         assert_eq!(el(d, "OrderLine").pos, Some(Pos::new(24, 22)));
 
-        let comp = d.relations.values().find(|r| r.kind == RelationKind::Composition).unwrap();
+        let comp = d
+            .relations
+            .values()
+            .find(|r| r.kind == RelationKind::Composition)
+            .unwrap();
         assert_eq!(comp.from.element, d.find("Order").unwrap());
         assert_eq!(comp.from.label.as_deref(), Some("1"));
         assert_eq!(comp.to.label.as_deref(), Some("1..*"));
@@ -636,7 +668,10 @@ layout {
         assert_eq!(n.members.len(), 2);
         let a = &p.doc.elements[&p.doc.find("A").unwrap()];
         assert_eq!(a.stereotype.as_deref(), Some("entity"));
-        assert_eq!(p.doc.relations.values().next().unwrap().kind, RelationKind::NoteLink);
+        assert_eq!(
+            p.doc.relations.values().next().unwrap().kind,
+            RelationKind::NoteLink
+        );
     }
 
     #[test]

@@ -6,11 +6,18 @@ use std::path::Path;
 /// the data goes to a temporary file in the same folder, which is then
 /// renamed over the target.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-    let tmp = dir.join(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
+    let tmp = dir.join(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
     let result = (|| {
         let mut f = File::create(&tmp)?;
         f.write_all(contents)?;

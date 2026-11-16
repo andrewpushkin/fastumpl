@@ -33,7 +33,13 @@ fn escape(s: &str) -> String {
 fn path_d(points: &[(f32, f32)], closed: bool) -> String {
     let mut d = String::new();
     for (i, p) in points.iter().enumerate() {
-        let _ = write!(d, "{}{} {}", if i == 0 { "M" } else { " L" }, num(p.0), num(p.1));
+        let _ = write!(
+            d,
+            "{}{} {}",
+            if i == 0 { "M" } else { " L" },
+            num(p.0),
+            num(p.1)
+        );
     }
     if closed {
         d.push_str(" Z");
@@ -64,7 +70,12 @@ pub fn to_svg(scene: &Scene, theme: &Theme) -> String {
     );
     for shape in &scene.shapes {
         match shape {
-            Shape::Rect { rect, fill, stroke, radius } => {
+            Shape::Rect {
+                rect,
+                fill,
+                stroke,
+                radius,
+            } => {
                 let _ = write!(
                     out,
                     r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}""#,
@@ -80,7 +91,13 @@ pub fn to_svg(scene: &Scene, theme: &Theme) -> String {
                 }
                 out.push_str("/>\n");
             }
-            Shape::Path { points, stroke, fill, closed, dashed } => {
+            Shape::Path {
+                points,
+                stroke,
+                fill,
+                closed,
+                dashed,
+            } => {
                 let _ = write!(
                     out,
                     r#"<path d="{}" fill="{}""#,
@@ -100,7 +117,11 @@ pub fn to_svg(scene: &Scene, theme: &Theme) -> String {
                 }
                 out.push_str("/>\n");
             }
-            Shape::Circle { center, radius, fill } => {
+            Shape::Circle {
+                center,
+                radius,
+                fill,
+            } => {
                 let _ = writeln!(
                     out,
                     r#"<circle cx="{}" cy="{}" r="{}" fill="{}"/>"#,
@@ -152,10 +173,20 @@ mod tests {
         let p = umpl_text::parse(include_str!("../../../examples/shop.umpl"));
         let d = Diagram::arrange(&p.doc);
         let theme = Theme::light();
-        let svg = to_svg(&build_scene(&p.doc, &d, &theme, &SceneOptions::default()), &theme);
+        let svg = to_svg(
+            &build_scene(&p.doc, &d, &theme, &SceneOptions::default()),
+            &theme,
+        );
         assert!(svg.starts_with("<svg ") && svg.trim_end().ends_with("</svg>"));
         assert_eq!(svg.matches("<text").count(), svg.matches("</text>").count());
-        for name in ["Order", "Payment", "CardPayment", "Priced", "Status", "OrderLine"] {
+        for name in [
+            "Order",
+            "Payment",
+            "CardPayment",
+            "Priced",
+            "Status",
+            "OrderLine",
+        ] {
             assert!(svg.contains(&format!(">{name}</text>")), "missing {name}");
         }
         assert!(svg.contains("List&lt;OrderLine&gt;"));

@@ -46,7 +46,11 @@ impl Layered {
                 continue;
             }
             let (u, l) = if la < lb { (e.a, e.b) } else { (e.b, e.a) };
-            let weight = if e.kind == EdgeKind::Hierarchy { 2.0 } else { 1.0 };
+            let weight = if e.kind == EdgeKind::Hierarchy {
+                2.0
+            } else {
+                1.0
+            };
             let mut prev = u;
             for k in layer_of[u] + 1..layer_of[l] {
                 let d = layer_of.len();
@@ -205,13 +209,21 @@ impl Layered {
 
     fn barycenter_sweep(&mut self, downwards: bool) {
         let n = self.layers.len();
-        let ks: Vec<usize> = if downwards { (1..n).collect() } else { (0..n.saturating_sub(1)).rev().collect() };
+        let ks: Vec<usize> = if downwards {
+            (1..n).collect()
+        } else {
+            (0..n.saturating_sub(1)).rev().collect()
+        };
         for k in ks {
             let mut keyed: Vec<(f64, usize, usize)> = self.layers[k]
                 .iter()
                 .enumerate()
                 .map(|(p, &i)| {
-                    let nb = if downwards { &self.up[i] } else { &self.down[i] };
+                    let nb = if downwards {
+                        &self.up[i]
+                    } else {
+                        &self.down[i]
+                    };
                     let mut sum = 0.0;
                     let mut cnt = 0.0;
                     for &o in nb {
@@ -250,7 +262,12 @@ impl Layered {
                     continue;
                 }
                 layers[self.layer_of[v]].push(v);
-                let mut next: Vec<usize> = self.down[v].iter().chain(&self.same_of[v]).chain(&self.up[v]).copied().collect();
+                let mut next: Vec<usize> = self.down[v]
+                    .iter()
+                    .chain(&self.same_of[v])
+                    .chain(&self.up[v])
+                    .copied()
+                    .collect();
                 next.reverse();
                 stack.extend(next);
             }

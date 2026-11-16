@@ -201,7 +201,11 @@ impl Cmd {
     /// Commands checked against the keyboard each frame, most specific
     /// (more modifiers) first so Ctrl+Shift+S is not read as Ctrl+S.
     pub fn keyboard_order() -> Vec<Cmd> {
-        let mut v: Vec<Cmd> = Cmd::all().into_iter().chain([Cmd::Palette]).filter(|c| c.shortcut().is_some()).collect();
+        let mut v: Vec<Cmd> = Cmd::all()
+            .into_iter()
+            .chain([Cmd::Palette])
+            .filter(|c| c.shortcut().is_some())
+            .collect();
         v.sort_by_key(|c| {
             let m = c.shortcut().unwrap().modifiers;
             std::cmp::Reverse(m.shift as u8 + m.command as u8 + m.alt as u8)

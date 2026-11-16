@@ -49,7 +49,13 @@ fn separation(lay: &Layered, widths: &[i32], a: usize, b: usize) -> f64 {
 }
 
 /// Places one layer as close as possible to the desired centres.
-fn place_layer(lay: &Layered, widths: &[i32], layer: &[usize], desired: &[f64], weight: &[f64]) -> Vec<f64> {
+fn place_layer(
+    lay: &Layered,
+    widths: &[i32],
+    layer: &[usize],
+    desired: &[f64],
+    weight: &[f64],
+) -> Vec<f64> {
     // c_i = y_i + off_i with off_i the packed offsets turns the gap
     // constraints into y nondecreasing.
     let mut off = vec![0.0; layer.len()];
@@ -89,7 +95,11 @@ pub(crate) fn assign_coords(lay: &Layered, widths: &[i32], heights: &[i32]) -> V
     for it in 0..12 {
         // 0 = use neighbours above, 1 = below, 2 = both.
         let mode = if it >= 10 { 2 } else { it % 2 };
-        let ks: Vec<usize> = if mode == 1 { (0..n_layers).rev().collect() } else { (0..n_layers).collect() };
+        let ks: Vec<usize> = if mode == 1 {
+            (0..n_layers).rev().collect()
+        } else {
+            (0..n_layers).collect()
+        };
         for k in ks {
             let layer = &lay.layers[k];
             let mut desired = Vec::with_capacity(layer.len());
@@ -131,7 +141,9 @@ pub(crate) fn assign_coords(lay: &Layered, widths: &[i32], heights: &[i32]) -> V
             let mut x = (center[i] - widths[i] as f64 / 2.0).round() as i32;
             if p > 0 {
                 let prev = layer[p - 1];
-                let min_gap = (separation(lay, widths, prev, i) - (widths[prev] + widths[i]) as f64 / 2.0).round() as i32;
+                let min_gap = (separation(lay, widths, prev, i)
+                    - (widths[prev] + widths[i]) as f64 / 2.0)
+                    .round() as i32;
                 x = x.max(left[prev] + widths[prev] + min_gap);
             }
             left[i] = x;
@@ -159,7 +171,10 @@ fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i3
         let lines_above = if k == 0 {
             0
         } else {
-            lay.links.iter().filter(|&&(u, _, _)| lay.layer_of[u] == k - 1).count() as i32
+            lay.links
+                .iter()
+                .filter(|&&(u, _, _)| lay.layer_of[u] == k - 1)
+                .count() as i32
         };
         let gap = LAYER_GAP + (lines_above / 3).min(10);
         let layer = &lay.layers[k];
@@ -170,7 +185,10 @@ fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i3
             }
             let (l, r) = (left[i] - 1, left[i] + widths[i] + 1);
             // Lines (dummies) do not push boxes down, and are not pushed.
-            for &j in placed.iter().filter(|&&j| !lay.is_dummy(j) && !lay.is_dummy(i)) {
+            for &j in placed
+                .iter()
+                .filter(|&&j| !lay.is_dummy(j) && !lay.is_dummy(i))
+            {
                 if left[j] < r && l < left[j] + widths[j] {
                     yy = yy.max(y[j] + heights[j] + gap);
                 }

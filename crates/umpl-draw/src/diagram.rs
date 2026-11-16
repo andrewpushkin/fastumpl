@@ -58,11 +58,14 @@ pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
     let mut m = Mapping::default();
 
     let packages = doc.packages_in_order();
-    let group_of: HashMap<PackageId, usize> = packages.iter().enumerate().map(|(i, p)| (*p, i)).collect();
+    let group_of: HashMap<PackageId, usize> =
+        packages.iter().enumerate().map(|(i, p)| (*p, i)).collect();
     for p in &packages {
         let name = &doc.packages[p].name;
         g.groups.push(Group {
-            parent: doc.container_of(&Decl::Package(*p)).and_then(|q| group_of.get(&q).copied()),
+            parent: doc
+                .container_of(&Decl::Package(*p))
+                .and_then(|q| group_of.get(&q).copied()),
             header: PACKAGE_HEADER,
             min_w: ((text_width(name, 12.0) + 24.0) / crate::GRID).ceil() as i32 + 4,
         });
@@ -77,14 +80,21 @@ pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
         g.nodes.push(Node {
             w,
             h,
-            group: doc.element_package(id).and_then(|p| group_of.get(&p).copied()),
+            group: doc
+                .element_package(id)
+                .and_then(|p| group_of.get(&p).copied()),
             pos: el.pos.map(|p| (p.x, p.y)),
         });
         m.nodes.push(NodeRef::Element(id));
         m.contents.push(Some(content));
     }
     for p in &packages {
-        if doc.elements_in(*p).is_empty() && !doc.body(Some(*p)).iter().any(|d| matches!(d, Decl::Package(_))) {
+        if doc.elements_in(*p).is_empty()
+            && !doc
+                .body(Some(*p))
+                .iter()
+                .any(|d| matches!(d, Decl::Package(_)))
+        {
             g.nodes.push(Node {
                 w: PLACEHOLDER.0,
                 h: PLACEHOLDER.1,
@@ -128,14 +138,22 @@ impl Diagram {
     pub fn arrange(doc: &Document) -> Diagram {
         let (graph, mapping) = build_graph(doc);
         let layout = umpl_layout::route_only(&graph);
-        Diagram { graph, mapping, layout }
+        Diagram {
+            graph,
+            mapping,
+            layout,
+        }
     }
 
     /// Lays out everything from scratch (Tidy).
     pub fn tidy(doc: &Document, opts: &Options) -> Diagram {
         let (graph, mapping) = build_graph(doc);
         let layout = umpl_layout::layout_all(&graph, opts);
-        Diagram { graph, mapping, layout }
+        Diagram {
+            graph,
+            mapping,
+            layout,
+        }
     }
 
     /// Element positions to store in the document.
@@ -166,7 +184,11 @@ mod tests {
         let pay = m.node_of(p.doc.find("billing.Payment").unwrap()).unwrap();
         assert_eq!(g.nodes[pay].group, Some(0));
         assert!(g.nodes[pay].pos.is_some());
-        let gen = g.edges.iter().find(|e| e.kind == EdgeKind::Hierarchy).unwrap();
+        let gen = g
+            .edges
+            .iter()
+            .find(|e| e.kind == EdgeKind::Hierarchy)
+            .unwrap();
         assert_eq!(gen.to, pay);
     }
 

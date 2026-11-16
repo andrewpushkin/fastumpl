@@ -22,16 +22,25 @@ impl Default for Camera {
 }
 
 impl Camera {
-    pub fn to_screen(&self, p: (f32, f32)) -> Pos2 {
-        Pos2::new(self.origin.x + p.0 * self.zoom, self.origin.y + p.1 * self.zoom)
+    pub fn to_screen(self, p: (f32, f32)) -> Pos2 {
+        Pos2::new(
+            self.origin.x + p.0 * self.zoom,
+            self.origin.y + p.1 * self.zoom,
+        )
     }
 
-    pub fn to_world(&self, p: Pos2) -> (f32, f32) {
-        ((p.x - self.origin.x) / self.zoom, (p.y - self.origin.y) / self.zoom)
+    pub fn to_world(self, p: Pos2) -> (f32, f32) {
+        (
+            (p.x - self.origin.x) / self.zoom,
+            (p.y - self.origin.y) / self.zoom,
+        )
     }
 
     pub fn rect_to_screen(&self, r: RectF) -> Rect {
-        Rect::from_min_max(self.to_screen((r.x, r.y)), self.to_screen((r.right(), r.bottom())))
+        Rect::from_min_max(
+            self.to_screen((r.x, r.y)),
+            self.to_screen((r.right(), r.bottom())),
+        )
     }
 
     pub fn world_rect(&self, screen: Rect) -> RectF {

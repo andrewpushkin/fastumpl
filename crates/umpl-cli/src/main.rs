@@ -119,10 +119,19 @@ fn render(args: &[String]) -> Result<bool, String> {
     let parsed = read(input)?;
     report(input, &parsed);
     let diagram = arrange(&parsed, a.tidy);
-    let theme = if a.dark { Theme::dark() } else { Theme::light() };
+    let theme = if a.dark {
+        Theme::dark()
+    } else {
+        Theme::light()
+    };
     let scene = build_scene(&parsed.doc, &diagram, &theme, &SceneOptions::default());
     let svg = to_svg(&scene, &theme);
-    let bytes = match out.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    let bytes = match out
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("svg") => svg.into_bytes(),
         Some("png") => umpl_draw::png::svg_to_png(&svg, a.scale)?,
         _ => return Err("output must end in .svg or .png".into()),
@@ -139,8 +148,13 @@ fn tidy(args: &[String]) -> Result<bool, String> {
         let diagram = Diagram::tidy(&parsed.doc, &Options::default());
         let mut ed = Editor::new(parsed.doc);
         ed.set_positions(&diagram.positions());
-        write_atomic(path, print(&ed.doc).as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
-        println!("{}: {} crossings", path.display(), diagram.layout.stats.crossings);
+        write_atomic(path, print(&ed.doc).as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        println!(
+            "{}: {} crossings",
+            path.display(),
+            diagram.layout.stats.crossings
+        );
     }
     Ok(true)
 }
@@ -158,7 +172,8 @@ fn fmt(args: &[String]) -> Result<bool, String> {
             println!("{}: not formatted", path.display());
             ok = false;
         } else {
-            write_atomic(path, formatted.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
+            write_atomic(path, formatted.as_bytes())
+                .map_err(|e| format!("{}: {e}", path.display()))?;
         }
     }
     Ok(ok)

@@ -2,10 +2,12 @@
 //! and editing boxes in place.
 
 use egui::{
-    Align2, Color32, CursorIcon, FontId, Id, Key, Order, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui,
-    Vec2,
+    Align2, Color32, CursorIcon, FontId, Id, Key, Order, PointerButton, Pos2, Rect, Response,
+    Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
 };
-use umpl_core::{Element, ElementId, ElementKind, Member, PackageId, Pos, RelationId, RelationKind};
+use umpl_core::{
+    Element, ElementId, ElementKind, Member, PackageId, Pos, RelationId, RelationKind,
+};
 use umpl_draw::{RectF, GRID};
 
 use crate::app::App;
@@ -106,7 +108,11 @@ struct Geometry {
 fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = dx * dx + dy * dy;
-    let t = if len2 == 0.0 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0) };
+    let t = if len2 == 0.0 {
+        0.0
+    } else {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    };
     let (x, y) = (a.0 + t * dx, a.1 + t * dy);
     ((p.0 - x).powi(2) + (p.1 - y).powi(2)).sqrt()
 }
@@ -121,7 +127,13 @@ pub fn handles(r: RectF) -> [(f32, f32); 4] {
 pub fn members_text(el: &Element) -> String {
     el.members
         .iter()
-        .map(|m| if el.kind == ElementKind::Note || el.kind == ElementKind::Enum { m.text.clone() } else { m.to_line() })
+        .map(|m| {
+            if el.kind == ElementKind::Note || el.kind == ElementKind::Enum {
+                m.text.clone()
+            } else {
+                m.to_line()
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -157,17 +169,40 @@ impl App {
         for (i, r) in d.mapping.nodes.iter().enumerate() {
             if let (umpl_draw::NodeRef::Element(id), Some(p)) = (r, d.layout.nodes.get(i)) {
                 let n = &d.graph.nodes[i];
-                g.elements.push((*id, RectF::new(p.0 as f32 * GRID, p.1 as f32 * GRID, n.w as f32 * GRID, n.h as f32 * GRID)));
+                g.elements.push((
+                    *id,
+                    RectF::new(
+                        p.0 as f32 * GRID,
+                        p.1 as f32 * GRID,
+                        n.w as f32 * GRID,
+                        n.h as f32 * GRID,
+                    ),
+                ));
             }
         }
         for (e, id) in d.mapping.relations.iter().enumerate() {
             if let Some(route) = d.layout.routes.get(e) {
-                g.relations.push((*id, route.points.iter().map(|p| (p.0 as f32 * GRID, p.1 as f32 * GRID)).collect()));
+                g.relations.push((
+                    *id,
+                    route
+                        .points
+                        .iter()
+                        .map(|p| (p.0 as f32 * GRID, p.1 as f32 * GRID))
+                        .collect(),
+                ));
             }
         }
         for (gi, id) in d.mapping.packages.iter().enumerate() {
             if let Some(r) = d.layout.groups.get(gi) {
-                g.packages.push((*id, RectF::new(r.x as f32 * GRID, r.y as f32 * GRID, r.w as f32 * GRID, r.h as f32 * GRID)));
+                g.packages.push((
+                    *id,
+                    RectF::new(
+                        r.x as f32 * GRID,
+                        r.y as f32 * GRID,
+                        r.w as f32 * GRID,
+                        r.h as f32 * GRID,
+                    ),
+                ));
             }
         }
         g
@@ -191,7 +226,10 @@ impl App {
         }
         let tol = 6.0 / z;
         for (id, pts) in &geo.relations {
-            if pts.windows(2).any(|w| dist_to_segment(world, w[0], w[1]) < tol) {
+            if pts
+                .windows(2)
+                .any(|w| dist_to_segment(world, w[0], w[1]) < tol)
+            {
                 return Hit::Relation(*id);
             }
         }
@@ -244,9 +282,17 @@ impl App {
     }
 
     /// Adds an element centred on `world` and opens the inline editor.
-    fn create_at(&mut self, kind: ElementKind, world: (f32, f32), pkg: Option<PackageId>) -> Option<ElementId> {
+    fn create_at(
+        &mut self,
+        kind: ElementKind,
+        world: (f32, f32),
+        pkg: Option<PackageId>,
+    ) -> Option<ElementId> {
         let s = self.session.as_mut()?;
-        let pos = Pos::new((world.0 / GRID).round() as i32 - 5, (world.1 / GRID).round() as i32 - 2);
+        let pos = Pos::new(
+            (world.0 / GRID).round() as i32 - 5,
+            (world.1 / GRID).round() as i32 - 2,
+        );
         let base = match kind {
             ElementKind::Note => "Note",
             ElementKind::Interface => "Interface",
@@ -267,7 +313,9 @@ impl App {
 
     pub fn start_edit(&mut self, id: ElementId) {
         let Some(s) = &self.session else { return };
-        let Some(el) = s.editor.doc.elements.get(&id) else { return };
+        let Some(el) = s.editor.doc.elements.get(&id) else {
+            return;
+        };
         self.canvas.edit = Some(InlineEdit {
             id,
             name: el.name.clone(),
@@ -280,8 +328,12 @@ impl App {
     /// Applies the inline editor. Returns false (and keeps it open) when the
     /// name is not acceptable.
     fn commit_edit(&mut self) -> bool {
-        let Some(edit) = &mut self.canvas.edit else { return true };
-        let Some(s) = &mut self.session else { return true };
+        let Some(edit) = &mut self.canvas.edit else {
+            return true;
+        };
+        let Some(s) = &mut self.session else {
+            return true;
+        };
         let Some(el) = s.editor.doc.elements.get(&edit.id) else {
             self.canvas.edit = None;
             return true;
@@ -306,14 +358,24 @@ impl App {
         true
     }
 
-    fn connect(&mut self, from: ElementId, to: Option<ElementId>, at: (f32, f32), kind: RelationKind) {
+    fn connect(
+        &mut self,
+        from: ElementId,
+        to: Option<ElementId>,
+        at: (f32, f32),
+        kind: RelationKind,
+    ) {
         let to = match to {
             Some(t) => t,
             None => {
                 let Some(s) = &mut self.session else { return };
                 let pkg = s.editor.doc.element_package(from);
-                let pos = Pos::new((at.0 / GRID).round() as i32 - 5, (at.1 / GRID).round() as i32 - 2);
-                s.editor.add_element(ElementKind::Class, "Class", pkg, Some(pos))
+                let pos = Pos::new(
+                    (at.0 / GRID).round() as i32 - 5,
+                    (at.1 / GRID).round() as i32 - 2,
+                );
+                s.editor
+                    .add_element(ElementKind::Class, "Class", pkg, Some(pos))
             }
         };
         let Some(s) = &mut self.session else { return };
@@ -373,16 +435,21 @@ impl App {
             Hit::Element(id) => Some(id),
             _ => None,
         });
-        let hit_now = pointer_world.map_or(Hit::Empty, |w| self.hit(&geo, w, self.tool == Tool::Select));
+        let hit_now =
+            pointer_world.map_or(Hit::Empty, |w| self.hit(&geo, w, self.tool == Tool::Select));
         let accent = c32(theme.accent);
 
         // Cursor.
         match (&self.canvas.drag, hit_now, self.tool) {
             (Some(Drag::Move { .. }), _, _) => ctx.set_cursor_icon(CursorIcon::Grabbing),
-            (Some(Drag::Connect { .. }), _, _) | (None, Hit::Handle(_), _) => ctx.set_cursor_icon(CursorIcon::Crosshair),
+            (Some(Drag::Connect { .. }), _, _) | (None, Hit::Handle(_), _) => {
+                ctx.set_cursor_icon(CursorIcon::Crosshair)
+            }
             (None, _, Tool::Element(_) | Tool::Package) => ctx.set_cursor_icon(CursorIcon::Cell),
             (None, Hit::Element(_), Tool::Relation) => ctx.set_cursor_icon(CursorIcon::Crosshair),
-            (None, Hit::Element(_) | Hit::Package(_), Tool::Select) => ctx.set_cursor_icon(CursorIcon::Grab),
+            (None, Hit::Element(_) | Hit::Package(_), Tool::Select) => {
+                ctx.set_cursor_icon(CursorIcon::Grab)
+            }
             _ => {}
         }
 
@@ -403,14 +470,28 @@ impl App {
         }
         match &self.canvas.drag {
             Some(Drag::Rubber { start, current, .. }) => {
-                let r = Rect::from_two_pos(self.camera.to_screen(*start), self.camera.to_screen(*current));
-                painter.rect(r, 2.0, accent.gamma_multiply(0.12), Stroke::new(1.0, accent), StrokeKind::Inside);
+                let r = Rect::from_two_pos(
+                    self.camera.to_screen(*start),
+                    self.camera.to_screen(*current),
+                );
+                painter.rect(
+                    r,
+                    2.0,
+                    accent.gamma_multiply(0.12),
+                    Stroke::new(1.0, accent),
+                    StrokeKind::Inside,
+                );
             }
             Some(Drag::Connect { from, current }) => {
                 if let Some((_, r)) = geo.elements.iter().find(|(e, _)| e == from) {
                     let a = self.camera.to_screen(r.center());
                     let b = self.camera.to_screen(*current);
-                    painter.extend(Shape::dashed_line(&[a, b], Stroke::new(1.5, accent), 6.0, 4.0));
+                    painter.extend(Shape::dashed_line(
+                        &[a, b],
+                        Stroke::new(1.5, accent),
+                        6.0,
+                        4.0,
+                    ));
                     painter.circle_filled(b, 4.0, accent);
                 }
             }
@@ -432,37 +513,67 @@ impl App {
         let mut x = (w.x / step).floor() * step;
         while x <= w.right() {
             let sx = self.camera.to_screen((x, 0.0)).x;
-            painter.line_segment([Pos2::new(sx, rect.top()), Pos2::new(sx, rect.bottom())], stroke);
+            painter.line_segment(
+                [Pos2::new(sx, rect.top()), Pos2::new(sx, rect.bottom())],
+                stroke,
+            );
             x += step;
         }
         let mut y = (w.y / step).floor() * step;
         while y <= w.bottom() {
             let sy = self.camera.to_screen((0.0, y)).y;
-            painter.line_segment([Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)], stroke);
+            painter.line_segment(
+                [Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)],
+                stroke,
+            );
             y += step;
         }
     }
 
     /// Dashed lines where a moved box lines up with another box.
     fn paint_guides(&self, painter: &egui::Painter, geo: &Geometry, color: Color32) {
-        let moving: Vec<RectF> = geo.elements.iter().filter(|(id, _)| self.sel.elements.contains(id)).map(|(_, r)| *r).collect();
-        let others: Vec<RectF> = geo.elements.iter().filter(|(id, _)| !self.sel.elements.contains(id)).map(|(_, r)| *r).collect();
+        let moving: Vec<RectF> = geo
+            .elements
+            .iter()
+            .filter(|(id, _)| self.sel.elements.contains(id))
+            .map(|(_, r)| *r)
+            .collect();
+        let others: Vec<RectF> = geo
+            .elements
+            .iter()
+            .filter(|(id, _)| !self.sel.elements.contains(id))
+            .map(|(_, r)| *r)
+            .collect();
         let stroke = Stroke::new(1.0, color.gamma_multiply(0.8));
         for m in moving.iter().take(1) {
             for o in &others {
-                let xs = [(m.x, o.x), (m.right(), o.right()), (m.center().0, o.center().0)];
+                let xs = [
+                    (m.x, o.x),
+                    (m.right(), o.right()),
+                    (m.center().0, o.center().0),
+                ];
                 for (a, b) in xs {
                     if (a - b).abs() < 0.5 {
                         let (y1, y2) = (m.y.min(o.y), m.bottom().max(o.bottom()));
-                        let pts = [self.camera.to_screen((a, y1)), self.camera.to_screen((a, y2))];
+                        let pts = [
+                            self.camera.to_screen((a, y1)),
+                            self.camera.to_screen((a, y2)),
+                        ];
                         painter.extend(Shape::dashed_line(&pts, stroke, 4.0, 4.0));
                     }
                 }
-                let ys = [(m.y, o.y), (m.bottom(), o.bottom()), (m.center().1, o.center().1)];
+                let ys = [
+                    (m.y, o.y),
+                    (m.bottom(), o.bottom()),
+                    (m.center().1, o.center().1),
+                ];
                 for (a, b) in ys {
                     if (a - b).abs() < 0.5 {
                         let (x1, x2) = (m.x.min(o.x), m.right().max(o.right()));
-                        let pts = [self.camera.to_screen((x1, a)), self.camera.to_screen((x2, a))];
+                        let pts = [
+                            self.camera.to_screen((x1, a)),
+                            self.camera.to_screen((x2, a)),
+                        ];
                         painter.extend(Shape::dashed_line(&pts, stroke, 4.0, 4.0));
                     }
                 }
@@ -473,17 +584,25 @@ impl App {
     fn handle_drag(&mut self, ctx: &egui::Context, resp: &Response, geo: &Geometry, shift: bool) {
         if resp.drag_started_by(PointerButton::Primary) && self.canvas.edit.is_none() {
             self.canvas.connect = None;
-            let Some(origin) = ctx.input(|i| i.pointer.press_origin()) else { return };
+            let Some(origin) = ctx.input(|i| i.pointer.press_origin()) else {
+                return;
+            };
             let world = self.camera.to_world(origin);
             let hit = self.hit(geo, world, self.tool == Tool::Select);
             match (self.tool, hit) {
-                (Tool::Select, Hit::Element(id)) if !self.sel.elements.contains(&id) => self.select_hit(hit, shift),
+                (Tool::Select, Hit::Element(id)) if !self.sel.elements.contains(&id) => {
+                    self.select_hit(hit, shift)
+                }
                 (Tool::Select, Hit::Package(_)) => self.select_hit(hit, false),
                 _ => {}
             }
             let s = self.session.as_ref().unwrap();
             self.canvas.drag = match (self.tool, hit) {
-                (Tool::Relation, Hit::Element(id) | Hit::Handle(id)) | (Tool::Select, Hit::Handle(id)) => Some(Drag::Connect { from: id, current: world }),
+                (Tool::Relation, Hit::Element(id) | Hit::Handle(id))
+                | (Tool::Select, Hit::Handle(id)) => Some(Drag::Connect {
+                    from: id,
+                    current: world,
+                }),
                 (Tool::Select, Hit::Element(_)) => {
                     let origin = self
                         .sel
@@ -520,30 +639,56 @@ impl App {
             };
         }
 
-        let Some(pointer) = resp.interact_pointer_pos().or(resp.hover_pos()) else { return };
+        let Some(pointer) = resp.interact_pointer_pos().or(resp.hover_pos()) else {
+            return;
+        };
         let world = self.camera.to_world(pointer);
         if resp.dragged_by(PointerButton::Primary) {
             match &mut self.canvas.drag {
-                Some(Drag::Move { start, origin, last }) => {
-                    let d = (((world.0 - start.0) / GRID).round() as i32, ((world.1 - start.1) / GRID).round() as i32);
+                Some(Drag::Move {
+                    start,
+                    origin,
+                    last,
+                }) => {
+                    let d = (
+                        ((world.0 - start.0) / GRID).round() as i32,
+                        ((world.1 - start.1) / GRID).round() as i32,
+                    );
                     if d != *last {
                         *last = d;
-                        let moves: Vec<(ElementId, Pos)> = origin.iter().map(|(id, p)| (*id, Pos::new(p.x + d.0, p.y + d.1))).collect();
+                        let moves: Vec<(ElementId, Pos)> = origin
+                            .iter()
+                            .map(|(id, p)| (*id, Pos::new(p.x + d.0, p.y + d.1)))
+                            .collect();
                         if let Some(s) = &mut self.session {
                             s.editor.move_elements(&moves, Some("drag"));
                             self.view.sync(&mut s.editor);
                         }
                     }
                 }
-                Some(Drag::Rubber { current, .. }) | Some(Drag::Connect { current, .. }) => *current = world,
+                Some(Drag::Rubber { current, .. }) | Some(Drag::Connect { current, .. }) => {
+                    *current = world
+                }
                 None => {}
             }
             // Keep the pointer in view by panning at the edges.
             let r = self.canvas.rect.shrink(16.0);
             if self.canvas.drag.is_some() && !r.contains(pointer) {
                 let push = Vec2::new(
-                    if pointer.x < r.left() { 8.0 } else if pointer.x > r.right() { -8.0 } else { 0.0 },
-                    if pointer.y < r.top() { 8.0 } else if pointer.y > r.bottom() { -8.0 } else { 0.0 },
+                    if pointer.x < r.left() {
+                        8.0
+                    } else if pointer.x > r.right() {
+                        -8.0
+                    } else {
+                        0.0
+                    },
+                    if pointer.y < r.top() {
+                        8.0
+                    } else if pointer.y > r.bottom() {
+                        -8.0
+                    } else {
+                        0.0
+                    },
                 );
                 self.camera.pan(push);
             }
@@ -560,9 +705,23 @@ impl App {
                         }
                     }
                 }
-                Some(Drag::Rubber { start, current, additive }) => {
-                    let area = RectF::new(start.0.min(current.0), start.1.min(current.1), (start.0 - current.0).abs(), (start.1 - current.1).abs());
-                    let picked: Vec<ElementId> = geo.elements.iter().filter(|(_, r)| r.intersects(&area)).map(|(id, _)| *id).collect();
+                Some(Drag::Rubber {
+                    start,
+                    current,
+                    additive,
+                }) => {
+                    let area = RectF::new(
+                        start.0.min(current.0),
+                        start.1.min(current.1),
+                        (start.0 - current.0).abs(),
+                        (start.1 - current.1).abs(),
+                    );
+                    let picked: Vec<ElementId> = geo
+                        .elements
+                        .iter()
+                        .filter(|(_, r)| r.intersects(&area))
+                        .map(|(id, _)| *id)
+                        .collect();
                     if !additive {
                         self.sel.clear();
                     }
@@ -578,13 +737,25 @@ impl App {
                         _ => None,
                     };
                     let is_note = |id: Option<ElementId>| {
-                        id.and_then(|i| self.session.as_ref()?.editor.doc.elements.get(&i).map(|e| e.kind == ElementKind::Note))
-                            .unwrap_or(false)
+                        id.and_then(|i| {
+                            self.session
+                                .as_ref()?
+                                .editor
+                                .doc
+                                .elements
+                                .get(&i)
+                                .map(|e| e.kind == ElementKind::Note)
+                        })
+                        .unwrap_or(false)
                     };
                     if to.is_some() && (is_note(Some(from)) || is_note(to)) {
                         self.connect(from, to, current, RelationKind::NoteLink);
                     } else {
-                        self.canvas.connect = Some(ConnectMenu { from, to, at: current });
+                        self.canvas.connect = Some(ConnectMenu {
+                            from,
+                            to,
+                            at: current,
+                        });
                     }
                 }
                 None => {}
@@ -593,7 +764,9 @@ impl App {
     }
 
     fn handle_clicks(&mut self, resp: &Response, geo: &Geometry, shift: bool) {
-        let Some(pointer) = resp.interact_pointer_pos() else { return };
+        let Some(pointer) = resp.interact_pointer_pos() else {
+            return;
+        };
         let world = self.camera.to_world(pointer);
         if resp.double_clicked() {
             match self.hit(geo, world, false) {
@@ -629,8 +802,13 @@ impl App {
                 let parent = self.package_at(geo, world);
                 if let Some(s) = &mut self.session {
                     let p = s.editor.add_package("package", parent);
-                    let pos = Pos::new((world.0 / GRID).round() as i32 - 5, (world.1 / GRID).round() as i32 - 2);
-                    let el = s.editor.add_element(ElementKind::Class, "Class", Some(p), Some(pos));
+                    let pos = Pos::new(
+                        (world.0 / GRID).round() as i32 - 5,
+                        (world.1 / GRID).round() as i32 - 2,
+                    );
+                    let el = s
+                        .editor
+                        .add_element(ElementKind::Class, "Class", Some(p), Some(pos));
                     self.sel = Selection {
                         packages: vec![p],
                         ..Selection::default()
@@ -646,21 +824,34 @@ impl App {
 
     /// The innermost package whose area contains `world`.
     fn package_at(&self, geo: &Geometry, world: (f32, f32)) -> Option<PackageId> {
-        geo.packages.iter().rev().find(|(_, r)| r.contains(world)).map(|(id, _)| *id)
+        geo.packages
+            .iter()
+            .rev()
+            .find(|(_, r)| r.contains(world))
+            .map(|(id, _)| *id)
     }
 
     fn inline_editor(&mut self, ctx: &egui::Context, geo: &Geometry) {
-        let Some(edit) = &self.canvas.edit else { return };
+        let Some(edit) = &self.canvas.edit else {
+            return;
+        };
         let Some((_, r)) = geo.elements.iter().find(|(id, _)| *id == edit.id) else {
             // A box created this frame has no geometry yet; it shows next
             // frame. Close only if the element is gone.
-            let exists = self.session.as_ref().is_some_and(|s| s.editor.doc.elements.contains_key(&edit.id));
+            let exists = self
+                .session
+                .as_ref()
+                .is_some_and(|s| s.editor.doc.elements.contains_key(&edit.id));
             if !exists {
                 self.canvas.edit = None;
             }
             return;
         };
-        let kind = self.session.as_ref().and_then(|s| s.editor.doc.elements.get(&edit.id)).map(|e| e.kind);
+        let kind = self
+            .session
+            .as_ref()
+            .and_then(|s| s.editor.doc.elements.get(&edit.id))
+            .map(|e| e.kind);
         let screen = self.camera.rect_to_screen(*r);
         let width = screen.width().max(300.0);
         let mut commit = false;
@@ -692,11 +883,15 @@ impl App {
                         Some(ElementKind::Note) => "Note text",
                         _ => "+name: Type\n+method(arg: Type): Result\n-{static} count: int",
                     };
-                    ui.label(egui::RichText::new(match kind {
-                        Some(ElementKind::Note) => "Text",
-                        Some(ElementKind::Enum) => "Literals",
-                        _ => "Members, one per line",
-                    }).small().weak());
+                    ui.label(
+                        egui::RichText::new(match kind {
+                            Some(ElementKind::Note) => "Text",
+                            Some(ElementKind::Enum) => "Literals",
+                            _ => "Members, one per line",
+                        })
+                        .small()
+                        .weak(),
+                    );
                     ui.add(
                         egui::TextEdit::multiline(&mut edit.body)
                             .font(FontId::new(13.0, crate::paint::family(false, false)))
@@ -736,7 +931,9 @@ impl App {
     }
 
     fn connect_menu(&mut self, ctx: &egui::Context) {
-        let Some(menu) = &self.canvas.connect else { return };
+        let Some(menu) = &self.canvas.connect else {
+            return;
+        };
         let (from, to, at) = (menu.from, menu.to, menu.at);
         let pos = self.camera.to_screen(at) + Vec2::new(8.0, 8.0);
         let mut chosen = None;
@@ -746,16 +943,41 @@ impl App {
             .pivot(Align2::LEFT_TOP)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(egui::RichText::new(if to.is_some() { "Connect as" } else { "New class, connected as" }).weak());
-                    for (n, kind) in RelationKind::ALL.iter().enumerate().filter(|(_, k)| **k != RelationKind::NoteLink) {
+                    ui.label(
+                        egui::RichText::new(if to.is_some() {
+                            "Connect as"
+                        } else {
+                            "New class, connected as"
+                        })
+                        .weak(),
+                    );
+                    for (n, kind) in RelationKind::ALL
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, k)| **k != RelationKind::NoteLink)
+                    {
                         let text = format!("{}  {}   {}", n + 1, kind.arrow(), kind.label());
-                        if ui.add(egui::Button::new(egui::RichText::new(text).monospace()).frame(false)).clicked() {
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(text).monospace())
+                                    .frame(false),
+                            )
+                            .clicked()
+                        {
                             chosen = Some(*kind);
                         }
                     }
                 });
             });
-        let keys = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7];
+        let keys = [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+        ];
         for (n, k) in keys.iter().enumerate() {
             if ctx.input(|i| i.key_pressed(*k)) {
                 chosen = Some(RelationKind::ALL[n]);
@@ -783,12 +1005,18 @@ mod tests {
         assert!(members[2].is_abstract);
         let mut el = Element::new(ElementKind::Class, "A");
         el.members = members;
-        assert_eq!(members_text(&el), "+id: OrderId\n-count: int {static}\n+total(): Money {abstract}");
+        assert_eq!(
+            members_text(&el),
+            "+id: OrderId\n-count: int {static}\n+total(): Money {abstract}"
+        );
     }
 
     #[test]
     fn enum_literals_split_on_commas_and_lines() {
         let m = parse_members(ElementKind::Enum, "A, B\nC");
-        assert_eq!(m.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["A", "B", "C"]);
+        assert_eq!(
+            m.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+            ["A", "B", "C"]
+        );
     }
 }

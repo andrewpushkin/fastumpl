@@ -20,26 +20,37 @@ fn writable(dir: &Path) -> bool {
 }
 
 fn env_dir(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from)
+    std::env::var_os(var)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(windows)]
 fn base_dirs() -> (PathBuf, PathBuf) {
-    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
         let data = exe_dir.join("data");
         if writable(&data) {
             return (data.clone(), data);
         }
     }
-    let app = env_dir("APPDATA").unwrap_or_else(std::env::temp_dir).join("fastumpl");
+    let app = env_dir("APPDATA")
+        .unwrap_or_else(std::env::temp_dir)
+        .join("fastumpl");
     (app.clone(), app)
 }
 
 #[cfg(not(windows))]
 fn base_dirs() -> (PathBuf, PathBuf) {
     let home = env_dir("HOME").unwrap_or_else(std::env::temp_dir);
-    let config = env_dir("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config")).join("fastumpl");
-    let cache = env_dir("XDG_CACHE_HOME").unwrap_or_else(|| home.join(".cache")).join("fastumpl");
+    let config = env_dir("XDG_CONFIG_HOME")
+        .unwrap_or_else(|| home.join(".config"))
+        .join("fastumpl");
+    let cache = env_dir("XDG_CACHE_HOME")
+        .unwrap_or_else(|| home.join(".cache"))
+        .join("fastumpl");
     (config, cache)
 }
 

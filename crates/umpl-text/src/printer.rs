@@ -33,11 +33,20 @@ pub fn print(doc: &Document) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
-        let width = positions.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
+        let width = positions
+            .iter()
+            .map(|(n, _)| n.chars().count())
+            .max()
+            .unwrap_or(0);
         out.push_str("layout {\n");
         for (name, p) in positions {
             let pad = width - name.chars().count();
-            out.push_str(&format!("  {name}{} at {}, {}\n", " ".repeat(pad), p.x, p.y));
+            out.push_str(&format!(
+                "  {name}{} at {}, {}\n",
+                " ".repeat(pad),
+                p.x,
+                p.y
+            ));
         }
         out.push_str("}\n");
     }
@@ -95,25 +104,35 @@ impl Writer<'_> {
     }
 
     fn package(&mut self, id: PackageId, depth: usize) {
-        let Some(p) = self.doc.packages.get(&id) else { return };
+        let Some(p) = self.doc.packages.get(&id) else {
+            return;
+        };
         let indent = "  ".repeat(depth);
         self.comments(&p.comments, &indent);
         if p.body.is_empty() {
-            self.out.push_str(&format!("{indent}package {} {{}}\n", p.name));
+            self.out
+                .push_str(&format!("{indent}package {} {{}}\n", p.name));
         } else {
-            self.out.push_str(&format!("{indent}package {} {{\n", p.name));
+            self.out
+                .push_str(&format!("{indent}package {} {{\n", p.name));
             self.decls(&p.body, depth + 1, false);
             self.out.push_str(&format!("{indent}}}\n"));
         }
     }
 
     fn element(&mut self, id: ElementId, indent: &str) {
-        let Some(el) = self.doc.elements.get(&id) else { return };
+        let Some(el) = self.doc.elements.get(&id) else {
+            return;
+        };
         self.comments(&el.comments, indent);
         let out = &mut self.out;
         if el.kind == ElementKind::Note {
             let text: Vec<&str> = el.members.iter().map(|m| m.text.as_str()).collect();
-            out.push_str(&format!("{indent}note {} {}\n", el.name, quote(&text.join("\n"))));
+            out.push_str(&format!(
+                "{indent}note {} {}\n",
+                el.name,
+                quote(&text.join("\n"))
+            ));
             return;
         }
         out.push_str(indent);
@@ -143,7 +162,9 @@ impl Writer<'_> {
     }
 
     fn relation(&mut self, id: RelationId, indent: &str) {
-        let Some(r) = self.doc.relations.get(&id) else { return };
+        let Some(r) = self.doc.relations.get(&id) else {
+            return;
+        };
         self.comments(&r.comments, indent);
         let mut line = String::from(indent);
         line.push_str(&self.doc.full_name(r.from.element));

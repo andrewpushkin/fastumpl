@@ -43,6 +43,11 @@ enum Item {
     Group(usize),
 }
 
+/// A laid-out component: item indices, their positions, its bounds.
+type Placed = (Vec<usize>, Vec<(i32, i32)>, Rect);
+/// A laid-out scope: the group (or root), its items, their positions.
+type ScopeLayout = (Option<usize>, Vec<Item>, Vec<(i32, i32)>);
+
 /// How a candidate picks its starting order.
 #[derive(Clone, Copy, Debug)]
 enum Start {
@@ -82,11 +87,21 @@ fn hints(graph: &Graph, items: &[Item]) -> Option<Vec<f64>> {
     items
         .iter()
         .map(|it| match *it {
-            Item::Node(n) => graph.nodes[n].pos.map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0),
+            Item::Node(n) => graph.nodes[n]
+                .pos
+                .map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0),
             Item::Group(g) => {
                 let xs: Vec<f64> = (0..graph.nodes.len())
-                    .filter(|&n| graph.nodes[n].group.is_some_and(|ng| graph.group_within(ng, g)))
-                    .filter_map(|n| graph.nodes[n].pos.map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0))
+                    .filter(|&n| {
+                        graph.nodes[n]
+                            .group
+                            .is_some_and(|ng| graph.group_within(ng, g))
+                    })
+                    .filter_map(|n| {
+                        graph.nodes[n]
+                            .pos
+                            .map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0)
+                    })
                     .collect();
                 (!xs.is_empty()).then(|| xs.iter().sum::<f64>() / xs.len() as f64)
             }
@@ -109,7 +124,12 @@ fn find(parent: &mut [usize], x: usize) -> usize {
 }
 
 /// Lays out one scope; returns item top-left corners, normalised to (0, 0).
-fn layout_scope(sizes: &[(i32, i32)], edges: &[FlatEdge], hint: Option<&[f64]>, start: Start) -> Vec<(i32, i32)> {
+fn layout_scope(
+    sizes: &[(i32, i32)],
+    edges: &[FlatEdge],
+    hint: Option<&[f64]>,
+    start: Start,
+) -> Vec<(i32, i32)> {
     let n = sizes.len();
     let mut parent: Vec<usize> = (0..n).collect();
     for e in edges {
@@ -129,7 +149,8 @@ fn layout_scope(sizes: &[(i32, i32)], edges: &[FlatEdge], hint: Option<&[f64]>, 
         comps[comp_of[r]].push(i);
     }
 
-    let mut placed: Vec<(Vec<usize>, Vec<(i32, i32)>, Rect)> = Vec::new();
+    // Per component: its items, their positions, and its bounds.
+    let mut placed: Vec<Placed> = Vec::new();
     for (ci, comp) in comps.iter().enumerate() {
         let mut local = vec![usize::MAX; n];
         for (li, &i) in comp.iter().enumerate() {
@@ -172,7 +193,12 @@ fn layout_scope(sizes: &[(i32, i32)], edges: &[FlatEdge], hint: Option<&[f64]>, 
     // Pack the parts in rows, biggest first, trying several row widths and
     // keeping the packing closest to a 16:10 drawing.
     let mut order: Vec<usize> = (0..placed.len()).collect();
-    order.sort_by_key(|&i| (std::cmp::Reverse(placed[i].2.w as i64 * placed[i].2.h as i64), placed[i].0[0]));
+    order.sort_by_key(|&i| {
+        (
+            std::cmp::Reverse(placed[i].2.w as i64 * placed[i].2.h as i64),
+            placed[i].0[0],
+        )
+    });
     let rects: Vec<Rect> = order.iter().map(|&i| placed[i].2).collect();
     let offsets = best_packing(&rects);
     let mut out = vec![(0, 0); n];
@@ -231,7 +257,7 @@ fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
 
     let mut group_size = vec![(0, 0); ng];
     // Per scope: its items and their relative positions.
-    let mut rel: Vec<(Option<usize>, Vec<Item>, Vec<(i32, i32)>)> = Vec::new();
+    let mut rel: Vec<ScopeLayout> = Vec::new();
     for scope in scopes {
         let items = scope_items(graph, scope);
         let sizes: Vec<(i32, i32)> = items
@@ -244,7 +270,10 @@ fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
         let index = |it: Item| items.iter().position(|&x| x == it);
         let mut edges = Vec::new();
         for e in &graph.edges {
-            let (Some(a), Some(b)) = (item_in_scope(graph, e.from, scope), item_in_scope(graph, e.to, scope)) else {
+            let (Some(a), Some(b)) = (
+                item_in_scope(graph, e.from, scope),
+                item_in_scope(graph, e.to, scope),
+            ) else {
                 continue;
             };
             if a == b {
@@ -334,8 +363,14 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
         starts.push(Start::Random(opts.seed.wrapping_add(k)));
         k += 1;
     }
-    let cancelled = || opts.cancel.as_ref().is_some_and(|c| c.load(Ordering::Relaxed));
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(starts.len());
+    let cancelled = || {
+        opts.cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+    };
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(starts.len());
 
     let mut results: Vec<Option<Layout>> = vec![None; starts.len()];
     std::thread::scope(|s| {
@@ -377,7 +412,9 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
 
 /// Do segments `p1-p2` and `q1-q2` cross properly?
 fn segments_cross(p1: (f64, f64), p2: (f64, f64), q1: (f64, f64), q2: (f64, f64)) -> bool {
-    let orient = |a: (f64, f64), b: (f64, f64), c: (f64, f64)| (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+    let orient = |a: (f64, f64), b: (f64, f64), c: (f64, f64)| {
+        (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+    };
     let d1 = orient(q1, q2, p1);
     let d2 = orient(q1, q2, p2);
     let d3 = orient(p1, p2, q1);
@@ -413,18 +450,27 @@ fn place_one(graph: &Graph, nodes: &mut [Option<(i32, i32)>], i: usize) {
     }
     let mates: Vec<Rect> = placed
         .iter()
-        .filter(|(n, _)| graph.nodes[*n].group.is_some() && graph.nodes[*n].group == graph.nodes[i].group)
+        .filter(|(n, _)| {
+            graph.nodes[*n].group.is_some() && graph.nodes[*n].group == graph.nodes[i].group
+        })
         .map(|(_, r)| *r)
         .collect();
     let bounds = placed.iter().map(|(_, r)| *r).reduce(|a, b| a.union(&b));
     let anchor = if !nbrs.is_empty() {
-        let s = nbrs.iter().fold((0.0, 0.0), |acc, (r, _)| (acc.0 + center(r).0, acc.1 + center(r).1));
+        let s = nbrs.iter().fold((0.0, 0.0), |acc, (r, _)| {
+            (acc.0 + center(r).0, acc.1 + center(r).1)
+        });
         (s.0 / nbrs.len() as f64, s.1 / nbrs.len() as f64)
     } else if !mates.is_empty() {
-        let s = mates.iter().fold((0.0, 0.0), |acc, r| (acc.0 + center(r).0, acc.1 + center(r).1));
+        let s = mates.iter().fold((0.0, 0.0), |acc, r| {
+            (acc.0 + center(r).0, acc.1 + center(r).1)
+        });
         (s.0 / mates.len() as f64, s.1 / mates.len() as f64)
     } else if let Some(b) = bounds {
-        ((b.right() + 2 * NODE_GAP) as f64 + w as f64 / 2.0, b.y as f64 + h as f64 / 2.0)
+        (
+            (b.right() + 2 * NODE_GAP) as f64 + w as f64 / 2.0,
+            b.y as f64 + h as f64 / 2.0,
+        )
     } else {
         (w as f64 / 2.0, h as f64 / 2.0)
     };
@@ -436,11 +482,25 @@ fn place_one(graph: &Graph, nodes: &mut [Option<(i32, i32)>], i: usize) {
         .filter_map(|e| Some((center(&rect_by_node(e.from)?), center(&rect_by_node(e.to)?))))
         .collect();
     // Groups this node is not part of must stay clear.
-    let current: Vec<(i32, i32)> = nodes.iter().map(|p| p.unwrap_or((i32::MIN / 4, i32::MIN / 4))).collect();
+    let current: Vec<(i32, i32)> = nodes
+        .iter()
+        .map(|p| p.unwrap_or((i32::MIN / 4, i32::MIN / 4)))
+        .collect();
     let group_rects_now = group_rects(graph, &current);
     let foreign: Vec<Rect> = (0..graph.groups.len())
-        .filter(|&g| !graph.nodes[i].group.is_some_and(|ng| graph.group_within(ng, g)))
-        .filter(|&g| (0..graph.nodes.len()).any(|n| nodes[n].is_some() && graph.nodes[n].group.is_some_and(|ng| graph.group_within(ng, g))))
+        .filter(|&g| {
+            !graph.nodes[i]
+                .group
+                .is_some_and(|ng| graph.group_within(ng, g))
+        })
+        .filter(|&g| {
+            (0..graph.nodes.len()).any(|n| {
+                nodes[n].is_some()
+                    && graph.nodes[n]
+                        .group
+                        .is_some_and(|ng| graph.group_within(ng, g))
+            })
+        })
         .map(|g| group_rects_now[g])
         .collect();
 
@@ -463,7 +523,12 @@ fn place_one(graph: &Graph, nodes: &mut [Option<(i32, i32)>], i: usize) {
                 if t % 2 != 0 {
                     continue;
                 }
-                cands.extend([(ax + t, ay - r), (ax + t, ay + r), (ax - r, ay + t), (ax + r, ay + t)]);
+                cands.extend([
+                    (ax + t, ay - r),
+                    (ax + t, ay + r),
+                    (ax - r, ay + t),
+                    (ax + r, ay + t),
+                ]);
             }
         }
         for c in cands {
@@ -478,7 +543,11 @@ fn place_one(graph: &Graph, nodes: &mut [Option<(i32, i32)>], i: usize) {
             let mut cost = ((cc.0 - anchor.0).abs() + (cc.1 - anchor.1).abs()) * 0.2;
             for (nr, rule) in &nbrs {
                 let nc = center(nr);
-                cost += 10.0 * lines.iter().filter(|(a, b)| segments_cross(cc, nc, *a, *b)).count() as f64;
+                cost += 10.0
+                    * lines
+                        .iter()
+                        .filter(|(a, b)| segments_cross(cc, nc, *a, *b))
+                        .count() as f64;
                 match rule {
                     Some(true) if rect.y < nr.bottom() + 2 => cost += 20.0,
                     Some(false) if rect.bottom() + 2 > nr.y => cost += 20.0,
@@ -550,7 +619,12 @@ mod tests {
         for _ in 0..n {
             g.add_node(8 + rng.below(10) as i32, 4 + rng.below(6) as i32);
         }
-        let kinds = [EdgeKind::Hierarchy, EdgeKind::Assoc, EdgeKind::Whole, EdgeKind::Dep];
+        let kinds = [
+            EdgeKind::Hierarchy,
+            EdgeKind::Assoc,
+            EdgeKind::Whole,
+            EdgeKind::Dep,
+        ];
         for _ in 0..m {
             let a = rng.below(n);
             let b = rng.below(n);
@@ -660,7 +734,11 @@ mod tests {
         assert_eq!(l.nodes[a], (0, 0));
         assert_eq!(l.nodes[b], (30, 0));
         assert_eq!(l.stats.overlaps, 0);
-        assert!(l.nodes[c].1 >= 4 + 2, "child below parent: {:?}", l.nodes[c]);
+        assert!(
+            l.nodes[c].1 >= 4 + 2,
+            "child below parent: {:?}",
+            l.nodes[c]
+        );
     }
 
     #[test]

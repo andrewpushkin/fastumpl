@@ -55,5 +55,9 @@ fn main() -> eframe::Result {
         viewport,
         ..Default::default()
     };
-    eframe::run_native("fastumpl", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, file)))))
+    eframe::run_native(
+        "fastumpl",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, file)))),
+    )
 }

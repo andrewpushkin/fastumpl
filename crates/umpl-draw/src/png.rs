@@ -14,7 +14,12 @@ pub struct Image {
 fn options() -> usvg::Options<'static> {
     let mut opt = usvg::Options::default();
     let db = opt.fontdb_mut();
-    for face in [fonts::REGULAR, fonts::BOLD, fonts::ITALIC, fonts::BOLD_ITALIC] {
+    for face in [
+        fonts::REGULAR,
+        fonts::BOLD,
+        fonts::ITALIC,
+        fonts::BOLD_ITALIC,
+    ] {
         db.load_font_data(face.to_vec());
     }
     db.set_monospace_family(fonts::FAMILY);
@@ -27,7 +32,11 @@ fn render(svg: &str, scale: f32) -> Result<tiny_skia::Pixmap, String> {
     let w = (size.width() * scale).ceil().max(1.0) as u32;
     let h = (size.height() * scale).ceil().max(1.0) as u32;
     let mut pixmap = tiny_skia::Pixmap::new(w, h).ok_or("image too large")?;
-    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
     Ok(pixmap)
 }
 
@@ -73,7 +82,10 @@ mod tests {
         let p = umpl_text::parse(include_str!("../../../examples/shop.umpl"));
         let d = Diagram::arrange(&p.doc);
         let theme = Theme::light();
-        let svg = to_svg(&build_scene(&p.doc, &d, &theme, &SceneOptions::default()), &theme);
+        let svg = to_svg(
+            &build_scene(&p.doc, &d, &theme, &SceneOptions::default()),
+            &theme,
+        );
         let png = svg_to_png(&svg, 1.0).unwrap();
         assert_eq!(&png[1..4], b"PNG");
         let img = svg_to_rgba(&svg, 0.5).unwrap();

@@ -44,11 +44,21 @@ impl RectF {
     pub fn union(&self, o: &RectF) -> RectF {
         let x = self.x.min(o.x);
         let y = self.y.min(o.y);
-        RectF::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
+        RectF::new(
+            x,
+            y,
+            self.right().max(o.right()) - x,
+            self.bottom().max(o.bottom()) - y,
+        )
     }
 
     pub fn expand(&self, by: f32) -> RectF {
-        RectF::new(self.x - by, self.y - by, self.w + 2.0 * by, self.h + 2.0 * by)
+        RectF::new(
+            self.x - by,
+            self.y - by,
+            self.w + 2.0 * by,
+            self.h + 2.0 * by,
+        )
     }
 }
 
@@ -193,7 +203,10 @@ pub fn cut_gaps(points: &[(f32, f32)], gaps: &[(f32, f32)]) -> Vec<Vec<(f32, f32
         here.sort_by(|p, q| dist(a, *p).total_cmp(&dist(a, *q)));
         let u = unit(a, b);
         for g in here {
-            pieces.last_mut().unwrap().push((g.0 - u.0 * GAP, g.1 - u.1 * GAP));
+            pieces
+                .last_mut()
+                .unwrap()
+                .push((g.0 - u.0 * GAP, g.1 - u.1 * GAP));
             pieces.push(vec![(g.0 + u.0 * GAP, g.1 + u.1 * GAP)]);
         }
         pieces.last_mut().unwrap().push(b);
@@ -234,11 +247,24 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
 
     // Packages, outermost first.
     for (gi, pid) in mapping.packages.iter().enumerate() {
-        let Some(g) = layout.groups.get(gi) else { continue };
-        let Some(pkg) = doc.packages.get(pid) else { continue };
-        let r = RectF::new(g.x as f32 * GRID, g.y as f32 * GRID, g.w as f32 * GRID, g.h as f32 * GRID);
+        let Some(g) = layout.groups.get(gi) else {
+            continue;
+        };
+        let Some(pkg) = doc.packages.get(pid) else {
+            continue;
+        };
+        let r = RectF::new(
+            g.x as f32 * GRID,
+            g.y as f32 * GRID,
+            g.w as f32 * GRID,
+            g.h as f32 * GRID,
+        );
         let selected = opts.selected_packages.contains(pid);
-        let stroke = if selected { (theme.accent, 2.0) } else { (theme.package_stroke, 1.0) };
+        let stroke = if selected {
+            (theme.accent, 2.0)
+        } else {
+            (theme.package_stroke, 1.0)
+        };
         let tab_w = (text_width(&pkg.name, 12.0) + 20.0).min(r.w);
         s.shapes.push(Shape::Rect {
             rect: RectF::new(r.x, r.y, tab_w, TAB_H + 4.0),
@@ -282,8 +308,12 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
     }
     let mut markers = Vec::new();
     for (e, rid) in mapping.relations.iter().enumerate() {
-        let Some(rel) = doc.relations.get(rid) else { continue };
-        let Some(route) = layout.routes.get(e) else { continue };
+        let Some(rel) = doc.relations.get(rid) else {
+            continue;
+        };
+        let Some(route) = layout.routes.get(e) else {
+            continue;
+        };
         if route.points.len() < 2 {
             continue;
         }
@@ -295,10 +325,15 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
 
         let mut pts = full.clone();
         match rel.kind {
-            RelationKind::Generalization | RelationKind::Realization => shorten_end(&mut pts, TRIANGLE),
+            RelationKind::Generalization | RelationKind::Realization => {
+                shorten_end(&mut pts, TRIANGLE)
+            }
             _ => {}
         }
-        if matches!(rel.kind, RelationKind::Composition | RelationKind::Aggregation) {
+        if matches!(
+            rel.kind,
+            RelationKind::Composition | RelationKind::Aggregation
+        ) {
             shorten_start(&mut pts, DIAMOND);
         }
         for piece in cut_gaps(&pts, &gaps[e]) {
@@ -319,7 +354,11 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             RelationKind::Generalization | RelationKind::Realization => {
                 let base = (tip.0 - u.0 * TRIANGLE, tip.1 - u.1 * TRIANGLE);
                 markers.push(Shape::Path {
-                    points: vec![tip, (base.0 + nrm.0 * 7.0, base.1 + nrm.1 * 7.0), (base.0 - nrm.0 * 7.0, base.1 - nrm.1 * 7.0)],
+                    points: vec![
+                        tip,
+                        (base.0 + nrm.0 * 7.0, base.1 + nrm.1 * 7.0),
+                        (base.0 - nrm.0 * 7.0, base.1 - nrm.1 * 7.0),
+                    ],
                     stroke: Some((color, width)),
                     fill: Some(theme.box_fill),
                     closed: true,
@@ -329,7 +368,11 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             RelationKind::Directed | RelationKind::Dependency => {
                 let base = (tip.0 - u.0 * ARROW, tip.1 - u.1 * ARROW);
                 markers.push(Shape::Path {
-                    points: vec![(base.0 + nrm.0 * 5.0, base.1 + nrm.1 * 5.0), tip, (base.0 - nrm.0 * 5.0, base.1 - nrm.1 * 5.0)],
+                    points: vec![
+                        (base.0 + nrm.0 * 5.0, base.1 + nrm.1 * 5.0),
+                        tip,
+                        (base.0 - nrm.0 * 5.0, base.1 - nrm.1 * 5.0),
+                    ],
                     stroke: Some((color, width)),
                     fill: None,
                     closed: false,
@@ -338,12 +381,19 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             }
             _ => {}
         }
-        if matches!(rel.kind, RelationKind::Composition | RelationKind::Aggregation) {
+        if matches!(
+            rel.kind,
+            RelationKind::Composition | RelationKind::Aggregation
+        ) {
             let f = full[0];
             let v = unit(full[1], f);
             let m = (-v.1, v.0);
             let mid = (f.0 - v.0 * DIAMOND / 2.0, f.1 - v.1 * DIAMOND / 2.0);
-            let fill = if rel.kind == RelationKind::Composition { color } else { theme.box_fill };
+            let fill = if rel.kind == RelationKind::Composition {
+                color
+            } else {
+                theme.box_fill
+            };
             markers.push(Shape::Path {
                 points: vec![
                     f,
@@ -359,9 +409,15 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
         }
 
         // Labels.
-        let texts = [rel.from.label.as_ref(), rel.to.label.as_ref(), rel.name.as_ref()];
+        let texts = [
+            rel.from.label.as_ref(),
+            rel.to.label.as_ref(),
+            rel.name.as_ref(),
+        ];
         for (k, text) in texts.iter().enumerate() {
-            let (Some(text), Some(Some(p))) = (text, layout.labels.get(e).map(|l| l[k])) else { continue };
+            let (Some(text), Some(Some(p))) = (text, layout.labels.get(e).map(|l| l[k])) else {
+                continue;
+            };
             let (x, y) = px(p);
             let mut st = TextStyle::new(LABEL_SIZE, if k == 2 { theme.text } else { theme.muted });
             st.italic = k == 2;
@@ -377,10 +433,19 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
     // Boxes.
     for (i, nref) in mapping.nodes.iter().enumerate() {
         let NodeRef::Element(id) = nref else { continue };
-        let Some(Some(content)) = mapping.contents.get(i) else { continue };
-        let Some(&p) = layout.nodes.get(i) else { continue };
+        let Some(Some(content)) = mapping.contents.get(i) else {
+            continue;
+        };
+        let Some(&p) = layout.nodes.get(i) else {
+            continue;
+        };
         let (x, y) = px(p);
-        let r = RectF::new(x, y, graph.nodes[i].w as f32 * GRID, graph.nodes[i].h as f32 * GRID);
+        let r = RectF::new(
+            x,
+            y,
+            graph.nodes[i].w as f32 * GRID,
+            graph.nodes[i].h as f32 * GRID,
+        );
         s.elements.push((*id, r));
         draw_box(&mut s.shapes, content, r, theme, opts.hide_members);
         if opts.selected_elements.contains(id) {
@@ -394,7 +459,13 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
     }
 
     let b = layout.bounds(graph);
-    s.bounds = RectF::new(b.x as f32 * GRID, b.y as f32 * GRID, b.w as f32 * GRID, b.h as f32 * GRID).expand(16.0);
+    s.bounds = RectF::new(
+        b.x as f32 * GRID,
+        b.y as f32 * GRID,
+        b.w as f32 * GRID,
+        b.h as f32 * GRID,
+    )
+    .expand(16.0);
     s
 }
 
@@ -415,7 +486,11 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
             dashed: false,
         });
         shapes.push(Shape::Path {
-            points: vec![(r.right() - fold, r.y), (r.right() - fold, r.y + fold), (r.right(), r.y + fold)],
+            points: vec![
+                (r.right() - fold, r.y),
+                (r.right() - fold, r.y + fold),
+                (r.right(), r.y + fold),
+            ],
             stroke: Some((theme.note_stroke, 1.2)),
             fill: None,
             closed: false,
@@ -424,7 +499,10 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
         if let Some(lines) = c.compartments.first() {
             for (k, l) in lines.iter().enumerate() {
                 shapes.push(Shape::Text {
-                    pos: (r.x + NOTE_PAD, r.y + NOTE_PAD + MEMBER_LINE * (k as f32 + 0.5)),
+                    pos: (
+                        r.x + NOTE_PAD,
+                        r.y + NOTE_PAD + MEMBER_LINE * (k as f32 + 0.5),
+                    ),
                     text: l.text.clone(),
                     style: TextStyle::new(MEMBER_SIZE, theme.text),
                 });

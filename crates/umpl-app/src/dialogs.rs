@@ -8,7 +8,9 @@ use crate::session::Session;
 
 impl App {
     pub fn dialogs(&mut self, ctx: &Context) {
-        let Some(dialog) = self.dialog.take() else { return };
+        let Some(dialog) = self.dialog.take() else {
+            return;
+        };
         let mut keep = true;
         let modal = Modal::new(Id::new("dialog")).show(ctx, |ui| {
             ui.set_max_width(460.0);
@@ -167,8 +169,14 @@ impl App {
     }
 
     pub fn palette_ui(&mut self, ctx: &Context) {
-        let Some((mut query, mut index)) = self.palette.take() else { return };
-        let words: Vec<String> = query.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let Some((mut query, mut index)) = self.palette.take() else {
+            return;
+        };
+        let words: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
         let matches: Vec<Cmd> = Cmd::all()
             .into_iter()
             .filter(|c| {
@@ -181,22 +189,31 @@ impl App {
         let mut close = false;
         let modal = Modal::new(Id::new("palette")).show(ctx, |ui| {
             ui.set_width(420.0);
-            let r = ui.add(TextEdit::singleline(&mut query).hint_text("Type a command…").desired_width(f32::INFINITY));
+            let r = ui.add(
+                TextEdit::singleline(&mut query)
+                    .hint_text("Type a command…")
+                    .desired_width(f32::INFINITY),
+            );
             r.request_focus();
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                for (i, cmd) in matches.iter().enumerate() {
-                    let sc = cmd.shortcut().map(|s| ctx.format_shortcut(&s)).unwrap_or_default();
-                    let text = format!("{:<34}{}", cmd.label(), sc);
-                    let resp = ui.selectable_label(i == index, RichText::new(text).monospace());
-                    if resp.clicked() {
-                        run = Some(*cmd);
+            egui::ScrollArea::vertical()
+                .max_height(320.0)
+                .show(ui, |ui| {
+                    for (i, cmd) in matches.iter().enumerate() {
+                        let sc = cmd
+                            .shortcut()
+                            .map(|s| ctx.format_shortcut(&s))
+                            .unwrap_or_default();
+                        let text = format!("{:<34}{}", cmd.label(), sc);
+                        let resp = ui.selectable_label(i == index, RichText::new(text).monospace());
+                        if resp.clicked() {
+                            run = Some(*cmd);
+                        }
+                        if i == index {
+                            resp.scroll_to_me(None);
+                        }
                     }
-                    if i == index {
-                        resp.scroll_to_me(None);
-                    }
-                }
-            });
+                });
         });
         ctx.input(|i| {
             if i.key_pressed(Key::ArrowDown) {

@@ -6,7 +6,8 @@ pub const FAMILY: &str = "DejaVu Sans Mono";
 pub const REGULAR: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSansMono.ttf");
 pub const BOLD: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSansMono-Bold.ttf");
 pub const ITALIC: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSansMono-Oblique.ttf");
-pub const BOLD_ITALIC: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSansMono-BoldOblique.ttf");
+pub const BOLD_ITALIC: &[u8] =
+    include_bytes!("../../../assets/fonts/DejaVuSansMono-BoldOblique.ttf");
 
 /// Advance width per character, in em (1233 / 2048).
 pub const ADVANCE: f32 = 0.602;

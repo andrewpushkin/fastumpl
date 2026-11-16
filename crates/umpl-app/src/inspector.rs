@@ -91,7 +91,9 @@ impl App {
         let target = self.inspector_target();
         let Some(s) = &self.session else { return };
         let typing = ui.ctx().wants_keyboard_input();
-        if self.inspector.target != Some(target) || (self.inspector.revision != s.editor.revision && !typing) {
+        if self.inspector.target != Some(target)
+            || (self.inspector.revision != s.editor.revision && !typing)
+        {
             self.load_inspector(target);
         }
         egui::ScrollArea::vertical().show(ui, |ui| match target {
@@ -103,10 +105,11 @@ impl App {
         });
     }
 
-
     fn element_ui(&mut self, ui: &mut Ui, id: ElementId) {
         let Some(s) = &mut self.session else { return };
-        let Some(el) = s.editor.doc.elements.get(&id).cloned() else { return };
+        let Some(el) = s.editor.doc.elements.get(&id).cloned() else {
+            return;
+        };
         ui.heading(el.kind.label());
         ui.add_space(6.0);
 
@@ -140,7 +143,11 @@ impl App {
         if el.kind != ElementKind::Note {
             ui.add_space(4.0);
             ui.label("Stereotype");
-            let r = ui.add(TextEdit::singleline(&mut self.inspector.stereotype).hint_text("e.g. entity").desired_width(f32::INFINITY));
+            let r = ui.add(
+                TextEdit::singleline(&mut self.inspector.stereotype)
+                    .hint_text("e.g. entity")
+                    .desired_width(f32::INFINITY),
+            );
             if r.lost_focus() && opt(&self.inspector.stereotype) != el.stereotype {
                 let mut new = el.clone();
                 new.stereotype = opt(&self.inspector.stereotype);
@@ -169,7 +176,11 @@ impl App {
             }
         }
         if el.kind != ElementKind::Note && el.kind != ElementKind::Enum {
-            ui.label(RichText::new("+ public  - private  # protected  ~ package\n{static}  {abstract}").small().weak());
+            ui.label(
+                RichText::new("+ public  - private  # protected  ~ package\n{static}  {abstract}")
+                    .small()
+                    .weak(),
+            );
         }
 
         ui.add_space(8.0);
@@ -185,7 +196,11 @@ impl App {
 
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.button("Edit in place").on_hover_text("Double-click the box").clicked() {
+            if ui
+                .button("Edit in place")
+                .on_hover_text("Double-click the box")
+                .clicked()
+            {
                 self.start_edit(id);
             }
             if ui.button("Delete").clicked() {
@@ -196,7 +211,9 @@ impl App {
 
     fn relation_ui(&mut self, ui: &mut Ui, id: RelationId) {
         let Some(s) = &mut self.session else { return };
-        let Some(rel) = s.editor.doc.relations.get(&id).cloned() else { return };
+        let Some(rel) = s.editor.doc.relations.get(&id).cloned() else {
+            return;
+        };
         ui.heading("Relation");
         ui.add_space(4.0);
         let from = s.editor.doc.full_name(rel.from.element);
@@ -223,20 +240,31 @@ impl App {
         let mut changed = None;
         ui.add_space(4.0);
         ui.label("Name");
-        if ui.add(TextEdit::singleline(&mut self.inspector.rel_name).desired_width(f32::INFINITY)).lost_focus() {
+        if ui
+            .add(TextEdit::singleline(&mut self.inspector.rel_name).desired_width(f32::INFINITY))
+            .lost_focus()
+        {
             changed = Some(());
         }
         ui.add_space(4.0);
         ui.label(format!("At {from}"));
         if ui
-            .add(TextEdit::singleline(&mut self.inspector.from_label).hint_text("multiplicity role, e.g. 1 owner").desired_width(f32::INFINITY))
+            .add(
+                TextEdit::singleline(&mut self.inspector.from_label)
+                    .hint_text("multiplicity role, e.g. 1 owner")
+                    .desired_width(f32::INFINITY),
+            )
             .lost_focus()
         {
             changed = Some(());
         }
         ui.label(format!("At {to}"));
         if ui
-            .add(TextEdit::singleline(&mut self.inspector.to_label).hint_text("e.g. 0..* items").desired_width(f32::INFINITY))
+            .add(
+                TextEdit::singleline(&mut self.inspector.to_label)
+                    .hint_text("e.g. 0..* items")
+                    .desired_width(f32::INFINITY),
+            )
             .lost_focus()
         {
             changed = Some(());
@@ -267,7 +295,9 @@ impl App {
 
     fn package_ui(&mut self, ui: &mut Ui, id: PackageId) {
         let Some(s) = &mut self.session else { return };
-        let Some(p) = s.editor.doc.packages.get(&id).cloned() else { return };
+        let Some(p) = s.editor.doc.packages.get(&id).cloned() else {
+            return;
+        };
         ui.heading("Package");
         ui.add_space(6.0);
         ui.label("Name");
@@ -298,7 +328,13 @@ impl App {
         ));
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.add_enabled(!self.sel.elements.is_empty(), egui::Button::new("Tidy selection")).clicked() {
+            if ui
+                .add_enabled(
+                    !self.sel.elements.is_empty(),
+                    egui::Button::new("Tidy selection"),
+                )
+                .clicked()
+            {
                 self.run(ui.ctx(), Cmd::TidySelection);
             }
             if ui.button("Delete").clicked() {
@@ -312,26 +348,30 @@ impl App {
         ui.heading("Diagram");
         ui.add_space(6.0);
         ui.label("Title");
-        let r = ui.add(TextEdit::singleline(&mut self.inspector.title).desired_width(f32::INFINITY));
+        let r =
+            ui.add(TextEdit::singleline(&mut self.inspector.title).desired_width(f32::INFINITY));
         if r.lost_focus() && opt(&self.inspector.title) != s.editor.doc.title {
             s.editor.set_title(opt(&self.inspector.title));
         }
         ui.add_space(10.0);
         let st = self.view.diagram.layout.stats;
-        egui::Grid::new("stats").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-            ui.label("Crossings");
-            ui.label(st.crossings.to_string());
-            ui.end_row();
-            ui.label("Bends");
-            ui.label(st.bends.to_string());
-            ui.end_row();
-            ui.label("Line length");
-            ui.label(format!("{}", st.length));
-            ui.end_row();
-            ui.label("Score");
-            ui.label(format!("{:.1}", st.score()));
-            ui.end_row();
-        });
+        egui::Grid::new("stats")
+            .num_columns(2)
+            .spacing([16.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Crossings");
+                ui.label(st.crossings.to_string());
+                ui.end_row();
+                ui.label("Bends");
+                ui.label(st.bends.to_string());
+                ui.end_row();
+                ui.label("Line length");
+                ui.label(format!("{}", st.length));
+                ui.end_row();
+                ui.label("Score");
+                ui.label(format!("{:.1}", st.score()));
+                ui.end_row();
+            });
         ui.add_space(14.0);
         ui.label(RichText::new("Tips").strong());
         for tip in [

@@ -114,7 +114,12 @@ impl Editor {
         let Some(g) = self.undo.pop() else {
             return false;
         };
-        let redo = g.inverse.into_iter().rev().map(|o| self.doc.apply(o)).collect();
+        let redo = g
+            .inverse
+            .into_iter()
+            .rev()
+            .map(|o| self.doc.apply(o))
+            .collect();
         self.redo.push(Group {
             inverse: redo,
             key: None,
@@ -127,7 +132,12 @@ impl Editor {
         let Some(g) = self.redo.pop() else {
             return false;
         };
-        let undo = g.inverse.into_iter().rev().map(|o| self.doc.apply(o)).collect();
+        let undo = g
+            .inverse
+            .into_iter()
+            .rev()
+            .map(|o| self.doc.apply(o))
+            .collect();
         self.undo.push(Group {
             inverse: undo,
             key: None,
@@ -183,7 +193,12 @@ impl Editor {
         let mut ops = Vec::new();
         if self.doc.root.iter().any(|d| decls.contains(d)) {
             ops.push(Op::Root(
-                self.doc.root.iter().filter(|d| !decls.contains(d)).cloned().collect(),
+                self.doc
+                    .root
+                    .iter()
+                    .filter(|d| !decls.contains(d))
+                    .cloned()
+                    .collect(),
             ));
         }
         for (pid, p) in &self.doc.packages {
@@ -236,7 +251,10 @@ impl Editor {
         let mut rels_sorted = rels;
         rels_sorted.sort();
         ops.extend(rels_sorted.into_iter().map(|r| Op::Relation(r, None)));
-        let mut els_sorted: Vec<_> = els.into_iter().filter(|e| self.doc.elements.contains_key(e)).collect();
+        let mut els_sorted: Vec<_> = els
+            .into_iter()
+            .filter(|e| self.doc.elements.contains_key(e))
+            .collect();
         els_sorted.sort();
         ops.extend(els_sorted.into_iter().map(|e| Op::Element(e, None)));
         let mut pkgs_sorted: Vec<_> = pkgs.into_iter().collect();
@@ -498,7 +516,12 @@ mod tests {
 
     #[test]
     fn member_line_round_trip() {
-        for line in ["+total(): Money", "+pay(): Receipt {abstract}", "#count: int {static}", "Paid"] {
+        for line in [
+            "+total(): Money",
+            "+pay(): Receipt {abstract}",
+            "#count: int {static}",
+            "Paid",
+        ] {
             assert_eq!(Member::parse_line(line).to_line(), line);
         }
         let m = Member::parse_line("-{static} count: int");
