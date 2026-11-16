@@ -12,7 +12,7 @@ set -euo pipefail
 IMAGE=fastumpl-dev
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-docker build --quiet \
+docker build --quiet --target dev \
     --build-arg USER_UID="$(id -u)" \
     --build-arg USER_GID="$(id -g)" \
     -t "$IMAGE" "$ROOT" >/dev/null

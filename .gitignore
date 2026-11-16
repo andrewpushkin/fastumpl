@@ -3,3 +3,7 @@
 /site/gallery/
 /site/icon.svg
 /site/editor.png
+
+# Your own macOS SDK for `make mac` (never committed; see packaging/macos/README.md)
+/packaging/macos/sdk/
+/dist/
