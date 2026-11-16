@@ -1,0 +1,44 @@
+[package]
+name = "umpl-app"
+description = "fastumpl: a UML class diagram editor that lays diagrams out with few crossings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["fastumpl contributors"]
+homepage = "https://github.com/fastumpl/fastumpl"
+
+[[bin]]
+name = "fastumpl"
+path = "src/main.rs"
+
+[dependencies]
+umpl-core.workspace = true
+umpl-text.workspace = true
+umpl-layout.workspace = true
+umpl-draw = { workspace = true, features = ["png"] }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+egui = "0.33"
+rfd = "0.15"
+arboard = { version = "3.4", default-features = false, features = ["image-data"] }
+
+[package.metadata.deb]
+name = "fastumpl"
+maintainer = "fastumpl contributors"
+copyright = "fastumpl contributors"
+extended-description = """\
+fastumpl is a fast desktop editor for UML class diagrams. It places boxes \
+and routes lines automatically, keeping line crossings to a minimum. \
+Diagrams are stored as plain .umpl text files. Includes the umpl command \
+line tool for rendering SVG and PNG."""
+section = "graphics"
+priority = "optional"
+depends = "$auto, libgtk-3-0, libxkbcommon-x11-0, libgl1, libegl1, libxcursor1, libxrandr2, libxi6"
+assets = [
+    ["target/release/fastumpl", "usr/bin/", "755"],
+    ["target/release/umpl", "usr/bin/", "755"],
+    ["../../packaging/linux/fastumpl.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/linux/fastumpl-mime.xml", "usr/share/mime/packages/fastumpl.xml", "644"],
+    ["../../assets/icon.svg", "usr/share/icons/hicolor/scalable/apps/fastumpl.svg", "644"],
+    ["../../examples/*.umpl", "usr/share/doc/fastumpl/examples/", "644"],
+]
