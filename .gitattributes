@@ -1,0 +1,3 @@
+# Diagram files and test baselines are compared byte for byte.
+*.umpl text eol=lf
+tests/corpus/*.txt text eol=lf

@@ -306,3 +306,18 @@ fn opening_file_without_layout_places_everything_without_dirtying() {
     assert!(!s.is_dirty());
     assert!(!s.editor.can_undo());
 }
+
+#[test]
+fn detects_file_changed_on_disk() {
+    let path = std::env::temp_dir().join(format!("fastumpl-disk-{}.umpl", std::process::id()));
+    std::fs::write(&path, "class A\n").unwrap();
+    let mut s = crate::session::Session::open(&path).unwrap();
+    assert!(!s.changed_on_disk());
+    // File systems may store modification times in whole seconds.
+    std::thread::sleep(Duration::from_millis(1100));
+    std::fs::write(&path, "class A\nclass B\n").unwrap();
+    assert!(s.changed_on_disk());
+    s.acknowledge_disk();
+    assert!(!s.changed_on_disk());
+    let _ = std::fs::remove_file(path);
+}
