@@ -16,6 +16,9 @@ mod session;
 mod storage;
 mod view;
 
+#[cfg(test)]
+mod tests;
+
 use std::path::PathBuf;
 
 fn icon() -> Option<egui::IconData> {

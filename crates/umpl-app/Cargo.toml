@@ -20,7 +20,10 @@ umpl-draw = { workspace = true, features = ["png"] }
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 egui = "0.33"
 rfd = "0.15"
-arboard = { version = "3.4", default-features = false, features = ["image-data"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.33", features = ["eframe"] }
+
 
 [package.metadata.deb]
 name = "fastumpl"

@@ -175,14 +175,13 @@ impl App {
 
     fn hit(&self, geo: &Geometry, world: (f32, f32), with_handles: bool) -> Hit {
         let z = self.camera.zoom;
+        // Any box's edge dots count, not only the hovered box's: by the
+        // time a drag registers, the pointer has often left the box.
         if with_handles {
-            let candidates: Vec<ElementId> = self.canvas.hover.into_iter().chain(self.sel.elements.iter().copied()).collect();
-            for id in candidates {
-                if let Some((_, r)) = geo.elements.iter().find(|(e, _)| *e == id) {
-                    for h in handles(*r) {
-                        if ((h.0 - world.0).powi(2) + (h.1 - world.1).powi(2)).sqrt() * z < 8.0 {
-                            return Hit::Handle(id);
-                        }
+            for (id, r) in geo.elements.iter().rev() {
+                for h in handles(*r) {
+                    if ((h.0 - world.0).powi(2) + (h.1 - world.1).powi(2)).sqrt() * z < 8.0 {
+                        return Hit::Handle(*id);
                     }
                 }
             }
@@ -653,7 +652,12 @@ impl App {
     fn inline_editor(&mut self, ctx: &egui::Context, geo: &Geometry) {
         let Some(edit) = &self.canvas.edit else { return };
         let Some((_, r)) = geo.elements.iter().find(|(id, _)| *id == edit.id) else {
-            self.canvas.edit = None;
+            // A box created this frame has no geometry yet; it shows next
+            // frame. Close only if the element is gone.
+            let exists = self.session.as_ref().is_some_and(|s| s.editor.doc.elements.contains_key(&edit.id));
+            if !exists {
+                self.canvas.edit = None;
+            }
             return;
         };
         let kind = self.session.as_ref().and_then(|s| s.editor.doc.elements.get(&edit.id)).map(|e| e.kind);
@@ -661,6 +665,8 @@ impl App {
         let width = screen.width().max(300.0);
         let mut commit = false;
         let mut cancel = false;
+        // The click that opened the editor must not also close it.
+        let just_opened = edit.focus;
         let area = egui::Area::new(Id::new("inline-edit"))
             .order(Order::Foreground)
             .fixed_pos(screen.min - Vec2::new(4.0, 4.0))
@@ -719,7 +725,7 @@ impl App {
                 cancel = true;
             }
         });
-        if area.response.clicked_elsewhere() && !commit && !cancel {
+        if area.response.clicked_elsewhere() && !commit && !cancel && !just_opened {
             commit = true;
         }
         if cancel {
