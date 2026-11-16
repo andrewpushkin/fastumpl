@@ -20,7 +20,9 @@ umpl-layout.workspace = true
 umpl-draw = { workspace = true, features = ["png"] }
 eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 egui = "0.33"
-rfd = "0.15"
+# GTK 3 dialogs work on every X11/Wayland desktop (and WSLg); the portal
+# backend needs an xdg-desktop-portal service.
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.33", features = ["eframe"] }
