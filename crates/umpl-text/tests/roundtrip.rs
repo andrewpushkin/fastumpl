@@ -1,7 +1,44 @@
 use umpl_core::*;
 use umpl_text::{parse, print};
 
-const DESIGN_EXAMPLE: &str = include_str!("../../../examples/shop.umpl");
+/// The example file from the design document (§5.2).
+const DESIGN_EXAMPLE: &str = r#"diagram "Shop"
+
+package billing {
+  abstract class Payment {
+    +amount: Money
+    +pay(): Receipt {abstract}
+  }
+  class CardPayment
+}
+
+class Order {
+  +id: OrderId
+  -lines: List<OrderLine>
+  +total(): Money
+}
+
+interface Priced {
+  +price(): Money
+}
+
+enum Status { New, Paid, Shipped }
+
+# an order owns its lines
+Order "1" *-- "1..*" OrderLine : contains
+billing.CardPayment --|> billing.Payment
+Order ..|> Priced
+Order --> billing.Payment : paid by
+
+layout {
+  Order               at 24, 8
+  OrderLine           at 24, 22
+  billing.Payment     at 48, 8
+  billing.CardPayment at 48, 22
+}
+"#;
+
+const SHOP_EXAMPLE: &str = include_str!("../../../examples/shop.umpl");
 
 /// Small deterministic generator so failures reproduce.
 struct Rng(u64);
@@ -95,6 +132,13 @@ fn assert_stable(src: &str) {
 #[test]
 fn print_parse_print_is_stable_for_design_example() {
     assert_stable(DESIGN_EXAMPLE);
+}
+
+#[test]
+fn shop_example_is_formatted_and_clean() {
+    let parsed = parse(SHOP_EXAMPLE);
+    assert_eq!(parsed.problems, vec![]);
+    assert_eq!(print(&parsed.doc), SHOP_EXAMPLE);
 }
 
 #[test]

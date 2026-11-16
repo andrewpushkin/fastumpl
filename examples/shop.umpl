@@ -5,6 +5,7 @@ package billing {
     +amount: Money
     +pay(): Receipt {abstract}
   }
+
   class CardPayment
 }
 
@@ -26,9 +27,13 @@ billing.CardPayment --|> billing.Payment
 Order ..|> Priced
 Order --> billing.Payment : paid by
 
+class OrderLine
+
 layout {
-  Order               at 24, 8
-  OrderLine           at 24, 22
-  billing.Payment     at 48, 8
-  billing.CardPayment at 48, 22
+  Order               at 29, 17
+  OrderLine           at 33, 39
+  Priced              at 33, 0
+  Status              at 64, 0
+  billing.CardPayment at 2, 25
+  billing.Payment     at 3, 5
 }
