@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#1f3a5f"/>
+  <!-- parent class -->
+  <rect x="84" y="40" width="88" height="56" rx="8" fill="#ffffff"/>
+  <rect x="84" y="40" width="88" height="20" rx="8" fill="#9cc3ff"/>
+  <rect x="84" y="52" width="88" height="8" fill="#9cc3ff"/>
+  <!-- inheritance trunk -->
+  <path d="M128 96 L128 112" stroke="#ffffff" stroke-width="8" fill="none"/>
+  <path d="M116 112 L128 96 L140 112 Z" fill="#1f3a5f" stroke="#ffffff" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M128 112 L128 136 M76 136 L180 136 M76 136 L76 160 M180 136 L180 160" stroke="#ffffff" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- child classes -->
+  <rect x="36" y="160" width="80" height="56" rx="8" fill="#ffffff"/>
+  <rect x="36" y="160" width="80" height="20" rx="8" fill="#ffd27a"/>
+  <rect x="36" y="172" width="80" height="8" fill="#ffd27a"/>
+  <rect x="140" y="160" width="80" height="56" rx="8" fill="#ffffff"/>
+  <rect x="140" y="160" width="80" height="20" rx="8" fill="#ffd27a"/>
+  <rect x="140" y="172" width="80" height="8" fill="#ffd27a"/>
+</svg>

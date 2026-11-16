@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=fastumpl
+GenericName=UML Diagram Editor
+Comment=Edit UML class diagrams that lay themselves out
+Exec=fastumpl %f
+Icon=fastumpl
+Terminal=false
+Categories=Development;Graphics;
+MimeType=text/x-umpl;
+Keywords=UML;diagram;class;

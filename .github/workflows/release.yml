@@ -1,0 +1,116 @@
+name: Release
+
+# Push a tag such as v0.1.0 to build all packages and publish a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-deb:
+    name: Linux x86-64 (.deb)
+    # Oldest supported runner, so the package runs on older glibc too.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl-dev libegl-dev
+
+      - name: Install toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Build
+        run: cargo build --release -p umpl-app -p umpl-cli
+
+      - name: Package
+        run: |
+          cargo deb -p umpl-app --no-build -o fastumpl-linux-x86_64.deb
+          dpkg-deb --info fastumpl-linux-x86_64.deb
+          dpkg-deb --contents fastumpl-linux-x86_64.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: fastumpl-linux-x86_64.deb
+
+  windows-portable:
+    name: Windows ${{ matrix.arch }} (portable)
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and target
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p umpl-app -p umpl-cli
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "fastumpl-windows-${{ matrix.arch }}-portable"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force -Path "$dir/data", "$dir/examples" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/fastumpl.exe" $dir
+          Copy-Item "target/${{ matrix.target }}/release/umpl.exe" $dir
+          Copy-Item "packaging/windows/README.txt" $dir
+          Copy-Item "examples/*.umpl" "$dir/examples"
+          Compress-Archive -Path "$dir/*" -DestinationPath "$name.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: fastumpl-windows-${{ matrix.arch }}-portable.zip
+
+  publish:
+    name: Publish release
+    needs: [linux-deb, windows-portable]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Checksums
+        run: sha256sum fastumpl-* > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            fastumpl-linux-x86_64.deb
+            fastumpl-windows-x86_64-portable.zip
+            fastumpl-windows-arm64-portable.zip
+            SHA256SUMS.txt
