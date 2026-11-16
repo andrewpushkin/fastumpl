@@ -508,6 +508,28 @@ pub fn place_new(graph: &Graph) -> Layout {
     finalize(graph, nodes.into_iter().map(Option::unwrap).collect())
 }
 
+/// After `moved` nodes changed position (all nodes must have one): keeps
+/// the other lines, re-routes the affected ones, and refreshes group
+/// bounds, labels and stats. Fast enough to run on every drag frame.
+pub fn update_after_move(graph: &Graph, prev: &Layout, moved: &[usize]) -> Layout {
+    if prev.routes.len() != graph.edges.len() || graph.nodes.iter().any(|n| n.pos.is_none()) {
+        return route_only(graph);
+    }
+    let nodes: Vec<(i32, i32)> = graph.nodes.iter().map(|n| n.pos.unwrap()).collect();
+    let mut routes = prev.routes.clone();
+    crate::router::reroute(graph, &nodes, &mut routes, moved);
+    let groups = group_rects(graph, &nodes);
+    let labels = place_labels(graph, &nodes, &routes);
+    let stats = measure(graph, &nodes, &routes);
+    Layout {
+        nodes,
+        routes,
+        groups,
+        labels,
+        stats,
+    }
+}
+
 /// Keeps every node where it is (placing any without a position) and
 /// routes the lines.
 pub fn route_only(graph: &Graph) -> Layout {

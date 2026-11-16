@@ -70,6 +70,38 @@ impl Editor {
         self.undo.push(Group { inverse, key });
     }
 
+    /// Applies `ops` as part of the most recent undo step, for follow-up
+    /// changes such as positions computed for elements that step created.
+    pub fn amend(&mut self, ops: Vec<Op>) {
+        if ops.is_empty() {
+            return;
+        }
+        let inverse: Vec<Op> = ops.into_iter().map(|o| self.doc.apply(o)).collect();
+        self.revision += 1;
+        match self.undo.last_mut() {
+            Some(last) => {
+                let seen: HashSet<Slot> = last.inverse.iter().map(Op::slot).collect();
+                last.inverse
+                    .extend(inverse.into_iter().filter(|o| !seen.contains(&o.slot())));
+            }
+            None => self.undo.push(Group { inverse, key: None }),
+        }
+    }
+
+    /// Changes the document without recording an undo step (used when a
+    /// file is opened and positions are filled in).
+    pub fn apply_silently(&mut self, ops: Vec<Op>) {
+        for o in ops {
+            self.doc.apply(o);
+        }
+        self.revision += 1;
+    }
+
+    /// Position ops for `positions`, skipping unchanged ones.
+    pub fn position_changes(&self, positions: &[(ElementId, Option<Pos>)]) -> Vec<Op> {
+        self.position_ops(positions)
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -419,6 +451,18 @@ mod tests {
         assert_eq!(ed.doc, before);
         // The step before the drag is still there.
         assert!(ed.can_undo());
+    }
+
+    #[test]
+    fn amend_joins_last_step() {
+        let mut ed = Editor::new(Document::new());
+        let a = ed.add_element(ElementKind::Class, "A", None, None);
+        let ops = ed.position_changes(&[(a, Some(Pos::new(3, 4)))]);
+        ed.amend(ops);
+        assert_eq!(ed.doc.elements[&a].pos, Some(Pos::new(3, 4)));
+        ed.undo();
+        assert!(ed.doc.elements.is_empty());
+        assert!(!ed.can_undo());
     }
 
     #[test]

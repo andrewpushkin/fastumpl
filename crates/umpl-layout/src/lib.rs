@@ -22,7 +22,7 @@ mod router;
 mod score;
 
 pub use graph::*;
-pub use place::{layout_all, place_new, route_only, Options};
+pub use place::{layout_all, place_new, route_only, update_after_move, Options};
 pub use rng::Rng;
 pub use router::{reroute, route_all};
 pub use score::{crossing_points, measure, Stats};

@@ -51,6 +51,18 @@ pub fn svg_to_rgba(svg: &str, scale: f32) -> Result<Image, String> {
     })
 }
 
+/// Encodes opaque or straight-alpha RGBA pixels as PNG.
+pub fn rgba_to_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let size = tiny_skia::IntSize::from_wh(width, height).ok_or("empty image")?;
+    let mut data = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        let c = tiny_skia::ColorU8::from_rgba(px[0], px[1], px[2], px[3]).premultiply();
+        data.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    let pixmap = tiny_skia::Pixmap::from_vec(data, size).ok_or("bad image size")?;
+    pixmap.encode_png().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
