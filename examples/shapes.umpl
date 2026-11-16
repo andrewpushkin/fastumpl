@@ -86,18 +86,18 @@ BaseShape --> Point : origin
 
 layout {
   AreaVisitor  at 79, 24
-  BaseShape    at 44, 44
-  Canvas       at 104, 0
-  Circle       at 50, 67
-  Color        at 0, 0
-  Group        at 106, 44
-  HitTester    at 55, 24
-  Point        at 80, 44
-  Polygon      at 24, 67
-  Rectangle    at 70, 67
-  Shape        at 104, 24
-  ShapeVisitor at 50, 0
-  Square       at 72, 86
-  Style        at 19, 0
-  SvgExporter  at 30, 24
+  BaseShape    at 24, 44
+  Canvas       at 49, 0
+  Circle       at 6, 67
+  Color        at 8, 0
+  Group        at 55, 44
+  HitTester    at 104, 24
+  Point        at 0, 26
+  Polygon      at 26, 67
+  Rectangle    at 52, 67
+  Shape        at 47, 24
+  ShapeVisitor at 98, 0
+  Square       at 54, 86
+  Style        at 27, 0
+  SvgExporter  at 128, 24
 }

@@ -88,18 +88,18 @@ N1 .. Member
 layout {
   Author         at 102, 43
   Book           at 43, 43
-  Catalog        at 13, 0
+  Catalog        at 12, 0
   Dvd            at 0, 43
   Fine           at 127, 65
-  Item           at 19, 21
-  Librarian      at 46, 21
+  Item           at 18, 21
+  Librarian      at 45, 21
   Loan           at 123, 43
-  LoanPolicy     at 176, 0
+  LoanPolicy     at 174, 0
   Magazine       at 21, 43
-  Member         at 107, 21
-  N1             at 138, 0
-  Person         at 81, 0
-  Reservation    at 77, 21
-  StandardPolicy at 170, 21
-  StudentPolicy  at 198, 21
+  Member         at 106, 21
+  N1             at 137, 0
+  Person         at 80, 0
+  Reservation    at 76, 21
+  StandardPolicy at 196, 21
+  StudentPolicy  at 169, 21
 }
