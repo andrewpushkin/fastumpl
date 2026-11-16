@@ -7,6 +7,10 @@ name = "umpl-core"
 version = "0.1.0"
 
 [[package]]
+name = "umpl-layout"
+version = "0.1.0"
+
+[[package]]
 name = "umpl-text"
 version = "0.1.0"
 dependencies = [

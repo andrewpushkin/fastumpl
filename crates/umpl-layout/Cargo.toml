@@ -1,0 +1,9 @@
+[package]
+name = "umpl-layout"
+description = "Layered placement and orthogonal routing with few crossings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
