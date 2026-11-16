@@ -150,7 +150,7 @@ impl App {
                 }
                 Dialog::About => {
                     ui.heading("fastumpl");
-                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.label(format!("Version {}", crate::VERSION));
                     ui.label("A UML class diagram editor that lays diagrams out with as few line crossings as possible.");
                     ui.add_space(10.0);
                     if ui.button("Close").clicked() {

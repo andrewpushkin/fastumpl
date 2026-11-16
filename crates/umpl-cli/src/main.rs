@@ -9,6 +9,13 @@ use umpl_draw::{build_scene, svg::to_svg, Diagram, SceneOptions, Theme};
 use umpl_layout::Options;
 use umpl_text::{parse, print, write_atomic, Parsed};
 
+/// Release version (0.1.N, N = commits on main), set by the build as
+/// UMPL_VERSION; plain builds show the Cargo version.
+const VERSION: &str = match option_env!("UMPL_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 const HELP: &str = "\
 umpl - render, format and check fastumpl diagrams
 
@@ -32,7 +39,7 @@ fn main() -> ExitCode {
         Some("check") => check(&args[1..]),
         Some("stats") => stats(&args[1..]),
         Some("--version" | "-V") => {
-            println!("umpl {}", env!("CARGO_PKG_VERSION"));
+            println!("umpl {VERSION}");
             Ok(true)
         }
         Some("--help" | "-h" | "help") | None => {

@@ -21,6 +21,13 @@ mod tests;
 
 use std::path::PathBuf;
 
+/// Release version (0.1.N, N = commits on main), set by the build as
+/// UMPL_VERSION; plain builds show the Cargo version.
+pub const VERSION: &str = match option_env!("UMPL_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 fn icon() -> Option<egui::IconData> {
     let img = umpl_draw::png::svg_to_rgba(include_str!("../../../assets/icon.svg"), 1.0).ok()?;
     Some(egui::IconData {
@@ -33,7 +40,7 @@ fn icon() -> Option<egui::IconData> {
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("fastumpl {}", env!("CARGO_PKG_VERSION"));
+        println!("fastumpl {VERSION}");
         return Ok(());
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
