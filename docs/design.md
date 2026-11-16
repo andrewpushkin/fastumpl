@@ -1,6 +1,6 @@
 # fastumpl: design
 
-Status: draft for review, 2026-11-16. No code exists yet.
+Status: version 1 implemented, 2026-11-16. Section 13 lists where the build differs from this design.
 
 ## 1. What this is
 
@@ -345,6 +345,16 @@ How:
 - The shape list is rebuilt only for what changed, and shapes outside the visible area are skipped when painting.
 - Dragging reroutes only the lines attached to the moved box.
 
+Measured on 2026-11-16 (release build, 32-core machine; layout candidates run in parallel):
+
+| What | Target | Measured |
+|---|---|---|
+| Tidy, 30-class example (banking) | — | 50 ms |
+| Tidy, 100 generated classes | under 0.1 s | 0.25–0.5 s |
+| Tidy, 500 generated classes | under 1 s | 6–13 s |
+
+Placement takes a few milliseconds; nearly all the time is line routing on the full grid. Meeting the targets needs a sparse routing graph (lanes only at box edges, ports and channel midpoints) instead of every grid point. Tidy runs on a background thread, so the editor stays responsive meanwhile.
+
 ## 10. Testing
 
 - **File round trip.** Reading a file and writing it gives the same document. Writing twice gives identical bytes. Tested with generated random documents as well as examples.
@@ -392,6 +402,7 @@ The riskiest part (layout quality) comes early, and it can be judged before any 
 | Next diagram type | Not decided | State diagrams reuse the layout engine as it is. Sequence diagrams need a different, much simpler layout and a new drawing module |
 | Hand-adjusted line routes | Not supported | Would add waypoints to the `layout` block and a "must pass through" rule to the router |
 | Source text pane beside the canvas | Later | Needs the parser to report positions for every element so text and canvas selection can follow each other |
+| Routing speed | Grid A* (see section 9) | A sparse routing graph would make large diagrams 5–10× faster |
 
 ## 13. Left to the builder
 
@@ -400,3 +411,18 @@ The riskiest part (layout quality) comes early, and it can be judged before any 
 - The exact lane grid used by the router and its data structures.
 - Colours and the bundled font.
 - Shortcut keys beyond the ones named here.
+
+## 13. Where the build differs
+
+Decisions made while building, for the record:
+
+- **Notes** are elements of kind Note (`note N1 "text"`), and attaching one is a relation `N1 .. Order`. This puts notes in the `layout` block like any box.
+- **End labels** are one quoted string per end, `"1..* items"`: multiplicity first, then role.
+- **Unknown plain names** used only in a relation create a class, as PlantUML does. An unknown dotted name keeps the line as raw text with a problem.
+- **Undo** uses set-slot operations: each op replaces one element, relation, package, the root list or the title, and returns the old value.
+- **Lane spreading** is done by the router itself: sharing a lane costs as much as a crossing, except inheritance lines into one parent, which form a tree (stem, bar, drops) whenever that path is clear.
+- **Labels** avoid boxes, lines and each other; lines do not avoid labels. Boxes joined by a labelled line in the same row get extra room for the labels.
+- **Font**: DejaVu Sans Mono in four faces, bundled. Abstract names and operations are italic; static members are underlined.
+- **Crossing reduction** adds sifting and random restarts to the barycenter sweeps. An exhaustive test checks that the true minimum is found on small two-layer graphs.
+- **Package placement**: packages are laid out inside-out, and each finished package is one box in its parent. Lines leaving a package do not yet influence the order inside it.
+- **Development** happens in a Docker image (Ubuntu 26.04, Rust 1.91) through `scripts/dev.sh`. Interaction tests drive the real editor with egui_kittest.
