@@ -368,12 +368,12 @@ Placement takes a few milliseconds; nearly all the time is line routing on the f
 
 | Platform | Packages | Built by |
 |---|---|---|
-| Linux x86-64 | `.deb` (`/usr/bin/fastumpl`, `/usr/bin/umpl`, desktop entry, icon, `.umpl` file type) and a portable `.tar.gz` | `make linux-x86_64-deb`, `make linux-x86_64` (Ubuntu 22.04 image, glibc 2.35) |
-| Windows x64 | Inno Setup 7 installer and a portable `.zip` | `make windows-x86_64-installer`, `make windows-x86_64` (MinGW; Inno Setup under Wine) |
-| Windows ARM64 | Same as x64 | `make windows-arm-installer`, `make windows-arm` (llvm-mingw) |
+| Linux x86-64 | `.deb` (`/usr/bin/fastumpl`, `/usr/bin/umpl`, desktop entry, icon, `.umpl` file type) and a portable `.tar.gz` | `make linux-x86_64-packages` (or `-deb`) in the Ubuntu 22.04 image (glibc 2.35) |
+| Windows x64 | Inno Setup 7 installer and a portable `.zip` | `make windows-x86_64-packages` (MinGW; Inno Setup under Wine) |
+| Windows ARM64 | Same as x64 | `make windows-arm-packages` (llvm-mingw) |
 | macOS 11+ | Universal `.dmg` (Apple Silicon and Intel) | macOS runner in CI; `make mac` in Docker only with your own macOS SDK |
 
-All `make` targets run inside the Docker image. The installer lets the user install per user or for all users, adds a Start menu entry, optionally a desktop icon, the `.umpl` file type and `umpl` on PATH. The portable zip ships a `data` folder; when that folder exists next to `fastumpl.exe`, recent files and recovery copies go there, otherwise to `%APPDATA%\fastumpl`. On Linux and macOS the app uses `~/.config/fastumpl` and `~/.cache/fastumpl`.
+All `make` targets run inside the Docker image. A plain platform target (`make windows-x86_64`) only compiles; the `-packages` targets make the archives and installers; `make clean` removes all build output. The installer lets the user install per user or for all users, adds a Start menu entry, optionally a desktop icon, the `.umpl` file type and `umpl` on PATH. The portable zip ships a `data` folder; when that folder exists next to `fastumpl.exe`, recent files and recovery copies go there, otherwise to `%APPDATA%\fastumpl`. On Linux and macOS the app uses `~/.config/fastumpl` and `~/.cache/fastumpl`.
 
 The macOS SDK may only be used on Apple hardware under Apple's license, so it is not part of the image; release `.dmg` files are built on GitHub's macOS runners.
 

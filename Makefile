@@ -1,15 +1,18 @@
-# Release packages, built inside Docker (see Dockerfile). Results go to dist/.
+# Builds and packages fastumpl inside Docker (see Dockerfile). Packages go
+# to dist/, binaries to target/.
 #
-#   make linux-x86_64              portable .tar.gz
-#   make linux-x86_64-deb          Debian/Ubuntu package
-#   make windows-x86_64            portable .zip
-#   make windows-x86_64-installer  Inno Setup installer
-#   make windows-arm               portable .zip for ARM64
-#   make windows-arm-installer     Inno Setup installer for ARM64
-#   make mac                       universal .dmg (needs your own macOS SDK,
-#                                  see packaging/macos/README.md)
-#   make all                       everything except mac
-#   make test                      run the test suite
+#   make linux-x86_64                 build (glibc 2.35 binaries)
+#   make linux-x86_64-deb             Debian/Ubuntu package
+#   make linux-x86_64-packages        portable .tar.gz and .deb
+#   make windows-x86_64               build
+#   make windows-x86_64-packages      portable .zip and Inno Setup installer
+#   make windows-arm                  build for ARM64
+#   make windows-arm-packages         portable .zip and installer for ARM64
+#   make mac                          universal .dmg (needs your own macOS
+#                                     SDK, see packaging/macos/README.md)
+#   make all                          all packages except mac
+#   make test                         run the test suite
+#   make clean                        remove dist/, target/ and generated files
 #
 # The version is 0.1.N, where N is the number of commits on main.
 
@@ -32,12 +35,11 @@ RUN = docker run --rm --init \
 
 BUILD_ARGS = --build-arg USER_UID=$(UID) --build-arg USER_GID=$(GID)
 
-.PHONY: all linux-x86_64 linux-x86_64-deb windows-x86_64 windows-x86_64-installer \
-	windows-arm windows-arm-installer mac test version clean \
-	image-dev image-linux image-mac
+.PHONY: all linux-x86_64 linux-x86_64-deb linux-x86_64-packages \
+	windows-x86_64 windows-x86_64-packages windows-arm windows-arm-packages \
+	mac test version clean image-dev image-linux image-mac
 
-all: linux-x86_64 linux-x86_64-deb windows-x86_64 windows-x86_64-installer \
-	windows-arm windows-arm-installer
+all: linux-x86_64-packages windows-x86_64-packages windows-arm-packages
 
 version:
 	@echo $(VERSION)
@@ -55,24 +57,33 @@ image-mac:
 		exit 1; }
 	docker build --target mac $(BUILD_ARGS) -t $(IMAGE_MAC) .
 
+LINUX = $(RUN) -e CARGO_TARGET_DIR=/work/target/linux-22.04 $(IMAGE_LINUX) packaging/linux/build.sh
+
 linux-x86_64: image-linux
-	$(RUN) -e CARGO_TARGET_DIR=/work/target/linux-22.04 $(IMAGE_LINUX) \
-		packaging/linux/build.sh tar $(VERSION) $(DIST)
+	$(LINUX) build $(VERSION) $(DIST)
 
 linux-x86_64-deb: image-linux
-	$(RUN) -e CARGO_TARGET_DIR=/work/target/linux-22.04 $(IMAGE_LINUX) \
-		packaging/linux/build.sh deb $(VERSION) $(DIST)
+	$(LINUX) deb $(VERSION) $(DIST)
+
+linux-x86_64-packages: image-linux
+	$(LINUX) tar $(VERSION) $(DIST)
+	$(LINUX) deb $(VERSION) $(DIST)
+
+WIN_X64 := x86_64-pc-windows-gnu
+WIN_ARM := aarch64-pc-windows-gnullvm
 
 windows-x86_64: image-dev
-	$(RUN) $(IMAGE_DEV) packaging/windows/build.sh x86_64-pc-windows-gnu x86_64 $(DIST)
+	$(RUN) $(IMAGE_DEV) cargo build --release --target $(WIN_X64) -p umpl-app -p umpl-cli
 
-windows-x86_64-installer: windows-x86_64
+windows-x86_64-packages: windows-x86_64
+	$(RUN) $(IMAGE_DEV) packaging/windows/package.sh $(WIN_X64) x86_64 $(DIST)
 	$(RUN) $(IMAGE_DEV) packaging/windows/installer.sh x86_64 x64compatible $(VERSION) $(DIST)
 
 windows-arm: image-dev
-	$(RUN) $(IMAGE_DEV) packaging/windows/build.sh aarch64-pc-windows-gnullvm arm64 $(DIST)
+	$(RUN) $(IMAGE_DEV) cargo build --release --target $(WIN_ARM) -p umpl-app -p umpl-cli
 
-windows-arm-installer: windows-arm
+windows-arm-packages: windows-arm
+	$(RUN) $(IMAGE_DEV) packaging/windows/package.sh $(WIN_ARM) arm64 $(DIST)
 	$(RUN) $(IMAGE_DEV) packaging/windows/installer.sh arm64 arm64 $(VERSION) $(DIST)
 
 mac: image-mac
@@ -81,5 +92,8 @@ mac: image-mac
 test: image-dev
 	$(RUN) $(IMAGE_DEV) cargo test --workspace
 
+# Removes everything builds generate: packages, build output for every
+# target, and the website files the Pages workflow renders. Docker images
+# and the cargo download cache (Docker volumes) are kept.
 clean:
-	rm -rf $(DIST)
+	rm -rf $(DIST) target site/gallery site/icon.svg site/editor.png

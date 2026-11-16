@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Builds the portable Windows zip inside the Docker image.
+# Makes the portable Windows zip from an existing release build (run
+# `make windows-x86_64` / `make windows-arm` first; the Makefile's
+# *-packages targets do both).
 #
-#   packaging/windows/build.sh <rust-target> <arch-name> <dist-dir>
-#   e.g. packaging/windows/build.sh x86_64-pc-windows-gnu x86_64 dist
+#   packaging/windows/package.sh <rust-target> <arch-name> <dist-dir>
+#   e.g. packaging/windows/package.sh x86_64-pc-windows-gnu x86_64 dist
 #
 # Toolchain DLLs the executables need (for example libunwind.dll from
 # llvm-mingw) are copied next to them, so the zip runs on a clean Windows.
@@ -15,11 +17,14 @@ dist=$3
 name="fastumpl-windows-${arch}-portable"
 out="$dist/$name"
 
-cargo build --release --target "$target" -p umpl-app -p umpl-cli
+bin="target/$target/release"
+for exe in fastumpl.exe umpl.exe; do
+    [ -f "$bin/$exe" ] || { echo "missing $bin/$exe; build first" >&2; exit 1; }
+done
 
 rm -rf "$out" "$dist/$name.zip"
 mkdir -p "$out/data" "$out/examples"
-cp "target/$target/release/fastumpl.exe" "target/$target/release/umpl.exe" "$out/"
+cp "$bin/fastumpl.exe" "$bin/umpl.exe" "$out/"
 cp packaging/windows/README.txt "$out/"
 cp LICENSE "$out/LICENSE.txt"
 cp assets/fonts/DejaVu-LICENSE.txt "$out/"

@@ -99,15 +99,17 @@ umpl stats diagram.umpl [--tidy]             # crossings, bends, score
 Everything builds in Docker, so nothing else needs installing on your machine:
 
 ```
-make linux-x86_64              # dist/fastumpl-linux-x86_64.tar.gz
+make linux-x86_64              # build (binaries for glibc 2.35+)
 make linux-x86_64-deb          # dist/fastumpl-linux-x86_64.deb
-make windows-x86_64            # dist/fastumpl-windows-x86_64-portable.zip
-make windows-x86_64-installer  # dist/fastumpl-windows-x86_64-setup.exe (Inno Setup 7)
-make windows-arm               # dist/fastumpl-windows-arm64-portable.zip
-make windows-arm-installer     # dist/fastumpl-windows-arm64-setup.exe
+make linux-x86_64-packages     # .tar.gz and .deb
+make windows-x86_64            # build
+make windows-x86_64-packages   # portable .zip and installer (Inno Setup 7)
+make windows-arm               # build for ARM64
+make windows-arm-packages      # portable .zip and installer for ARM64
 make mac                       # dist/fastumpl-macos-universal.dmg (needs your macOS SDK)
-make all                       # everything except mac
+make all                       # all packages except mac
 make test
+make clean                     # remove dist/, target/ and generated files
 ```
 
 `make mac` needs Apple's macOS SDK, which may only be used on Apple hardware and is not included; see [packaging/macos/README.md](packaging/macos/README.md). Release `.dmg` files are built on GitHub's macOS runners.

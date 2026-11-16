@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Builds the Linux x86-64 packages (run in the Ubuntu 22.04 `linux` image,
+# Builds and packages Linux x86-64 (run in the Ubuntu 22.04 `linux` image,
 # so the binaries need only glibc 2.35).
 #
+#   packaging/linux/build.sh build <version> <dist-dir> compile only
 #   packaging/linux/build.sh tar <version> <dist-dir>   portable .tar.gz
 #   packaging/linux/build.sh deb <version> <dist-dir>   Debian package
 set -euo pipefail
@@ -15,6 +16,9 @@ mkdir -p "$dist"
 cargo build --release -p umpl-app -p umpl-cli
 
 case "$mode" in
+    build)
+        echo "${CARGO_TARGET_DIR:-target}/release/fastumpl"
+        ;;
     tar)
         name="fastumpl-linux-x86_64"
         out="$dist/$name"
@@ -35,7 +39,7 @@ case "$mode" in
         echo "$dist/fastumpl-linux-x86_64.deb"
         ;;
     *)
-        echo "usage: $0 tar|deb <version> <dist-dir>" >&2
+        echo "usage: $0 build|tar|deb <version> <dist-dir>" >&2
         exit 2
         ;;
 esac

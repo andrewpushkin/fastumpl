@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Windows installer from a portable folder made by build.sh,
+# Builds the Windows installer from the portable folder made by package.sh,
 # running Inno Setup 7 under Wine (Docker image) or natively (Git Bash on a
 # Windows machine with Inno Setup installed).
 #
