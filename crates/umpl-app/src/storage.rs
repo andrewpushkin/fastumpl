@@ -1,7 +1,8 @@
 //! Where the app keeps its own files: recent files and recovery copies.
 //!
-//! Windows (portable): a `data` folder next to the executable, or
-//! `%APPDATA%\fastumpl` if that folder cannot be written.
+//! Windows: the portable zip ships a `data` folder next to the executable,
+//! and when that folder exists (and can be written) everything goes there.
+//! Installed copies have no such folder and use `%APPDATA%\fastumpl`.
 //! Elsewhere: `$XDG_CONFIG_HOME/fastumpl` (default `~/.config/fastumpl`) for
 //! settings and `$XDG_CACHE_HOME/fastumpl` (default `~/.cache/fastumpl`) for
 //! recovery copies.
@@ -32,7 +33,7 @@ fn base_dirs() -> (PathBuf, PathBuf) {
         .and_then(|e| e.parent().map(Path::to_path_buf))
     {
         let data = exe_dir.join("data");
-        if writable(&data) {
+        if data.is_dir() && writable(&data) {
             return (data.clone(), data);
         }
     }
