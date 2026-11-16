@@ -1,0 +1,105 @@
+diagram "Library system"
+
+abstract class Person {
+  +name: String
+  +email: Email
+}
+
+class Member {
+  +memberNo: MemberNo
+  +borrow(item: Item): Loan
+}
+
+class Librarian {
+  +staffId: StaffId
+  +approve(r: Reservation)
+}
+
+abstract class Item {
+  +title: String
+  +isAvailable(): bool {abstract}
+}
+
+class Book {
+  +isbn: Isbn
+  +pages: int
+}
+
+class Dvd {
+  +minutes: int
+}
+
+class Magazine {
+  +issue: int
+}
+
+class Author {
+  +name: String
+}
+
+class Loan {
+  +due: Date
+  +returned: Option<Date>
+  +isOverdue(): bool
+}
+
+class Reservation {
+  +placed: Date
+}
+
+class Fine {
+  +amount: Money
+  +pay()
+}
+
+interface LoanPolicy {
+  +loanDays(item: Item): int
+  +finePerDay(): Money
+}
+
+class StandardPolicy
+
+class StudentPolicy
+
+class Catalog {
+  +search(text: String): List<Item>
+}
+
+note N1 "Members may hold at most\n5 loans at a time"
+
+Member --|> Person
+Librarian --|> Person
+Book --|> Item
+Dvd --|> Item
+Magazine --|> Item
+Book "*" -- "1..*" Author : written by
+Member "1" *-- "0..5" Loan : holds
+Loan "*" --> "1" Item : lends
+Member "1" -- "*" Reservation
+Reservation "*" --> "1" Item : for
+Loan "1" o-- "0..1" Fine
+Catalog "1" o-- "*" Item : lists
+StandardPolicy ..|> LoanPolicy
+StudentPolicy ..|> LoanPolicy
+Loan ..> LoanPolicy
+Librarian ..> Reservation
+N1 .. Member
+
+layout {
+  Author         at 102, 43
+  Book           at 43, 43
+  Catalog        at 13, 0
+  Dvd            at 0, 43
+  Fine           at 127, 65
+  Item           at 19, 21
+  Librarian      at 46, 21
+  Loan           at 123, 43
+  LoanPolicy     at 176, 0
+  Magazine       at 21, 43
+  Member         at 107, 21
+  N1             at 138, 0
+  Person         at 81, 0
+  Reservation    at 77, 21
+  StandardPolicy at 170, 21
+  StudentPolicy  at 198, 21
+}

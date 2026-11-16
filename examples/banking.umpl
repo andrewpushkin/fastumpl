@@ -1,0 +1,180 @@
+diagram "Banking domain"
+
+package customers {
+  abstract class Customer {
+    +id: CustomerId
+    +address: Address
+    +riskScore(): int {abstract}
+  }
+
+  class PersonalCustomer {
+    +birthDate: Date
+  }
+
+  class BusinessCustomer {
+    +companyNo: String
+  }
+
+  class Address {
+    +street: String
+    +city: String
+    +country: CountryCode
+  }
+}
+
+package accounts {
+  abstract class Account {
+    +number: Iban
+    +balance: Money
+    +status: AccountStatus
+    +apply(t: Transaction)
+  }
+
+  class CheckingAccount {
+    +overdraft: Money
+  }
+
+  class SavingsAccount
+
+  class LoanAccount {
+    +principal: Money
+    +schedule(): List<Payment>
+  }
+
+  enum AccountStatus { Open, Frozen, Closed }
+
+  interface InterestPolicy {
+    +rate(on: Date): Percent
+  }
+
+  class FixedRate
+
+  class VariableRate {
+    +index: RateIndex
+  }
+}
+
+package payments {
+  abstract class Transaction {
+    +at: Timestamp
+    +amount: Money
+    +currency: Currency
+  }
+
+  class Deposit
+
+  class Withdrawal
+
+  class Transfer {
+    +reference: String
+  }
+
+  enum Currency { EUR, USD, GBP, CHF }
+
+  abstract class Card {
+    +pan: CardNumber
+    +expires: YearMonth
+  }
+
+  class DebitCard
+
+  class CreditCard {
+    +limit: Money
+  }
+}
+
+package staff {
+  abstract class Employee {
+    +staffNo: StaffId
+  }
+
+  class Teller
+
+  class Manager {
+    +approveLoan(a: LoanAccount): bool
+  }
+}
+
+class Bank {
+  +bic: Bic
+  +open(c: Customer): Account
+}
+
+class Branch {
+  +code: BranchCode
+}
+
+class Statement {
+  +period: DateRange
+  +render(): Pdf
+}
+
+interface Notifier {
+  +send(c: customers.Customer, text: String)
+}
+
+class EmailNotifier
+
+class SmsNotifier
+
+Bank "1" *-- "1..*" Branch : runs
+Branch "1" o-- "*" staff.Employee : employs
+Branch "1" -- "*" accounts.Account : manages
+customers.PersonalCustomer --|> customers.Customer
+customers.BusinessCustomer --|> customers.Customer
+customers.Customer "1" *-- "1" customers.Address
+customers.Customer "1..*" -- "*" accounts.Account : owns
+accounts.CheckingAccount --|> accounts.Account
+accounts.SavingsAccount --|> accounts.Account
+accounts.LoanAccount --|> accounts.Account
+accounts.Account "1" *-- "*" payments.Transaction : history
+accounts.SavingsAccount --> accounts.InterestPolicy
+accounts.LoanAccount --> accounts.InterestPolicy
+accounts.FixedRate ..|> accounts.InterestPolicy
+accounts.VariableRate ..|> accounts.InterestPolicy
+payments.Deposit --|> payments.Transaction
+payments.Withdrawal --|> payments.Transaction
+payments.Transfer --|> payments.Transaction
+payments.Transfer "*" --> "1 target" accounts.Account
+payments.DebitCard --|> payments.Card
+payments.CreditCard --|> payments.Card
+payments.Card "*" --> "1" accounts.Account : draws on
+staff.Teller --|> staff.Employee
+staff.Manager --|> staff.Employee
+staff.Manager ..> accounts.LoanAccount : approves
+Statement "*" --> "1" accounts.Account
+Statement ..> Notifier : sent via
+EmailNotifier ..|> Notifier
+SmsNotifier ..|> Notifier
+
+layout {
+  Bank                       at 6, 0
+  Branch                     at 10, 56
+  EmailNotifier              at 284, 20
+  Notifier                   at 261, 0
+  SmsNotifier                at 259, 20
+  Statement                  at 229, 0
+  accounts.Account           at 130, 5
+  accounts.AccountStatus     at 195, 5
+  accounts.CheckingAccount   at 161, 31
+  accounts.FixedRate         at 77, 24
+  accounts.InterestPolicy    at 79, 5
+  accounts.LoanAccount       at 128, 31
+  accounts.SavingsAccount    at 100, 31
+  accounts.VariableRate      at 51, 24
+  customers.Address          at 97, 84
+  customers.BusinessCustomer at 67, 84
+  customers.Customer         at 63, 61
+  customers.PersonalCustomer at 37, 84
+  payments.Card              at 139, 100
+  payments.CreditCard        at 152, 119
+  payments.Currency          at 181, 100
+  payments.DebitCard         at 129, 119
+  payments.Deposit           at 129, 83
+  payments.Transaction       at 149, 61
+  payments.Transfer          at 174, 83
+  payments.Withdrawal        at 150, 83
+  staff.Employee             at 25, 112
+  staff.Manager              at 2, 129
+  staff.Teller               at 43, 129
+}

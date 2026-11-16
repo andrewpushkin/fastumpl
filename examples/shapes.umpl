@@ -1,0 +1,103 @@
+diagram "Shapes and visitors"
+
+interface Shape {
+  +accept(v: ShapeVisitor)
+  +bounds(): Rect
+}
+
+abstract class BaseShape {
+  #origin: Point
+  #style: Style
+  +moveBy(dx: f64, dy: f64)
+}
+
+class Circle {
+  +radius: f64
+}
+
+class Rectangle {
+  +width: f64
+  +height: f64
+}
+
+class Square
+
+class Polygon {
+  +points: Vec<Point>
+}
+
+class Group {
+  +children: Vec<Shape>
+  +add(s: Shape)
+}
+
+interface ShapeVisitor {
+  +visitCircle(c: Circle)
+  +visitRectangle(r: Rectangle)
+  +visitPolygon(p: Polygon)
+  +visitGroup(g: Group)
+}
+
+class AreaVisitor {
+  +total: f64
+}
+
+class SvgExporter {
+  +out: String
+}
+
+class HitTester {
+  +at: Point
+  +hits: Vec<Shape>
+}
+
+class Canvas {
+  +shapes: Vec<Shape>
+  +render(v: ShapeVisitor)
+}
+
+class Style {
+  +fill: Color
+  +stroke: Color
+}
+
+enum Color { Red, Green, Blue, Black, White }
+
+class Point {
+  +x: f64
+  +y: f64
+}
+
+BaseShape ..|> Shape
+Group ..|> Shape
+Circle --|> BaseShape
+Rectangle --|> BaseShape
+Polygon --|> BaseShape
+Square --|> Rectangle
+Group "1" o-- "*" Shape : contains
+AreaVisitor ..|> ShapeVisitor
+SvgExporter ..|> ShapeVisitor
+HitTester ..|> ShapeVisitor
+Canvas "1" *-- "*" Shape
+Canvas ..> ShapeVisitor : runs
+BaseShape --> Style
+Style --> Color
+BaseShape --> Point : origin
+
+layout {
+  AreaVisitor  at 79, 24
+  BaseShape    at 44, 44
+  Canvas       at 104, 0
+  Circle       at 50, 67
+  Color        at 0, 0
+  Group        at 106, 44
+  HitTester    at 55, 24
+  Point        at 80, 44
+  Polygon      at 24, 67
+  Rectangle    at 70, 67
+  Shape        at 104, 24
+  ShapeVisitor at 50, 0
+  Square       at 72, 86
+  Style        at 19, 0
+  SvgExporter  at 30, 24
+}
