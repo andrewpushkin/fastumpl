@@ -1,0 +1,9 @@
+# name crossings score (lower is better)
+banking 3 230.0
+library 0 79.6
+shapes 0 50.4
+shop 0 7.7
+gen-20-1 0 67.2
+gen-20-2 0 113.1
+gen-80-3 57 1859.3
+gen-200-4 327 7407.6
