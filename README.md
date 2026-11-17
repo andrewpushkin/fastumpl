@@ -106,13 +106,13 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | Double-click empty space | New class |
 | Double-click a box | Edit it in place |
 | Drag from a dot on a box edge | Connect (pick the relation kind) |
-| V C A I E N P R | Tools: select, class, abstract, interface, enum, note, package, relation |
+| V C A I E N P R | Tools: select, class, abstract, interface, enum, note, package, relation (also the icons on the left) |
 | Ctrl+T | Tidy |
 | F | Fit diagram in window |
 | Ctrl+K | Command palette |
 | Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo; also the ⟲ ⟳ buttons, and the Edit menu names the step ("Undo Move Order") |
-| Right- or middle-drag, scroll | Pan |
-| Ctrl+scroll | Zoom |
+| Right- or middle-drag, scroll, the scroll bars | Pan |
+| Ctrl+scroll, or − and + in the top bar | Zoom (click the percentage for 100 %) |
 
 ## Building
 

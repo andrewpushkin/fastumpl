@@ -981,7 +981,32 @@ impl App {
                     {
                         self.run(ui.ctx(), Cmd::Fit);
                     }
-                    ui.label(format!("{:.0}%", self.camera.zoom * 100.0));
+                    ui.separator();
+                    // Right to left: zoom in, the zoom level, zoom out.
+                    let zoom = self.camera.zoom;
+                    let can_zoom_in = zoom < crate::camera::MAX_ZOOM - 1e-4;
+                    let can_zoom_out = zoom > crate::camera::MIN_ZOOM + 1e-4;
+                    for (cmd, text, enabled) in [
+                        (Cmd::ZoomIn, "+".to_string(), can_zoom_in),
+                        (Cmd::ZoomReset, format!("{:.0}%", zoom * 100.0), true),
+                        (Cmd::ZoomOut, "−".to_string(), can_zoom_out),
+                    ] {
+                        let mut tip = cmd.label();
+                        if let Some(sc) = cmd.shortcut() {
+                            tip = format!("{tip} ({})", ui.ctx().format_shortcut(&sc));
+                        }
+                        let button = if cmd == Cmd::ZoomReset {
+                            Button::new(text)
+                                .frame(false)
+                                .min_size(egui::vec2(40.0, 0.0))
+                        } else {
+                            Button::new(RichText::new(text).size(15.0))
+                                .min_size(egui::vec2(22.0, 0.0))
+                        };
+                        if ui.add_enabled(enabled, button).on_hover_text(tip).clicked() {
+                            self.run(ui.ctx(), cmd);
+                        }
+                    }
                     ui.separator();
                     // Right to left: Redo first, so Undo shows on its left.
                     for (cmd, icon) in [(Cmd::Redo, "⟳"), (Cmd::Undo, "⟲")] {
@@ -1066,6 +1091,7 @@ impl App {
     }
 
     fn tools_panel(&mut self, ctx: &Context) {
+        let theme = self.diagram_theme(ctx);
         egui::SidePanel::left("tools")
             .resizable(false)
             .exact_width(46.0)
@@ -1074,10 +1100,20 @@ impl App {
                 ui.vertical_centered(|ui| {
                     for t in Tool::ALL {
                         let sel = self.tool == t;
-                        let r = ui.add_sized(
-                            [34.0, 30.0],
-                            Button::selectable(sel, RichText::new(t.icon()).size(16.0)),
-                        );
+                        let r = ui.add_sized([34.0, 30.0], Button::selectable(sel, ""));
+                        // The button has no text: name it for screen readers.
+                        r.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Button,
+                                true,
+                                sel,
+                                t.label(),
+                            )
+                        });
+                        let fg = ui.style().interact_selectable(&r, sel).fg_stroke.color;
+                        let icon =
+                            egui::Rect::from_center_size(r.rect.center(), egui::vec2(22.0, 22.0));
+                        crate::icons::paint_tool_icon(ui.painter(), icon, t, fg, &theme);
                         if r.on_hover_text(format!("{} ({:?})", t.label(), t.key()))
                             .clicked()
                         {

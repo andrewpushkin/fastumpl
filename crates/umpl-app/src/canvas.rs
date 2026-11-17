@@ -64,6 +64,10 @@ pub struct CanvasState {
     pub edit: Option<InlineEdit>,
     pub connect: Option<ConnectMenu>,
     hover: Option<ElementId>,
+    /// The scroll bar thumbs as last painted: horizontal, then vertical.
+    pub scroll_thumbs: [Option<Rect>; 2],
+    /// The scroll bar thumb being dragged.
+    pub scroll_drag: Option<crate::scrollbar::ScrollDrag>,
 }
 
 impl Default for CanvasState {
@@ -74,6 +78,8 @@ impl Default for CanvasState {
             edit: None,
             connect: None,
             hover: None,
+            scroll_thumbs: [None, None],
+            scroll_drag: None,
         }
     }
 }
@@ -421,12 +427,13 @@ impl App {
         if self.show_grid {
             self.paint_grid(&painter, rect, c32(theme.grid));
         }
-        {
+        let bounds = {
             let s = self.session.as_ref().unwrap();
             let hide = self.camera.zoom < 0.4;
             let scene = self.view.scene(&s.editor, &self.sel, &theme, hide);
             paint_scene(&painter, scene, &self.camera, rect);
-        }
+            scene.bounds
+        };
 
         let geo = self.geometry();
         let pointer_world = resp.hover_pos().map(|p| self.camera.to_world(p));
@@ -499,6 +506,7 @@ impl App {
             None => {}
         }
 
+        self.scroll_bars(ui, rect, bounds);
         self.inline_editor(&ctx, &geo);
         self.connect_menu(&ctx);
     }

@@ -33,19 +33,6 @@ impl Tool {
         }
     }
 
-    pub fn icon(self) -> &'static str {
-        match self {
-            Tool::Select => "⬉",
-            Tool::Element(ElementKind::Class) => "C",
-            Tool::Element(ElementKind::Abstract) => "A",
-            Tool::Element(ElementKind::Interface) => "I",
-            Tool::Element(ElementKind::Enum) => "E",
-            Tool::Element(ElementKind::Note) => "N",
-            Tool::Package => "P",
-            Tool::Relation => "R",
-        }
-    }
-
     pub fn key(self) -> Key {
         match self {
             Tool::Select => Key::V,

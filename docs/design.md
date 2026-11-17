@@ -306,7 +306,7 @@ Clean layout is most of beauty. The rest is consistent drawing.
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Arrange                [Tidy] [Fit]   100%   Theme  │
+│ File  Edit  View  Arrange  Help      ⟲ ⟳ │ − 100% + │ [Fit] [Tidy] │
 ├─────┬──────────────────────────────────────────────┬──────────────────┤
 │     │                                              │ Order            │
 │ Sel │      ┌─────────────┐        ┌───────────┐    │ ──────────────── │
@@ -331,7 +331,8 @@ Interaction:
 - **Edit text in place.** Double-click a box and type members as text lines (`+total(): Money`), in the same syntax as the file. Enter adds a line, Escape leaves. The inspector on the right edits the same data as form fields.
 - **Connect.** Hover a box to see handles on its edges; drag from a handle to another box, then choose the relation kind from a small popup. Dropping on empty canvas creates a new class there.
 - **Select and move.** Click, shift-click, or drag a rectangle. Dragging snaps to the grid and shows guide lines when edges or centres line up with other boxes.
-- **View.** Scroll to pan, Ctrl-scroll to zoom toward the pointer, a key to fit the whole diagram.
+- **View.** Scroll to pan, Ctrl-scroll to zoom toward the pointer, a key to fit the whole diagram. Scroll bars along the bottom and right edges span the diagram plus a margin, extended to whatever is in view, since the canvas has no edge; the − and + buttons zoom around the centre, and clicking the percentage returns to 100 %.
+- **Tools.** The tool buttons on the left are drawn icons of what they create: a class box with the coloured dot of its kind (as on the canvas), with an italic name for abstract, a lollipop for interface and a list for enum; a folded note; a folder for a package; a line with an arrowhead for relations.
 - **Undo.** Every change is undoable with no limit within a session. A drag is one step, not one per frame.
 - **Keyboard.** Standard shortcuts for file and edit commands, single keys for tools, Ctrl-T for Tidy, and a command palette (Ctrl-K) that lists everything.
 - **Export.** SVG and PNG to file; copy the selection to the clipboard as an image.

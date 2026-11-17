@@ -513,3 +513,94 @@ fn toolbar_buttons_undo_and_redo() {
     h.run_steps(2);
     assert_eq!(doc(&h).elements[&a].pos, Some(Pos::new(4, 4)));
 }
+
+/// A diagram wider and taller than the window, so both bars can scroll.
+fn big_diagram() -> Harness<'static, App> {
+    let mut h = new_app();
+    add(&mut h, "A", 0, 0);
+    add(&mut h, "B", 400, 300);
+    h.state_mut().fit_pending = false;
+    h.state_mut().camera = crate::camera::Camera::default();
+    h.run_steps(3);
+    h
+}
+
+#[test]
+fn dragging_a_scroll_thumb_pans_one_axis() {
+    let mut h = big_diagram();
+    let before = h.state().camera.origin;
+    let thumb = h.state().canvas.scroll_thumbs[0].expect("no horizontal bar");
+    let rect = h.state().canvas.rect;
+    assert!(thumb.bottom() <= rect.bottom() + 0.5 && thumb.top() > rect.bottom() - 20.0);
+    drag(
+        &mut h,
+        thumb.center(),
+        thumb.center() + Vec2::new(60.0, 0.0),
+    );
+    let after = h.state().camera.origin;
+    // The view moved right, so the diagram moved left; up and down stayed.
+    assert!(after.x < before.x - 60.0, "{before:?} -> {after:?}");
+    assert_eq!(after.y, before.y);
+    // The thumb followed the pointer.
+    let moved = h.state().canvas.scroll_thumbs[0].unwrap();
+    assert!(
+        (moved.center().x - thumb.center().x - 60.0).abs() < 2.0,
+        "{thumb:?} -> {moved:?}"
+    );
+    assert!(h.state().sel.is_empty());
+
+    let thumb = h.state().canvas.scroll_thumbs[1].expect("no vertical bar");
+    drag(
+        &mut h,
+        thumb.center(),
+        thumb.center() + Vec2::new(0.0, 40.0),
+    );
+    let down = h.state().camera.origin;
+    assert!(
+        down.y < after.y - 40.0 && down.x == after.x,
+        "{after:?} -> {down:?}"
+    );
+}
+
+#[test]
+fn clicking_a_scroll_track_moves_a_page_and_creates_nothing() {
+    let mut h = big_diagram();
+    // Even with the class tool, a click on the bar only scrolls.
+    h.state_mut().tool = crate::commands::Tool::Element(ElementKind::Class);
+    let thumb = h.state().canvas.scroll_thumbs[1].unwrap();
+    let rect = h.state().canvas.rect;
+    let before = h.state().camera.origin;
+    click(&mut h, Pos2::new(thumb.center().x, rect.bottom() - 30.0));
+    let after = h.state().camera.origin;
+    assert!(
+        before.y - after.y > rect.height() * 0.5,
+        "{before:?} -> {after:?}"
+    );
+    assert_eq!(doc(&h).elements.len(), 2);
+}
+
+#[test]
+fn zoom_buttons_zoom_and_the_percentage_resets() {
+    let mut h = new_app();
+    h.get_by_label("+").click();
+    h.run_steps(2);
+    assert!((h.state().camera.zoom - 1.25).abs() < 1e-4);
+    h.get_by_label("+").click();
+    h.run_steps(2);
+    h.get_by_label("−").click();
+    h.run_steps(2);
+    assert!((h.state().camera.zoom - 1.25).abs() < 1e-4);
+    h.get_by_label("125%").click();
+    h.run_steps(2);
+    assert!((h.state().camera.zoom - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn tool_buttons_are_named_for_their_tool() {
+    let mut h = new_app();
+    for tool in crate::commands::Tool::ALL {
+        h.get_by_label(tool.label()).click();
+        h.run_steps(2);
+        assert_eq!(h.state().tool, tool);
+    }
+}
