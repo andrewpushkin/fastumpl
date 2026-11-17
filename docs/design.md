@@ -286,7 +286,7 @@ Clean layout is most of beauty. The rest is consistent drawing.
 - **Boxes.** 1.5-pixel border, 4-pixel corner radius, name centred and bold, members left-aligned in a monospace-friendly sans font. Abstract names are italic. Stereotypes sit above the name in a smaller size. Empty compartments are hidden.
 - **Lines.** 1.5 pixels, corner radius 6 pixels, standard UML arrowheads at one fixed size.
 - **Spacing.** At least 5 grid units between boxes and 10 between layers; a layer gap grows when many lines pass through it.
-- **Colour.** A light and a dark theme. One accent colour for selection. Packages get a faint tint and a tab with the name. Interfaces and enums get a small coloured mark in the header rather than a different fill, so the diagram stays calm.
+- **Colour.** A light and a dark theme. One accent colour for selection. Packages get a faint tint and a tab with the name. Each kind of box (class, abstract class, interface, enum) has its own colour: the box is filled with a pale tint of it (12% in the light theme, 18% in the dark), and a lettered badge in that colour sits in the header, so the kind does not depend on colour alone. The tint is blended into an opaque fill, so the canvas grid never shows through behind text.
 - **Zoom.** Text and lines are redrawn sharp at every zoom level, never scaled as an image. Below about 40% zoom, members are hidden and only names show.
 
 ## 8. The editor window

@@ -513,7 +513,7 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
 
     shapes.push(Shape::Rect {
         rect: r,
-        fill: Some(theme.box_fill),
+        fill: Some(theme.fill(c.kind)),
         stroke: Some((theme.box_stroke, BOX_W)),
         radius: 4.0,
     });
@@ -598,6 +598,37 @@ mod tests {
         assert_eq!(s.packages.len(), 1);
         for (_, r) in &s.elements {
             assert!(s.bounds.contains((r.x, r.y)) && s.bounds.contains((r.right(), r.bottom())));
+        }
+    }
+
+    /// Each kind of box gets its own pale, opaque fill, tinted with the
+    /// colour of its kind, in both themes.
+    #[test]
+    fn boxes_are_tinted_by_kind() {
+        let (doc, d) = shop();
+        for theme in [Theme::light(), Theme::dark()] {
+            let s = build_scene(&doc, &d, &theme, &SceneOptions::default());
+            let mut fills = std::collections::HashSet::new();
+            for (id, r) in &s.elements {
+                let fill = s
+                    .shapes
+                    .iter()
+                    .find_map(|sh| match sh {
+                        Shape::Rect { rect, fill, .. } if rect == r => *fill,
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(fill, theme.fill(doc.elements[id].kind));
+                fills.insert((fill.0, fill.1, fill.2, fill.3));
+            }
+            assert_eq!(fills.len(), 4, "class, abstract, interface, enum");
+            for f in fills {
+                assert_eq!(f.3, 255, "opaque");
+                let dist = |a: u8, b: u8| (a as i32 - b as i32).abs();
+                let b = theme.box_fill;
+                let near = dist(f.0, b.0).max(dist(f.1, b.1)).max(dist(f.2, b.2));
+                assert!((4..=40).contains(&near), "pale tint: {f:?} vs {b:?}");
+            }
         }
     }
 
