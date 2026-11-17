@@ -342,7 +342,8 @@ fn opening_plantuml_imports_an_unsaved_untitled_diagram() {
     assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
     assert_eq!(s.problems.len(), 1);
     assert!(app.status.as_ref().unwrap().0.contains("1 problem"));
-    assert!(app.recent.contains(&path));
+    // Recent entries are canonical (on Windows: `\\?\` prefix, long names).
+    assert!(app.recent.contains(&path.canonicalize().unwrap()));
     // The PlantUML file itself is never touched.
     assert_eq!(std::fs::read_to_string(&path).unwrap(), src);
     let _ = std::fs::remove_dir_all(dir);
