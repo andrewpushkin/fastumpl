@@ -1,6 +1,6 @@
 # fastumpl: design
 
-Status: version 1 implemented, 2026-11-16. Section 13 lists where the build differs from this design. PlantUML import and PlantUML/Mermaid export were added on 2026-11-17 (`docs/plans/2026-11-17-plantuml-mermaid.md`).
+Status: version 1 implemented, 2026-11-16. Section 13 lists where the build differs from this design. PlantUML import and PlantUML/Mermaid export were added on 2026-11-17 (`docs/plans/2026-11-17-plantuml-mermaid.md`), and Umple import and export the same day (`docs/plans/2026-11-17-umple.md`).
 
 ## 1. What this is
 
@@ -412,7 +412,7 @@ The riskiest part (layout quality) comes early, and it can be judged before any 
 
 | Decision | Current assumption | If it changes |
 |---|---|---|
-| What "UMPL" means | UML class diagrams | If it means Umple (`.ump` files from umple.org), only `umpl-text` is replaced by an Umple reader and writer, and positions go in a side file because `.ump` belongs to another tool. Model, layout, drawing and editor stay |
+| What "UMPL" means | UML class diagrams, with Umple as an import and export format | Done for the class model: `umpl-text` reads and writes `.ump` (`docs/plans/2026-11-17-umple.md`). `.umpl` stays the saved format, so Umple files are never overwritten. Umple state machines would need the state diagram type below |
 | File format | Own text format | Done: `umpl-text` imports PlantUML and exports PlantUML and Mermaid (`docs/plans/2026-11-17-plantuml-mermaid.md`). A Mermaid importer would go in the same place |
 | Next diagram type | Not decided | State diagrams reuse the layout engine as it is. Sequence diagrams need a different, much simpler layout and a new drawing module |
 | Hand-adjusted line routes | Not supported | Would add waypoints to the `layout` block and a "must pass through" rule to the router |
@@ -441,4 +441,5 @@ Decisions made while building, for the record:
 - **Crossing reduction** adds sifting and random restarts to the barycenter sweeps. An exhaustive test checks that the true minimum is found on small two-layer graphs.
 - **Package placement**: packages are laid out inside-out, and each finished package is one box in its parent. Lines leaving a package do not yet influence the order inside it.
 - **PlantUML and Mermaid** (added 2026-11-17): PlantUML files open as unsaved, untitled diagrams so Save never overwrites them; export goes to PlantUML (`.puml`) and Mermaid (`.mmd`, `.md`). `umpl convert` converts between the formats. See `docs/plans/2026-11-17-plantuml-mermaid.md`.
+- **Umple** (added 2026-11-17): `.ump` files open as unsaved, untitled diagrams, like PlantUML files, and File → Export Umple… writes the class model back. Umple has no packages, notes, aggregation or dependencies, so export uses `namespace` statements and comments for them. See `docs/plans/2026-11-17-umple.md`.
 - **Development** happens in a Docker image (Ubuntu 26.04, Rust 1.91) through `scripts/dev.sh`. Interaction tests drive the real editor with egui_kittest.

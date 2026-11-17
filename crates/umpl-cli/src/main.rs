@@ -21,17 +21,18 @@ umpl - render, format and check fastumpl diagrams
 
 Usage:
   umpl render <file> -o <out.svg|out.png> [--tidy] [--dark] [--scale N]
-  umpl convert <file> -o <out.umpl|out.puml|out.mmd|out.md> [--tidy]
-  umpl convert <file> --to <umpl|plantuml|mermaid|markdown>   to stdout
+  umpl convert <file> -o <out.umpl|out.puml|out.mmd|out.md|out.ump> [--tidy]
+  umpl convert <file> --to <umpl|plantuml|mermaid|markdown|umple>   to stdout
   umpl tidy <file.umpl>...         lay out again and save positions
   umpl fmt [--check] <file.umpl>...
   umpl check <file>...             list problems; exit 1 if any
   umpl stats <file> [--tidy]       crossings, bends and score
   umpl --version
 
-Input files are .umpl or PlantUML (.puml, .plantuml, .pu, .iuml, .wsd).
-Elements without a stored position are placed automatically; --tidy lays
-out the whole diagram from scratch. Mermaid and PlantUML output carry no
+Input files are .umpl, PlantUML (.puml, .plantuml, .pu, .iuml, .wsd) or
+Umple (.ump; the class model, without state machines or code). Elements
+without a stored position are placed automatically; --tidy lays out the
+whole diagram from scratch. Mermaid, PlantUML and Umple output carry no
 positions.";
 
 fn main() -> ExitCode {
@@ -90,7 +91,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--to" => {
                 let name = it.next().ok_or("--to needs a format")?;
                 a.to = Some(Format::from_name(name).ok_or(format!(
-                    "unknown format `{name}` (umpl, plantuml, mermaid, markdown)"
+                    "unknown format `{name}` (umpl, plantuml, mermaid, markdown, umple)"
                 ))?)
             }
             "--scale" => {
@@ -110,7 +111,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     Ok(a)
 }
 
-/// The format of an input file: PlantUML by extension, otherwise `.umpl`.
+/// The format of an input file: PlantUML or Umple by extension, otherwise
+/// `.umpl`.
 fn input_format(path: &Path) -> Format {
     match Format::from_path(path) {
         Some(f) if f.can_read() => f,
@@ -124,7 +126,7 @@ fn read(path: &Path) -> Result<Parsed, String> {
 }
 
 /// `fmt` and `tidy` rewrite their input as `.umpl`, which would destroy a
-/// PlantUML file.
+/// PlantUML or Umple file.
 fn refuse_foreign(path: &Path, command: &str) -> Result<(), String> {
     match input_format(path) {
         Format::Umpl => Ok(()),
@@ -188,7 +190,7 @@ fn convert(args: &[String]) -> Result<bool, String> {
     let format = match (&a.out, a.to) {
         (_, Some(f)) => f,
         (Some(out), None) => Format::from_path(out).ok_or(format!(
-            "{}: output must end in .umpl, .puml, .mmd or .md (or use --to)",
+            "{}: output must end in .umpl, .puml, .mmd, .md or .ump (or use --to)",
             out.display()
         ))?,
         (None, None) => return Err("convert needs -o <file> or --to <format>".into()),

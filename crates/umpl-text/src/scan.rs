@@ -184,6 +184,35 @@ pub fn quote(s: &str) -> String {
     out
 }
 
+/// Is `s` a valid `.umpl` name, possibly dotted?
+pub fn is_name_path(s: &str) -> bool {
+    !s.is_empty() && s.split('.').all(is_name)
+}
+
+pub fn is_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// A valid `.umpl` name made from any text: `Long name` → `Long_name`.
+pub fn clean(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.trim().chars() {
+        if c.is_alphanumeric() || c == '_' {
+            out.push(c);
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    let out = out.trim_matches('_').to_string();
+    match out.chars().next() {
+        None => "Unnamed".to_string(),
+        Some(c) if !c.is_alphabetic() => format!("_{out}"),
+        _ => out,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

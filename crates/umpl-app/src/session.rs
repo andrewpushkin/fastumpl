@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use umpl_core::{Document, Editor};
 use umpl_draw::Diagram;
-use umpl_text::{parse, plantuml, print, write_as, write_atomic, Format, Parsed, Problem};
+use umpl_text::{parse, print, read_as, write_as, write_atomic, Format, Parsed, Problem};
 
 pub struct Session {
     pub editor: Editor,
@@ -17,7 +17,7 @@ pub struct Session {
     /// Modification time of the file when we last read or wrote it.
     disk_stamp: Option<SystemTime>,
     /// File name offered by Save for a diagram without a file, such as
-    /// one imported from PlantUML.
+    /// one imported from PlantUML or Umple.
     pub suggested_name: Option<String>,
 }
 
@@ -49,12 +49,13 @@ impl Session {
         Ok(s)
     }
 
-    /// Reads a PlantUML file into a new, unsaved diagram without a file,
-    /// so Save asks for a `.umpl` name and never overwrites the source.
-    pub fn import(path: &Path) -> Result<Session, String> {
+    /// Reads a PlantUML or Umple file into a new, unsaved diagram without
+    /// a file, so Save asks for a `.umpl` name and never overwrites the
+    /// source.
+    pub fn import(path: &Path, format: Format) -> Result<Session, String> {
         let src = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-        let mut s = Session::from_parsed(plantuml::import(&src));
+        let mut s = Session::from_parsed(read_as(format, &src));
         let stem = path
             .file_stem()
             .map(|n| n.to_string_lossy().into_owned())

@@ -175,8 +175,8 @@ impl App {
     }
 
     pub fn open_path(&mut self, path: &Path) {
-        if Format::from_path(path) == Some(Format::PlantUml) {
-            return self.import_path(path);
+        if let Some(f @ (Format::PlantUml | Format::Umple)) = Format::from_path(path) {
+            return self.import_path(path, f);
         }
         match Session::open(path) {
             Ok(s) => self.install_session(s),
@@ -188,9 +188,9 @@ impl App {
         }
     }
 
-    /// Opens a PlantUML file as a new, unsaved diagram.
-    fn import_path(&mut self, path: &Path) {
-        match Session::import(path) {
+    /// Opens a PlantUML or Umple file as a new, unsaved diagram.
+    fn import_path(&mut self, path: &Path, format: Format) {
+        match Session::import(path, format) {
             Ok(s) => {
                 let problems = s.problems.len();
                 self.install_session(s);
@@ -233,10 +233,12 @@ impl App {
             Pending::Open(None) => {
                 let mut diagrams = vec!["umpl"];
                 diagrams.extend(PLANTUML_EXTENSIONS);
+                diagrams.push("ump");
                 let mut dlg = rfd::FileDialog::new()
                     .add_filter("Diagrams", &diagrams)
                     .add_filter("fastumpl diagram", &["umpl"])
                     .add_filter("PlantUML (imported)", &PLANTUML_EXTENSIONS)
+                    .add_filter("Umple (imported)", &["ump"])
                     .add_filter("All files", &["*"]);
                 if let Some(dir) = self
                     .session
@@ -356,7 +358,7 @@ impl App {
         }
     }
 
-    /// Exports the diagram as PlantUML or Mermaid text (Mermaid as `.mmd`
+    /// Exports the diagram as PlantUML, Umple or Mermaid text (Mermaid as `.mmd`
     /// or, when the chosen name ends in `.md`, as a Markdown code block).
     fn export_text(&mut self, format: Format) {
         let Some(s) = &self.session else { return };
@@ -365,6 +367,10 @@ impl App {
             Format::PlantUml => {
                 dlg = dlg.add_filter("PlantUML", &["puml"]);
                 "puml"
+            }
+            Format::Umple => {
+                dlg = dlg.add_filter("Umple", &["ump"]);
+                "ump"
             }
             _ => {
                 dlg = dlg
@@ -634,6 +640,7 @@ impl App {
             Cmd::ExportPng => self.export(ctx, true),
             Cmd::ExportPlantUml => self.export_text(Format::PlantUml),
             Cmd::ExportMermaid => self.export_text(Format::Mermaid),
+            Cmd::ExportUmple => self.export_text(Format::Umple),
             Cmd::CopyImage => self.copy_image(ctx),
             Cmd::CopyMermaid => self.copy_mermaid(ctx),
             Cmd::Quit => self.request(ctx, Pending::Quit),
@@ -905,6 +912,7 @@ impl App {
                     self.menu_item(ui, Cmd::ExportPng);
                     self.menu_item(ui, Cmd::ExportPlantUml);
                     self.menu_item(ui, Cmd::ExportMermaid);
+                    self.menu_item(ui, Cmd::ExportUmple);
                     self.menu_item(ui, Cmd::CopyImage);
                     self.menu_item(ui, Cmd::CopyMermaid);
                     ui.separator();

@@ -350,6 +350,36 @@ fn opening_plantuml_imports_an_unsaved_untitled_diagram() {
 }
 
 #[test]
+fn opening_umple_imports_an_unsaved_untitled_diagram() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-umple-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("school.ump");
+    let src = "namespace school;\nclass Student { name; * -- 1 Mentor; }\n\
+               class Mentor { status { Active {} } }\n\
+               //$?[End_of_model]$?\nclass Student { position 10 20 109 45; }\n";
+    std::fs::write(&path, src).unwrap();
+
+    let mut h = new_app();
+    h.state_mut().open_path(&path);
+    h.run_steps(3);
+    let app = h.state();
+    let s = app.session.as_ref().unwrap();
+    assert_eq!(s.path, None);
+    assert!(s.is_dirty());
+    assert_eq!(s.display_name(), "school.umpl");
+    assert_eq!(s.editor.doc.elements.len(), 2);
+    assert_eq!(s.editor.doc.relations.len(), 1);
+    // Umple positions are not used: the diagram is laid out.
+    assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
+    assert_eq!(s.problems.len(), 1);
+    assert!(app.status.as_ref().unwrap().0.contains("1 problem"));
+    assert!(app.recent.contains(&path.canonicalize().unwrap()));
+    // The Umple file itself is never touched.
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), src);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn copy_as_mermaid_puts_text_on_the_clipboard() {
     let mut h = new_app();
     let a = add(&mut h, "A", 0, 0);
@@ -382,7 +412,12 @@ fn copy_as_mermaid_puts_text_on_the_clipboard() {
 
 #[test]
 fn export_and_copy_commands_are_in_the_palette() {
-    for cmd in [Cmd::ExportPlantUml, Cmd::ExportMermaid, Cmd::CopyMermaid] {
+    for cmd in [
+        Cmd::ExportPlantUml,
+        Cmd::ExportMermaid,
+        Cmd::ExportUmple,
+        Cmd::CopyMermaid,
+    ] {
         assert!(Cmd::all().contains(&cmd));
     }
 }

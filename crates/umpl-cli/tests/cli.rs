@@ -16,6 +16,12 @@ Order --> Customer
 @enduml
 ";
 
+const UMP: &str = "// A small school
+namespace school;
+class Student { name; Integer id; * -- 1 Mentor; }
+class Mentor { status { Active {} Retired {} } }
+";
+
 /// A fresh, empty folder for one test.
 fn workdir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("umpl-cli-{}-{name}", std::process::id()));
@@ -124,4 +130,51 @@ fn convert_needs_a_known_output() {
     assert!(!umpl(&dir, &["convert", "shop.umpl", "--to", "png"])
         .status
         .success());
+}
+
+#[test]
+fn imports_and_exports_umple() {
+    let dir = workdir("umple");
+    std::fs::write(dir.join("model.ump"), UMP).unwrap();
+
+    let r = umpl(&dir, &["convert", "model.ump", "-o", "model.umpl"]);
+    assert!(r.status.success(), "{}", text(&r.stderr));
+    // The state machine is not drawn, and says so with its position.
+    assert!(
+        text(&r.stderr).contains("model.ump:4:16: state machine `status` of `Mentor` is not shown"),
+        "{}",
+        text(&r.stderr)
+    );
+    let umpl_text = std::fs::read_to_string(dir.join("model.umpl")).unwrap();
+    assert!(umpl_text.contains("package school {\n"), "{umpl_text}");
+    assert!(
+        umpl_text.contains("school.Student \"*\" -- \"1\" school.Mentor\n"),
+        "{umpl_text}"
+    );
+
+    // Reading commands accept Umple directly.
+    let r = umpl(&dir, &["render", "model.ump", "-o", "model.svg"]);
+    assert!(r.status.success(), "{}", text(&r.stderr));
+    let svg = std::fs::read_to_string(dir.join("model.svg")).unwrap();
+    assert!(svg.contains("Mentor"));
+
+    // Export back to Umple, to a file or standard output.
+    let r = umpl(&dir, &["convert", "model.umpl", "-o", "back.ump"]);
+    assert!(r.status.success(), "{}", text(&r.stderr));
+    let back = std::fs::read_to_string(dir.join("back.ump")).unwrap();
+    assert!(back.contains("namespace school;\n"), "{back}");
+    assert!(
+        back.contains("class Student {\n  String name;\n  Integer id;\n  * -- 1 Mentor;\n}\n"),
+        "{back}"
+    );
+    let r = umpl(&dir, &["convert", "model.umpl", "--to", "umple"]);
+    assert!(r.status.success());
+    assert_eq!(text(&r.stdout), back);
+
+    // `fmt` and `tidy` would overwrite the Umple file with `.umpl` text.
+    for cmd in ["fmt", "tidy"] {
+        let r = umpl(&dir, &[cmd, "model.ump"]);
+        assert!(!r.status.success(), "{cmd}");
+    }
+    assert_eq!(std::fs::read_to_string(dir.join("model.ump")).unwrap(), UMP);
 }

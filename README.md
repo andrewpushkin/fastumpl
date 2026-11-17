@@ -11,6 +11,7 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 - **Plain text files.** Diagrams are `.umpl` text files that diff well. The model sits at the top and positions at the bottom.
 - **Command line too.** `umpl` renders SVG and PNG, formats and checks files.
 - **PlantUML and Mermaid.** Open `.puml` files directly; export to PlantUML or Mermaid, or copy Mermaid to paste into a GitHub README or issue.
+- **Umple.** Open the class model of an [Umple](https://umple.org) `.ump` file and see it laid out; export a diagram as Umple for the Umple compiler to generate code from.
 
 ## Download
 
@@ -79,11 +80,12 @@ umpl fmt [--check] diagram.umpl              # rewrite in standard style
 umpl check diagram.umpl                      # list problems, exit 1 if any
 umpl stats diagram.umpl [--tidy]             # crossings, bends, score
 umpl convert diagram.puml -o diagram.umpl    # import PlantUML; --tidy stores a layout
-umpl convert diagram.umpl -o diagram.mmd     # export: .mmd, .md (Mermaid block), .puml
+umpl convert model.ump -o model.umpl        # import Umple
+umpl convert diagram.umpl -o diagram.mmd     # export: .mmd, .md (Mermaid block), .puml, .ump
 umpl convert diagram.umpl --to mermaid       # write to standard output
 ```
 
-`render`, `check` and `stats` also read PlantUML files (`.puml`, `.plantuml`, `.pu`, `.iuml`, `.wsd`).
+`render`, `check` and `stats` also read PlantUML files (`.puml`, `.plantuml`, `.pu`, `.iuml`, `.wsd`) and Umple files (`.ump`).
 
 ## PlantUML and Mermaid
 
@@ -91,6 +93,12 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 - **Export.** File → Export PlantUML… and Export Mermaid… (`.mmd`, or `.md` for a ready-made ```` ```mermaid ```` block). **Copy as Mermaid** puts the diagram on the clipboard for pasting into Markdown on GitHub, GitLab, Notion or Obsidian.
 - Both formats lay diagrams out themselves, so positions are not exported.
 
+## Umple
+
+[Umple](https://umple.org) writes class models as text (classes, attributes, associations such as `1 -- * Student;`, `isA`) next to state machines and method code, and generates Java, Python and other languages from them.
+
+- **Import.** Open a `.ump` file the same way as a PlantUML file. Classes, interfaces, enums, traits, attributes, methods (signatures only), associations, association classes, `isA` and namespaces (as packages) are read, and the diagram is laid out at once. State machines, constraints, requirements, mixsets, ports and other files named by `use` are not drawn; each is listed under Problems. UmpleOnline's `position` lines are ignored in favour of fastumpl's own layout.
+- **Export.** File → Export Umple… writes a `.ump` file the Umple compiler can read: packages become `namespace` statements, associations go into class bodies, and an association without a multiplicity gets `*`. Notes, dependencies, aggregation and anything else Umple cannot express become comments, so nothing is silently dropped.
 ## Keys
 
 | Key | Action |
