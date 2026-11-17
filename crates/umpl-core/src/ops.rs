@@ -12,6 +12,7 @@ pub enum Op {
     Package(PackageId, Option<Package>),
     Root(Vec<Decl>),
     Title(Option<String>),
+    TrailingComments(Vec<String>),
 }
 
 /// Which slot an op writes to.
@@ -22,6 +23,7 @@ pub enum Slot {
     Package(PackageId),
     Root,
     Title,
+    TrailingComments,
 }
 
 impl Op {
@@ -32,6 +34,7 @@ impl Op {
             Op::Package(id, _) => Slot::Package(*id),
             Op::Root(_) => Slot::Root,
             Op::Title(_) => Slot::Title,
+            Op::TrailingComments(_) => Slot::TrailingComments,
         }
     }
 }
@@ -66,6 +69,9 @@ impl Document {
             }
             Op::Root(value) => Op::Root(std::mem::replace(&mut self.root, value)),
             Op::Title(value) => Op::Title(std::mem::replace(&mut self.title, value)),
+            Op::TrailingComments(value) => {
+                Op::TrailingComments(std::mem::replace(&mut self.trailing_comments, value))
+            }
         }
     }
 }

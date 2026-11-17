@@ -19,6 +19,7 @@ use crate::canvas::CanvasState;
 use crate::commands::{Cmd, ThemePref, Tool};
 use crate::inspector::InspectorState;
 use crate::session::Session;
+use crate::source::SourceState;
 use crate::storage::{push_recent, Storage};
 use crate::view::{Selection, View};
 
@@ -65,6 +66,7 @@ pub struct App {
     pub status: Option<(String, Instant)>,
     pub canvas: CanvasState,
     pub inspector: InspectorState,
+    pub source: SourceState,
     allow_close: bool,
     last_disk_check: Instant,
     last_recovery: Instant,
@@ -73,6 +75,24 @@ pub struct App {
 }
 
 const RECOVERY_EVERY: Duration = Duration::from_secs(30);
+
+/// Whether the text panel is shown, from the saved setting: hidden unless
+/// the user turned it on.
+pub fn text_shown(setting: Option<&str>) -> bool {
+    setting == Some("shown")
+}
+
+/// File → Export, in order; `None` is a separator.
+pub const EXPORT_MENU: [(Option<Cmd>, &str); 8] = [
+    (Some(Cmd::ExportSvg), "SVG…"),
+    (Some(Cmd::ExportPng), "PNG…"),
+    (Some(Cmd::ExportPlantUml), "PlantUML…"),
+    (Some(Cmd::ExportMermaid), "Mermaid…"),
+    (Some(Cmd::ExportUmple), "Umple…"),
+    (None, ""),
+    (Some(Cmd::CopyImage), "Copy as image"),
+    (Some(Cmd::CopyMermaid), "Copy as Mermaid"),
+];
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>) -> App {
@@ -83,6 +103,7 @@ impl App {
             Some("dark") => ThemePref::Dark,
             _ => ThemePref::System,
         };
+        let source_shown = text_shown(storage.load_setting("text").as_deref());
         let mut app = App {
             recent: storage.load_recent(),
             storage,
@@ -100,6 +121,7 @@ impl App {
             status: None,
             canvas: CanvasState::default(),
             inspector: InspectorState::default(),
+            source: SourceState::new(source_shown),
             allow_close: false,
             last_disk_check: Instant::now(),
             last_recovery: Instant::now(),
@@ -171,6 +193,7 @@ impl App {
         self.sel.clear();
         self.canvas = CanvasState::default();
         self.inspector = InspectorState::default();
+        self.source.reset();
         self.fit_pending = true;
     }
 
@@ -614,6 +637,8 @@ impl App {
     }
 
     pub fn run(&mut self, ctx: &Context, cmd: Cmd) {
+        // Text typed a moment ago is part of the diagram the command sees.
+        self.source_apply(ctx, true);
         match cmd {
             Cmd::New => self.request(ctx, Pending::New),
             Cmd::Open => self.request(ctx, Pending::Open(None)),
@@ -678,6 +703,7 @@ impl App {
                 self.storage.save_setting("theme", v);
             }
             Cmd::ToggleGrid => self.show_grid = !self.show_grid,
+            Cmd::ToggleSource => self.toggle_source(ctx),
             Cmd::Problems => self.dialog = Some(Dialog::Problems),
             Cmd::Palette => self.palette = Some((String::new(), 0)),
             Cmd::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
@@ -886,11 +912,31 @@ impl App {
     }
 
     fn menu_item(&mut self, ui: &mut egui::Ui, cmd: Cmd) {
-        let mut b = Button::new(self.command_label(cmd));
+        let label = self.command_label(cmd);
+        self.menu_item_as(ui, cmd, label);
+    }
+
+    /// A menu entry for `cmd` with its own text, such as "SVG…" under
+    /// File → Export where the palette says "Export SVG…".
+    fn menu_item_as(&mut self, ui: &mut egui::Ui, cmd: Cmd, label: impl Into<String>) {
+        let mut b = Button::new(label.into());
         if let Some(sc) = cmd.shortcut() {
             b = b.shortcut_text(ui.ctx().format_shortcut(&sc));
         }
         if ui.add_enabled(self.enabled(cmd), b).clicked() {
+            ui.close();
+            self.run(ui.ctx(), cmd);
+        }
+    }
+
+    /// A menu entry for an on/off `cmd`, ticked while it is on.
+    fn menu_check(&mut self, ui: &mut egui::Ui, cmd: Cmd, label: &str, on: bool) {
+        let mut checked = on;
+        let mut r = ui.add_enabled(self.enabled(cmd), egui::Checkbox::new(&mut checked, label));
+        if let Some(sc) = cmd.shortcut() {
+            r = r.on_hover_text(ui.ctx().format_shortcut(&sc));
+        }
+        if r.clicked() {
             ui.close();
             self.run(ui.ctx(), cmd);
         }
@@ -917,13 +963,18 @@ impl App {
                     self.menu_item(ui, Cmd::Save);
                     self.menu_item(ui, Cmd::SaveAs);
                     ui.separator();
-                    self.menu_item(ui, Cmd::ExportSvg);
-                    self.menu_item(ui, Cmd::ExportPng);
-                    self.menu_item(ui, Cmd::ExportPlantUml);
-                    self.menu_item(ui, Cmd::ExportMermaid);
-                    self.menu_item(ui, Cmd::ExportUmple);
-                    self.menu_item(ui, Cmd::CopyImage);
-                    self.menu_item(ui, Cmd::CopyMermaid);
+                    ui.add_enabled_ui(self.session.is_some(), |ui| {
+                        ui.menu_button("Export", |ui| {
+                            for (cmd, label) in EXPORT_MENU {
+                                match cmd {
+                                    Some(cmd) => self.menu_item_as(ui, cmd, label),
+                                    None => {
+                                        ui.separator();
+                                    }
+                                }
+                            }
+                        });
+                    });
                     ui.separator();
                     self.menu_item(ui, Cmd::Quit);
                 });
@@ -942,7 +993,9 @@ impl App {
                     self.menu_item(ui, Cmd::ZoomOut);
                     self.menu_item(ui, Cmd::ZoomReset);
                     ui.separator();
-                    self.menu_item(ui, Cmd::ToggleGrid);
+                    self.menu_check(ui, Cmd::ToggleSource, "Text", self.source.shown);
+                    self.menu_check(ui, Cmd::ToggleGrid, "Grid", self.show_grid);
+                    ui.separator();
                     self.menu_item(ui, Cmd::Theme(ThemePref::System));
                     self.menu_item(ui, Cmd::Theme(ThemePref::Light));
                     self.menu_item(ui, Cmd::Theme(ThemePref::Dark));
@@ -1190,14 +1243,24 @@ impl eframe::App for App {
         self.handle_events(ctx);
         self.poll_tidy(ctx);
         self.periodic(ctx);
+        self.source_apply(ctx, false);
         if let Some(s) = &mut self.session {
             self.view.sync(&mut s.editor);
         }
+        self.source_refresh();
         self.keyboard(ctx);
         self.menu_bar(ctx);
         self.status_bar(ctx);
         if self.session.is_some() {
             self.tools_panel(ctx);
+            if self.source.shown {
+                egui::SidePanel::left("source")
+                    .resizable(true)
+                    .default_width(340.0)
+                    .min_width(180.0)
+                    .frame(Frame::side_top_panel(&ctx.style()).inner_margin(Margin::same(8)))
+                    .show(ctx, |ui| self.source_ui(ui));
+            }
             egui::SidePanel::right("inspector")
                 .resizable(true)
                 .default_width(270.0)

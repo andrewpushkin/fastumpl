@@ -4,25 +4,7 @@ use crate::scan::quote;
 
 /// Writes a document in the canonical `.umpl` style.
 pub fn print(doc: &Document) -> String {
-    let mut out = String::new();
-    if let Some(t) = &doc.title {
-        out.push_str("diagram ");
-        out.push_str(&quote(t));
-        out.push('\n');
-    }
-    let mut w = Writer { doc, out };
-    w.decls(&doc.root, 0, doc.title.is_some());
-
-    let mut out = w.out;
-    if !doc.trailing_comments.is_empty() {
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        for c in &doc.trailing_comments {
-            push_comment(&mut out, "", c);
-        }
-    }
-
+    let mut out = print_model(doc);
     let mut positions: Vec<(String, Pos)> = doc
         .elements
         .iter()
@@ -49,6 +31,29 @@ pub fn print(doc: &Document) -> String {
             ));
         }
         out.push_str("}\n");
+    }
+    out
+}
+
+/// The model part of [`print`]: everything except the `layout` block.
+pub fn print_model(doc: &Document) -> String {
+    let mut out = String::new();
+    if let Some(t) = &doc.title {
+        out.push_str("diagram ");
+        out.push_str(&quote(t));
+        out.push('\n');
+    }
+    let mut w = Writer { doc, out };
+    w.decls(&doc.root, 0, doc.title.is_some());
+
+    let mut out = w.out;
+    if !doc.trailing_comments.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        for c in &doc.trailing_comments {
+            push_comment(&mut out, "", c);
+        }
     }
     out
 }

@@ -8,7 +8,9 @@
 mod editor;
 mod model;
 mod ops;
+mod reconcile;
 
 pub use editor::{valid_name, Editor};
 pub use model::*;
 pub use ops::{Op, Slot};
+pub use reconcile::{reconcile, Removed};

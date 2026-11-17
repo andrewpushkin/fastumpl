@@ -15,6 +15,7 @@ mod inspector;
 mod paint;
 mod scrollbar;
 mod session;
+mod source;
 mod storage;
 mod view;
 

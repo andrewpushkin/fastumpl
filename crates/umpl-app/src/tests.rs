@@ -604,3 +604,215 @@ fn tool_buttons_are_named_for_their_tool() {
         assert_eq!(h.state().tool, tool);
     }
 }
+
+// ----- text panel ------------------------------------------------------------
+
+fn doc_of<'a>(h: &'a Harness<'static, App>) -> &'a umpl_core::Document {
+    &h.state().session.as_ref().unwrap().editor.doc
+}
+
+fn source_text(h: &Harness<'static, App>) -> String {
+    h.state().source.text.clone()
+}
+
+/// Puts the cursor in the text panel, selects everything and types `text`
+/// over it, then waits a little less than the typing pause.
+fn retype(h: &mut Harness<'static, App>, text: &str) {
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Text(text.into()));
+    h.run_steps(2);
+}
+
+/// Waits past the typing pause.
+fn settle(h: &mut Harness<'static, App>) {
+    let steps = (crate::source::SETTLE * 60.0) as usize + 10;
+    h.run_steps(steps);
+}
+
+fn app_with_text() -> Harness<'static, App> {
+    let mut h = new_app();
+    h.state_mut().source.shown = true;
+    h.run_steps(2);
+    h
+}
+
+#[test]
+fn diagram_changes_show_in_the_text_without_positions() {
+    let mut h = app_with_text();
+    let a = add(&mut h, "Order", 2, 2);
+    assert_eq!(source_text(&h), "class Order\n");
+    let b = add(&mut h, "Customer", 30, 2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.editor.connect(a, b, RelationKind::Directed);
+    h.run_steps(2);
+    assert_eq!(
+        source_text(&h),
+        "class Order\n\nclass Customer\n\nOrder --> Customer\n"
+    );
+    // Moving a box leaves the text alone.
+    let s = h.state_mut().session.as_mut().unwrap();
+    s.editor.move_elements(&[(a, Pos::new(9, 9))], None);
+    h.run_steps(2);
+    assert!(!source_text(&h).contains("layout"));
+}
+
+#[test]
+fn typing_in_the_text_changes_the_diagram_once_typing_pauses() {
+    let mut h = app_with_text();
+    let a = add(&mut h, "Order", 2, 2);
+    retype(&mut h, "class Order\nclass Zed\nOrder --> Zed\n");
+    assert!(doc_of(&h).find("Zed").is_none(), "applied before the pause");
+    assert!(h.state().source.pending());
+    settle(&mut h);
+    let doc = doc_of(&h);
+    let z = doc.find("Zed").expect("Zed added");
+    assert_eq!(doc.find("Order"), Some(a), "Order kept its id");
+    assert_eq!(doc.elements[&a].pos, Some(Pos::new(2, 2)));
+    assert!(doc.elements[&z].pos.is_some(), "the new class was placed");
+    assert_eq!(doc.relations.len(), 1);
+    assert!(h.state().view.diagram.mapping.node_of(z).is_some());
+    let s = h.state().session.as_ref().unwrap();
+    assert_eq!(s.editor.undo_label(), Some("Edit text"));
+    // The text is left as typed, not reformatted.
+    assert_eq!(source_text(&h), "class Order\nclass Zed\nOrder --> Zed\n");
+}
+
+#[test]
+fn renaming_in_the_text_keeps_the_box_and_selection() {
+    let mut h = app_with_text();
+    let a = add(&mut h, "Order", 2, 2);
+    add(&mut h, "Customer", 30, 2);
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    let text = source_text(&h).replace("Order", "Invoice");
+    retype(&mut h, &text);
+    settle(&mut h);
+    let doc = doc_of(&h);
+    assert_eq!(doc.find("Invoice"), Some(a));
+    assert_eq!(doc.elements[&a].pos, Some(Pos::new(2, 2)));
+    assert_eq!(h.state().sel.elements, vec![a]);
+}
+
+#[test]
+fn an_open_brace_holds_the_text_back() {
+    let mut h = app_with_text();
+    add(&mut h, "Order", 2, 2);
+    add(&mut h, "Customer", 30, 2);
+    retype(&mut h, "class Order {\n  +id: int\n\nclass Customer\n");
+    settle(&mut h);
+    assert!(h.state().source.waiting_for_brace());
+    let doc = doc_of(&h);
+    assert!(doc.find("Customer").is_some(), "Customer was not swallowed");
+    let order = doc.find("Order").unwrap();
+    assert!(doc.elements[&order].members.is_empty());
+
+    retype(&mut h, "class Order {\n  +id: int\n}\n\nclass Customer\n");
+    settle(&mut h);
+    assert!(!h.state().source.waiting_for_brace());
+    let doc = doc_of(&h);
+    assert_eq!(doc.elements[&order].members.len(), 1);
+}
+
+#[test]
+fn undo_of_a_text_edit_reloads_the_text() {
+    let mut h = app_with_text();
+    add(&mut h, "Order", 2, 2);
+    retype(&mut h, "class Order\nclass Zed\n");
+    settle(&mut h);
+    assert!(doc_of(&h).find("Zed").is_some());
+    let ctx = h.ctx.clone();
+    h.ctx
+        .memory_mut(|m| m.surrender_focus(egui::Id::new(crate::source::EDITOR_ID)));
+    h.run_steps(2);
+    h.state_mut().run(&ctx, Cmd::Undo);
+    h.run_steps(2);
+    assert!(doc_of(&h).find("Zed").is_none());
+    assert_eq!(source_text(&h), "class Order\n");
+}
+
+#[test]
+fn a_command_applies_text_typed_just_before_it() {
+    let mut h = app_with_text();
+    add(&mut h, "Order", 2, 2);
+    retype(&mut h, "class Order\nclass Zed\n");
+    assert!(h.state().source.pending());
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::SelectAll);
+    assert!(doc_of(&h).find("Zed").is_some());
+    assert_eq!(h.state().sel.elements.len(), 2);
+}
+
+#[test]
+fn the_text_panel_can_be_hidden_and_shown() {
+    let mut h = app_with_text();
+    add(&mut h, "Order", 2, 2);
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::ToggleSource);
+    h.run_steps(2);
+    assert!(!h.state().source.shown);
+    add(&mut h, "Hidden", 30, 2);
+    h.state_mut().run(&ctx, Cmd::ToggleSource);
+    h.run_steps(2);
+    assert!(h.state().source.shown);
+    assert!(
+        source_text(&h).contains("class Hidden"),
+        "caught up on show"
+    );
+    assert!(Cmd::all().contains(&Cmd::ToggleSource));
+    assert!(Cmd::ToggleSource.shortcut().is_some());
+}
+
+#[test]
+fn the_text_panel_is_off_unless_turned_on() {
+    assert!(!crate::app::text_shown(None));
+    assert!(!crate::app::text_shown(Some("hidden")));
+    assert!(crate::app::text_shown(Some("shown")));
+}
+
+#[test]
+fn view_menu_ticks_and_toggles_the_text() {
+    let mut h = new_app();
+    h.state_mut().source.shown = false;
+    h.run_steps(2);
+    h.get_by_label("View").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Text")
+        .click();
+    h.run_steps(2);
+    assert!(h.state().source.shown);
+    h.get_by_label("View").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Text")
+        .click();
+    h.run_steps(2);
+    assert!(!h.state().source.shown);
+}
+
+#[test]
+fn every_export_is_under_file_export() {
+    use crate::app::EXPORT_MENU;
+    let listed: Vec<Cmd> = EXPORT_MENU.iter().filter_map(|(c, _)| *c).collect();
+    for cmd in Cmd::all() {
+        let label = cmd.label();
+        if label.starts_with("Export") || label.starts_with("Copy") {
+            assert!(listed.contains(&cmd), "{label} missing from File → Export");
+        }
+    }
+    let mut h = new_app();
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("Export SVG").is_none(),
+        "exports are not at the top"
+    );
+    h.get_by_label("Export ⏵").hover();
+    h.run_steps(3);
+    for (_, label) in EXPORT_MENU.iter().filter(|(c, _)| c.is_some()) {
+        assert!(
+            h.query_by_label_contains(label).is_some(),
+            "{label} not in the submenu"
+        );
+    }
+}

@@ -14,6 +14,9 @@ pub struct Problem {
     pub message: String,
 }
 
+/// The problem reported when a `{` is still open at the end of the text.
+pub const UNCLOSED: &str = "missing `}` at end of file";
+
 #[derive(Debug)]
 pub struct Parsed {
     pub doc: Document,
@@ -382,7 +385,7 @@ impl Parser {
     fn finish(mut self) -> Parsed {
         if !self.stack.is_empty() {
             let line = self.last_line.max(1);
-            self.problem(line, 1, "missing `}` at end of file");
+            self.problem(line, 1, UNCLOSED);
             self.stack.clear();
         }
 

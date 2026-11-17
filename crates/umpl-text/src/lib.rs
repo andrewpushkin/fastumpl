@@ -15,8 +15,8 @@ pub mod umple;
 use std::path::Path;
 
 pub use fs::write_atomic;
-pub use parser::{parse, Parsed, Problem};
-pub use printer::print;
+pub use parser::{parse, Parsed, Problem, UNCLOSED};
+pub use printer::{print, print_model};
 use umpl_core::Document;
 
 /// A text format fastumpl reads or writes.

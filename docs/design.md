@@ -333,11 +333,20 @@ Interaction:
 - **Select and move.** Click, shift-click, or drag a rectangle. Dragging snaps to the grid and shows guide lines when edges or centres line up with other boxes.
 - **View.** Scroll to pan, Ctrl-scroll to zoom toward the pointer, a key to fit the whole diagram. Scroll bars along the bottom and right edges span the diagram plus a margin, extended to whatever is in view, since the canvas has no edge; the − and + buttons zoom around the centre, and clicking the percentage returns to 100 %.
 - **Tools.** The tool buttons on the left are drawn icons of what they create: a class box with the coloured dot of its kind (as on the canvas), with an italic name for abstract, a lollipop for interface and a list for enum; a folded note; a folder for a package; a line with an arrowhead for relations.
+- **Text panel.** An optional panel between the tools and the canvas (View → Text, Ctrl+B; off by default) shows the model as `.umpl` text without the `layout` block, and both sides edit the same document; see below.
 - **Undo.** Every change is undoable with no limit within a session. A drag is one step, not one per frame.
 - **Keyboard.** Standard shortcuts for file and edit commands, single keys for tools, Ctrl-T for Tidy, and a command palette (Ctrl-K) that lists everything.
-- **Export.** SVG and PNG to file; copy the selection to the clipboard as an image.
+- **Export.** File → Export holds every export: SVG, PNG, PlantUML, Mermaid and Umple to file, and copying as an image or as Mermaid.
 
 Undo is built on edit operations: each operation in `umpl-core` knows how to reverse itself, and a user action is a group of operations. The app never changes the document any other way, which also gives one place to mark the file as changed and to tell layout what needs redoing.
+
+### 8.1 Text and drawing in step
+
+The text panel and the canvas edit one document; neither is a copy of the other.
+
+- **Text to document.** The parser builds a fresh document with fresh ids. Swapping it in would lose positions, the selection and undo, which all refer to ids, so `umpl_core::reconcile` maps the new items onto the current ones and emits ordinary edit operations for the difference. Packages match by full name; elements by package and name, then by name alone (moved between packages); relations by ends and kind. Whatever is left over is paired in declaration order when both sides have the same number left, which reads a single changed name as a rename rather than a delete and an add. An element the text removed is remembered by full name with its id and position, so a class that vanishes while its name is retyped returns to the same place. The operations go in as one merged undo step ("Edit text"), sealed when typing pauses for two seconds or the panel loses focus.
+- **When to apply.** The text is applied 0.25 s after the last keystroke, before any command runs, and when the panel loses focus. Text with an unclosed `{` is held back: the parser would read every following line as members of that class, and the diagram would lose those classes until the brace is typed.
+- **Document to text.** The panel shows `print_model`, the file without its `layout` block. After any revision the model text is printed again and compared with the one the panel last showed or applied; only when they differ is the panel's text replaced. Moving boxes, Tidy and placement of new boxes therefore never touch the text, and text the user typed stays as typed (not reformatted) until the model changes elsewhere.
 
 ## 9. Speed
 
@@ -442,5 +451,5 @@ Decisions made while building, for the record:
 - **Crossing reduction** adds sifting and random restarts to the barycenter sweeps. An exhaustive test checks that the true minimum is found on small two-layer graphs.
 - **Package placement**: packages are laid out inside-out, and each finished package is one box in its parent. Lines leaving a package do not yet influence the order inside it.
 - **PlantUML and Mermaid** (added 2026-11-17): PlantUML files open as unsaved, untitled diagrams so Save never overwrites them; export goes to PlantUML (`.puml`) and Mermaid (`.mmd`, `.md`). `umpl convert` converts between the formats. See `docs/plans/2026-11-17-plantuml-mermaid.md`.
-- **Umple** (added 2026-11-17): `.ump` files open as unsaved, untitled diagrams, like PlantUML files, and File → Export Umple… writes the class model back. Umple has no packages, notes, aggregation or dependencies, so export uses `namespace` statements and comments for them. See `docs/plans/2026-11-17-umple.md`.
+- **Umple** (added 2026-11-17): `.ump` files open as unsaved, untitled diagrams, like PlantUML files, and File → Export → Umple… writes the class model back. Umple has no packages, notes, aggregation or dependencies, so export uses `namespace` statements and comments for them. See `docs/plans/2026-11-17-umple.md`.
 - **Development** happens in a Docker image (Ubuntu 26.04, Rust 1.91) through `scripts/dev.sh`. Interaction tests drive the real editor with egui_kittest.
