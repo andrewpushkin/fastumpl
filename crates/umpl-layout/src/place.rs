@@ -6,16 +6,17 @@
 //! candidate layouts (different starting orders) are routed and scored in
 //! parallel; the best one wins, ties going to the lower index.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::coords::assign_coords;
 use crate::graph::*;
 use crate::labels::place_labels;
-use crate::layering::{assign_layers, FlatEdge};
-use crate::ordering::Layered;
+use crate::layering::{assign_layers_with, FlatEdge};
+use crate::ordering::{Ghost, GhostSide, Layered};
 use crate::rng::Rng;
-use crate::router::route_all;
+use crate::router::{polish, route_all_with};
 use crate::score::measure;
 
 #[derive(Clone, Debug)]
@@ -82,14 +83,14 @@ fn scope_items(graph: &Graph, scope: Option<usize>) -> Vec<Item> {
     items
 }
 
-/// Centre x of every item from current positions, if all have one.
-fn hints(graph: &Graph, items: &[Item]) -> Option<Vec<f64>> {
+/// Centre x of every item, from `prev` positions or else the nodes' own
+/// positions, if all have one.
+fn hints(graph: &Graph, items: &[Item], prev: Option<&[(i32, i32)]>) -> Option<Vec<f64>> {
+    let pos = |n: usize| prev.map_or(graph.nodes[n].pos, |p| Some(p[n]));
     items
         .iter()
         .map(|it| match *it {
-            Item::Node(n) => graph.nodes[n]
-                .pos
-                .map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0),
+            Item::Node(n) => pos(n).map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0),
             Item::Group(g) => {
                 let xs: Vec<f64> = (0..graph.nodes.len())
                     .filter(|&n| {
@@ -97,11 +98,7 @@ fn hints(graph: &Graph, items: &[Item]) -> Option<Vec<f64>> {
                             .group
                             .is_some_and(|ng| graph.group_within(ng, g))
                     })
-                    .filter_map(|n| {
-                        graph.nodes[n]
-                            .pos
-                            .map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0)
-                    })
+                    .filter_map(|n| pos(n).map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0))
                     .collect();
                 (!xs.is_empty()).then(|| xs.iter().sum::<f64>() / xs.len() as f64)
             }
@@ -129,6 +126,8 @@ fn layout_scope(
     edges: &[FlatEdge],
     hint: Option<&[f64]>,
     start: Start,
+    ghosts: &[Ghost],
+    width: f64,
 ) -> Vec<(i32, i32)> {
     let n = sizes.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -166,8 +165,16 @@ fn layout_scope(
             })
             .collect();
         let sub_sizes: Vec<(i32, i32)> = comp.iter().map(|&i| sizes[i]).collect();
-        let layers = assign_layers(comp.len(), &sub_edges, &sub_sizes);
-        let mut lay = Layered::build(comp.len(), &layers, &sub_edges);
+        let sub_ghosts: Vec<Ghost> = ghosts
+            .iter()
+            .filter(|g| local[g.item] != usize::MAX)
+            .map(|g| Ghost {
+                item: local[g.item],
+                ..*g
+            })
+            .collect();
+        let layers = assign_layers_with(comp.len(), &sub_edges, &sub_sizes, width);
+        let mut lay = Layered::build_with_ghosts(comp.len(), &layers, &sub_edges, &sub_ghosts);
         let sub_hint: Option<Vec<f64>> = hint.map(|h| comp.iter().map(|&i| h[i]).collect());
         match start {
             Start::Hint => lay.order(sub_hint.as_deref(), None),
@@ -177,6 +184,7 @@ fn layout_scope(
                 lay.order(None, Some(&mut rng))
             }
         }
+        lay.strip_ghosts();
         let mut widths: Vec<i32> = sub_sizes.iter().map(|s| s.0).collect();
         let mut heights: Vec<i32> = sub_sizes.iter().map(|s| s.1).collect();
         widths.resize(lay.total(), 0);
@@ -199,6 +207,28 @@ fn layout_scope(
             placed[i].0[0],
         )
     });
+    // Inside a package, parts go left to right by where the lines leaving
+    // them go; parts without such lines take the middle.
+    if !ghosts.is_empty() {
+        let mean = |ks: &[f64]| ks.iter().sum::<f64>() / ks.len() as f64;
+        let all: Vec<f64> = ghosts.iter().map(|g| g.key).collect();
+        let key: Vec<f64> = comps
+            .iter()
+            .map(|comp| {
+                let ks: Vec<f64> = ghosts
+                    .iter()
+                    .filter(|g| comp.contains(&g.item))
+                    .map(|g| g.key)
+                    .collect();
+                if ks.is_empty() {
+                    mean(&all)
+                } else {
+                    mean(&ks)
+                }
+            })
+            .collect();
+        order.sort_by(|&a, &b| key[a].total_cmp(&key[b]));
+    }
     let rects: Vec<Rect> = order.iter().map(|&i| placed[i].2).collect();
     let offsets = best_packing(&rects);
     let mut out = vec![(0, 0); n];
@@ -247,9 +277,43 @@ fn best_packing(rects: &[Rect]) -> Vec<(i32, i32)> {
     best.map(|b| b.1).unwrap_or_default()
 }
 
-/// Computes node positions for one candidate.
-fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
+/// Where node `n`'s lines attach along the width of `item`, which stands
+/// for `n` (a package's member lines attach under that member).
+fn port_of(item: Item, n: usize, member_x: &[HashMap<usize, i32>], size: &[(i32, i32)]) -> f64 {
+    match item {
+        Item::Node(_) => 0.5,
+        Item::Group(g) => member_x[g].get(&n).map_or(0.5, |&x| {
+            (x as f64 / size[g].0.max(1) as f64).clamp(0.02, 0.98)
+        }),
+    }
+}
+
+/// The side of `r` that a line to a point at `c` leaves through.
+fn side_towards(r: &Rect, c: (f64, f64)) -> GhostSide {
+    if c.1 < r.y as f64 {
+        GhostSide::Top
+    } else if c.1 > r.bottom() as f64 {
+        GhostSide::Bottom
+    } else if c.0 < r.x as f64 + r.w as f64 / 2.0 {
+        GhostSide::Left
+    } else {
+        GhostSide::Right
+    }
+}
+
+/// Computes node positions for one candidate. With `prev` (positions from
+/// an earlier round), the order starts from those positions and each
+/// package sees where its outside lines go.
+fn place_all(
+    graph: &Graph,
+    start: Start,
+    width: f64,
+    prev: Option<&[(i32, i32)]>,
+) -> Vec<(i32, i32)> {
     let ng = graph.groups.len();
+    let prev_groups = prev.map(|p| group_rects(graph, p));
+    // Centre x of every member node, relative to its group's left edge.
+    let mut member_x: Vec<HashMap<usize, i32>> = vec![HashMap::new(); ng];
     // Deepest groups first, root last.
     let mut scopes: Vec<Option<usize>> = (0..ng).map(Some).collect();
     scopes.sort_by_key(|g| std::cmp::Reverse(graph.group_chain(*g).len()));
@@ -269,32 +333,67 @@ fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
             .collect();
         let index = |it: Item| items.iter().position(|&x| x == it);
         let mut edges = Vec::new();
+        let mut ghosts = Vec::new();
         for e in &graph.edges {
-            let (Some(a), Some(b)) = (
+            let ends = (
                 item_in_scope(graph, e.from, scope),
                 item_in_scope(graph, e.to, scope),
-            ) else {
-                continue;
-            };
-            if a == b {
-                continue;
+            );
+            match ends {
+                (Some(a), Some(b)) if a != b => {
+                    // Labels laid end to end along the line, with a little air.
+                    let gap = e.labels.iter().flatten().map(|l| l.0 + 2).sum::<i32>() + 2;
+                    let mut fe = FlatEdge::new(index(a).unwrap(), index(b).unwrap(), e.kind, gap);
+                    fe.ports = (
+                        port_of(a, e.from, &member_x, &group_size),
+                        port_of(b, e.to, &member_x, &group_size),
+                    );
+                    edges.push(fe);
+                }
+                (Some(a), None) | (None, Some(a)) => {
+                    let (Some(g), Some(p), Some(rects)) = (scope, prev, &prev_groups) else {
+                        continue;
+                    };
+                    let (inner, outer) = if ends.0.is_some() {
+                        (e.from, e.to)
+                    } else {
+                        (e.to, e.from)
+                    };
+                    let c = (
+                        p[outer].0 as f64 + graph.nodes[outer].w as f64 / 2.0,
+                        p[outer].1 as f64 + graph.nodes[outer].h as f64 / 2.0,
+                    );
+                    ghosts.push(Ghost {
+                        item: index(a).unwrap(),
+                        side: side_towards(&rects[g], c),
+                        key: c.0,
+                        port: port_of(a, inner, &member_x, &group_size),
+                    });
+                }
+                _ => {}
             }
-            // Labels laid end to end along the line, with a little air.
-            let gap = e.labels.iter().flatten().map(|l| l.0 + 2).sum::<i32>() + 2;
-            edges.push(FlatEdge {
-                a: index(a).unwrap(),
-                b: index(b).unwrap(),
-                kind: e.kind,
-                gap,
-            });
         }
-        let hint = hints(graph, &items);
+        let hint = hints(graph, &items, prev);
         let start = match (start, &hint) {
             (Start::Hint, None) => Start::DepthFirst,
             (s, _) => s,
         };
-        let pos = layout_scope(&sizes, &edges, hint.as_deref(), start);
+        let pos = layout_scope(&sizes, &edges, hint.as_deref(), start, &ghosts, width);
         if let Some(g) = scope {
+            let mut mx = HashMap::new();
+            for (it, p) in items.iter().zip(&pos) {
+                match *it {
+                    Item::Node(n) => {
+                        mx.insert(n, GROUP_PAD + p.0 + graph.nodes[n].w / 2);
+                    }
+                    Item::Group(h) => {
+                        for (&n, &x) in &member_x[h] {
+                            mx.insert(n, GROUP_PAD + p.0 + x);
+                        }
+                    }
+                }
+            }
+            member_x[g] = mx;
             let mut b: Option<Rect> = None;
             for (i, p) in pos.iter().enumerate() {
                 let r = Rect::new(p.0, p.1, sizes[i].0, sizes[i].1);
@@ -331,9 +430,51 @@ fn place_all(graph: &Graph, start: Start) -> Vec<(i32, i32)> {
     nodes
 }
 
+/// Rounds of package-aware placement after the first one.
+const ROUNDS: usize = 2;
+
+/// Places everything, then again `ROUNDS` times with each package seeing
+/// where its outside lines went in the round before.
+fn place_rounds(graph: &Graph, start: Start, width: f64) -> Vec<(i32, i32)> {
+    let mut nodes = place_all(graph, start, width, None);
+    if !graph.groups.is_empty() {
+        for _ in 0..ROUNDS {
+            nodes = place_all(graph, Start::Hint, width, Some(&nodes));
+        }
+    }
+    nodes
+}
+
+/// Layer widths, as factors of the usual, that some candidates try: how
+/// the boxes are spread over layers changes the crossings more than
+/// anything after it.
+const WIDTHS: [f64; 4] = [0.75, 1.35, 0.6, 1.7];
+
+/// Layer width of a candidate. The hint and depth-first candidates and
+/// every other random one keep the usual width, so a tidy diagram is found
+/// again; the remaining random ones try the `WIDTHS`.
+fn width_of(start: Start, seed: u64) -> f64 {
+    match start {
+        Start::Random(s) => {
+            let k = s.wrapping_sub(seed);
+            if k % 2 == 1 {
+                1.0
+            } else {
+                WIDTHS[((k / 2 - 1) % WIDTHS.len() as u64) as usize]
+            }
+        }
+        _ => 1.0,
+    }
+}
+
 /// Routes, labels and measures a layout with nodes at `nodes`.
 pub(crate) fn finalize(graph: &Graph, nodes: Vec<(i32, i32)>) -> Layout {
-    let routes = route_all(graph, &nodes);
+    finalize_with(graph, nodes, true)
+}
+
+/// As [`finalize`]; `wide` routing looks further for crossing-free routes.
+fn finalize_with(graph: &Graph, nodes: Vec<(i32, i32)>, wide: bool) -> Layout {
+    let routes = route_all_with(graph, &nodes, wide);
     let groups = group_rects(graph, &nodes);
     let labels = place_labels(graph, &nodes, &routes);
     let stats = measure(graph, &nodes, &routes);
@@ -395,7 +536,9 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
                             if i > 0 && cancelled() {
                                 return None;
                             }
-                            Some((i, finalize(graph, place_all(graph, starts[i]))))
+                            let width = width_of(starts[i], opts.seed);
+                            let nodes = place_rounds(graph, starts[i], width);
+                            Some((i, finalize_with(graph, nodes, false)))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -407,13 +550,32 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             }
         }
     });
-    results
+    // Candidates are compared with quick routing; the winner is routed
+    // again with the thorough router, which only ever lowers its cost.
+    let best = results
         .into_iter()
         .flatten()
         .enumerate()
         .min_by(|(i, a), (j, b)| a.stats.score().total_cmp(&b.stats.score()).then(i.cmp(j)))
         .map(|(_, l)| l)
-        .unwrap()
+        .unwrap();
+    if cancelled() {
+        return best;
+    }
+    let mut routes = best.routes.clone();
+    polish(graph, &best.nodes, &mut routes);
+    let labels = place_labels(graph, &best.nodes, &routes);
+    let stats = measure(graph, &best.nodes, &routes);
+    if stats.score() <= best.stats.score() {
+        Layout {
+            routes,
+            labels,
+            stats,
+            ..best
+        }
+    } else {
+        best
+    }
 }
 
 /// Do segments `p1-p2` and `q1-q2` cross properly?
@@ -725,6 +887,73 @@ mod tests {
         }
         let rc = l.node_rect(&g, c);
         assert!(!gr.too_close(&rc, 0), "outsider inside group");
+    }
+
+    fn ghost(item: usize, side: GhostSide, key: f64) -> Ghost {
+        Ghost {
+            item,
+            side,
+            key,
+            port: 0.5,
+        }
+    }
+
+    /// Parts of a package that are not connected to each other are placed
+    /// left to right by where their outside neighbours are.
+    #[test]
+    fn package_parts_face_their_outside_neighbours() {
+        let ghosts = [
+            ghost(0, GhostSide::Top, 100.0),
+            ghost(1, GhostSide::Top, 0.0),
+        ];
+        let pos = layout_scope(&[(10, 4); 2], &[], None, Start::DepthFirst, &ghosts, 1.0);
+        assert!(pos[1].0 < pos[0].0, "{pos:?}");
+    }
+
+    /// Children of one parent inside a package are ordered to match the
+    /// outside boxes their lines go to.
+    #[test]
+    fn package_members_face_their_outside_neighbours() {
+        let edges = [
+            FlatEdge::new(1, 0, EdgeKind::Hierarchy, 0),
+            FlatEdge::new(2, 0, EdgeKind::Hierarchy, 0),
+        ];
+        let ghosts = [
+            ghost(1, GhostSide::Bottom, 100.0),
+            ghost(2, GhostSide::Bottom, 0.0),
+        ];
+        let pos = layout_scope(&[(10, 4); 3], &edges, None, Start::DepthFirst, &ghosts, 1.0);
+        assert!(pos[2].0 < pos[1].0, "{pos:?}");
+    }
+
+    /// Lines from package members to outside boxes do not cross when an
+    /// order without crossings exists.
+    #[test]
+    fn lines_leaving_a_package_do_not_cross() {
+        let mut g = Graph::default();
+        g.groups.push(Group {
+            parent: None,
+            header: 3,
+            min_w: 10,
+        });
+        let p = g.add_node(12, 5);
+        let a = g.add_node(12, 5);
+        let b = g.add_node(12, 5);
+        for n in [p, a, b] {
+            g.nodes[n].group = Some(0);
+        }
+        g.add_edge(a, p, EdgeKind::Hierarchy);
+        g.add_edge(b, p, EdgeKind::Hierarchy);
+        // Outside the package: x is a child of b, y of a.
+        let x = g.add_node(12, 5);
+        let y = g.add_node(12, 5);
+        g.add_edge(x, b, EdgeKind::Hierarchy);
+        g.add_edge(y, a, EdgeKind::Hierarchy);
+        let l = layout_all(&g, &Options::default());
+        assert_eq!(crossing_points(&g, &l.routes).len(), 0);
+        // Each outside child sits under its parent's half of the package.
+        let cx = |n: usize| l.nodes[n].0 + g.nodes[n].w / 2;
+        assert_eq!(cx(x) < cx(y), cx(b) < cx(a), "{:?}", l.nodes);
     }
 
     #[test]

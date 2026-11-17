@@ -20,7 +20,7 @@ const STEP: u32 = 10;
 /// Step along a lane already used by the same bundle.
 const BUNDLE_STEP: u32 = 5;
 const BEND: u32 = 40;
-const CROSS: u32 = 600;
+const CROSS: u32 = 1000;
 const SHARE: u32 = 600;
 /// Points closer than this to a box cost extra, `CLEAR_W` per unit.
 const CLEAR_K: i32 = 4;
@@ -37,6 +37,15 @@ const PORT_NEAR: u32 = 150;
 const MARGIN: i32 = 6;
 /// The search first looks within this distance of both boxes.
 const WINDOW: i32 = 14;
+/// Where the search looks next when the first window only offers a route
+/// that crosses another line.
+const WIDE_WINDOW: i32 = 3 * WINDOW;
+/// Most search states the wider look may visit in a diagram with many
+/// lines. Most crossings there cannot be avoided, and a search proving that
+/// visits the whole area, once for every crossing line.
+const WIDE_BUDGET: usize = 30_000;
+/// Diagrams with up to this many lines get the wider look without limit.
+const WIDE_UNLIMITED: usize = 200;
 
 const NONE: u32 = u32::MAX;
 const MULTI: u32 = u32::MAX - 1;
@@ -371,6 +380,10 @@ struct Router<'a> {
     search: Search,
     /// Dense bundle id of each edge (small numbers, for `Users`).
     bundle: Vec<u32>,
+    /// Look beyond the first search window for routes that avoid a
+    /// crossing. Thorough but slower; off while comparing candidates and
+    /// while dragging.
+    wide: bool,
 }
 
 fn rect_distance(r: &Rect, p: (i32, i32)) -> i32 {
@@ -380,7 +393,7 @@ fn rect_distance(r: &Rect, p: (i32, i32)) -> i32 {
 }
 
 impl<'a> Router<'a> {
-    fn new(graph: &'a Graph, nodes: &[(i32, i32)]) -> Router<'a> {
+    fn new(graph: &'a Graph, nodes: &[(i32, i32)], wide: bool) -> Router<'a> {
         let grid = Grid::new(graph, nodes);
         let n = grid.owner.len();
         let mut dense: HashMap<u32, u32> = HashMap::new();
@@ -395,6 +408,7 @@ impl<'a> Router<'a> {
             grid,
             search: Search::new(n),
             bundle,
+            wide,
         }
     }
 
@@ -410,13 +424,49 @@ impl<'a> Router<'a> {
             }
         }
         let window = src.union(&dst).expand(WINDOW);
-        if let Some(r) = self.astar(e, occ, Some(window)) {
+        if let Some((r, cost)) = self.astar(e, occ, Some(window), u32::MAX, usize::MAX) {
+            // The window may hide a detour that avoids the crossing. Only a
+            // route cheaper than this one is of use, which bounds the search.
+            if self.wide && self.crosses(&r, occ, self.bundle[e]) {
+                let wide = src.union(&dst).expand(WIDE_WINDOW);
+                let budget = if self.graph.edges.len() <= WIDE_UNLIMITED {
+                    usize::MAX
+                } else {
+                    WIDE_BUDGET
+                };
+                if let Some((w, _)) = self.astar(e, occ, Some(wide), cost, budget) {
+                    return w;
+                }
+            }
             return r;
         }
-        if let Some(r) = self.astar(e, occ, None) {
+        if let Some((r, _)) = self.astar(e, occ, None, u32::MAX, usize::MAX) {
             return r;
         }
         fallback(&src, &dst)
+    }
+
+    /// Does `route` cross a line of another bundle?
+    fn crosses(&self, route: &Route, occ: &Occupancy, bundle: u32) -> bool {
+        let last = route.points.len().saturating_sub(1);
+        route.segments().enumerate().any(|(k, (p, q))| {
+            let hz = p.1 == q.1;
+            let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
+            let mut c = p;
+            loop {
+                let end = (k == 0 && c == p) || (k + 1 == last && c == q);
+                if let (false, Some(i)) = (end, self.grid.idx(c)) {
+                    let other = if hz { occ.v(i) } else { occ.h(i) };
+                    if other != NONE && other != bundle {
+                        return true;
+                    }
+                }
+                if c == q {
+                    return false;
+                }
+                c = (c.0 + dx, c.1 + dy);
+            }
+        })
     }
 
     /// The classic inheritance tree: a stem under the middle of the parent,
@@ -482,7 +532,17 @@ impl<'a> Router<'a> {
         Some(route)
     }
 
-    fn astar(&mut self, e: usize, occ: &Occupancy, window: Option<Rect>) -> Option<Route> {
+    /// Cheapest route for edge `e` and its cost, searching inside `window`
+    /// and giving up once no route cheaper than `bound` can remain or after
+    /// visiting `budget` states.
+    fn astar(
+        &mut self,
+        e: usize,
+        occ: &Occupancy,
+        window: Option<Rect>,
+        bound: u32,
+        budget: usize,
+    ) -> Option<(Route, u32)> {
         let graph = self.graph;
         let edge = &graph.edges[e];
         let bundle = self.bundle[e];
@@ -524,7 +584,12 @@ impl<'a> Router<'a> {
 
         let in_window = |p: (i32, i32)| window.is_none_or(|w| w.contains(p));
         let mut goal = None;
-        while let Some(Reverse((_, _, state))) = s.heap.pop() {
+        let mut visited = 0usize;
+        while let Some(Reverse((f, _, state))) = s.heap.pop() {
+            visited += 1;
+            if f >= bound || visited > budget {
+                break;
+            }
             let state = state as usize;
             let (i, d) = (state / 4, state % 4);
             let g = s.g[state];
@@ -602,6 +667,7 @@ impl<'a> Router<'a> {
         }
 
         let mut state = goal?;
+        let cost = s.g[state];
         let mut points = vec![grid.point(state / 4)];
         while s.parent[state] != NONE {
             state = s.parent[state] as usize;
@@ -610,7 +676,7 @@ impl<'a> Router<'a> {
         points.reverse();
         let mut r = Route { points };
         r.simplify();
-        Some(r)
+        Some((r, cost))
     }
 }
 
@@ -747,17 +813,42 @@ fn improve(router: &mut Router, routes: &mut [Route], candidates: &[usize], pass
 
 /// Routes every edge with the nodes at `nodes`.
 pub fn route_all(graph: &Graph, nodes: &[(i32, i32)]) -> Vec<Route> {
+    route_all_with(graph, nodes, true)
+}
+
+/// Routes every edge; `wide` as in [`Router`].
+pub(crate) fn route_all_with(graph: &Graph, nodes: &[(i32, i32)], wide: bool) -> Vec<Route> {
     let mut routes = vec![Route::default(); graph.edges.len()];
     if graph.edges.is_empty() {
         return routes;
     }
-    let mut router = Router::new(graph, nodes);
+    // First routes are quick; the wide search is spent on lines that still
+    // cross when they are ripped up and routed again.
+    let mut router = Router::new(graph, nodes, false);
     let all: Vec<usize> = (0..graph.edges.len()).collect();
     route_edges(&mut router, nodes, &mut routes, &all);
+    router.wide = wide;
     // Rip-up passes pay off most on small diagrams; large ones get one.
-    let passes = if graph.edges.len() <= 100 { 3 } else { 1 };
+    // Quick routing (comparing candidates) leaves them to the winner.
+    let passes = match (wide, graph.edges.len()) {
+        (false, _) => 1,
+        (true, 0..=100) => 3,
+        (true, _) => 1,
+    };
     improve(&mut router, &mut routes, &all, passes);
     routes
+}
+
+/// Routes again, with the wide search, the lines of `routes` that cross
+/// another line, keeping every new route only where it crosses less.
+pub(crate) fn polish(graph: &Graph, nodes: &[(i32, i32)], routes: &mut [Route]) {
+    if graph.edges.is_empty() {
+        return;
+    }
+    let mut router = Router::new(graph, nodes, true);
+    let all: Vec<usize> = (0..graph.edges.len()).collect();
+    let passes = if graph.edges.len() <= 100 { 3 } else { 1 };
+    improve(&mut router, routes, &all, passes);
 }
 
 fn route_edges(router: &mut Router, nodes: &[(i32, i32)], routes: &mut [Route], edges: &[usize]) {
@@ -805,7 +896,7 @@ pub fn reroute(graph: &Graph, nodes: &[(i32, i32)], routes: &mut Vec<Route>, mov
     if dirty.is_empty() {
         return;
     }
-    let mut router = Router::new(graph, nodes);
+    let mut router = Router::new(graph, nodes, false);
     for &e in &dirty {
         routes[e] = Route::default();
     }
@@ -952,6 +1043,25 @@ mod tests {
         // square; the router may route around.
         let s = measure(&g, &nodes, &routes);
         assert!(s.crossings <= 1);
+    }
+
+    /// A crossing costs more than a detour of about fifty grid units, also
+    /// when the detour leaves the area the search looks at first.
+    #[test]
+    fn detours_beyond_the_search_window_to_avoid_a_crossing() {
+        // C-D runs across between A (above) and B (below); its ends lie just
+        // outside the search window of A-B.
+        let mut g = Graph::default();
+        g.add_node(10, 4);
+        g.add_node(10, 4);
+        g.add_node(4, 4);
+        g.add_node(4, 4);
+        g.add_edge(0, 1, EdgeKind::Assoc);
+        g.add_edge(2, 3, EdgeKind::Assoc);
+        let nodes = vec![(0, -20), (0, 40), (-30, 8), (26, 8)];
+        let routes = route_all(&g, &nodes);
+        assert_eq!(measure(&g, &nodes, &routes).crossings, 0, "{routes:?}");
+        assert_clear_of_boxes(&g, &nodes, 0, &routes[0]);
     }
 
     #[test]

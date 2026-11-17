@@ -210,23 +210,24 @@ Finding the true minimum number of crossings is a problem with no known fast exa
 
 ### 6.3 Where crossings are removed
 
-Crossings are fought at five separate points, not one:
+Crossings are fought at six separate points, not one:
 
 | Step | What it decides | How it reduces crossings |
 |---|---|---|
-| 1. Order of boxes in each layer | Left-to-right order | Repeated sweeps that move each box toward the average position of its neighbours, plus swaps of adjacent boxes whenever a swap lowers the count |
-| 2. Side and order of attachment points | Where each line leaves its box | Lines leave in the same order as their targets lie, so lines from one box do not cross each other |
-| 3. Path of each line | Route around boxes | Path search where crossing another line costs much more than a bend or extra length |
-| 4. Reroute pass | Fixing early mistakes | Any line that still crosses another is removed and routed again with all other lines in place, until nothing improves |
-| 5. Pick the best candidate | Which whole layout to keep | Several layouts are produced from different starting orders; the one with the best score wins |
+| 1. Order of boxes in each layer | Left-to-right order | Repeated sweeps that move each box toward the average position of its neighbours, swaps of adjacent boxes whenever a swap lowers the count, sifting, and random restarts. Lines attach to a box at a *port*, a fraction of its width, so lines into one package box are ordered by the member they reach |
+| 2. Packages and their outside lines | Order inside each package | A line that leaves a package becomes a fixed stand-in on the package side it leaves through (top, bottom, left, right), so the package's own order counts the crossings that line will make. See 6.4 |
+| 3. Side and order of attachment points | Where each line leaves its box | Lines leave in the same order as their targets lie. A parent's other lines leave beside its inheritance bar, not through it |
+| 4. Path of each line | Route around boxes | Path search where a crossing costs as much as 100 grid units of extra length, the same trade the quality score makes (6.7) |
+| 5. Reroute pass | Fixing early mistakes | Any line that still crosses another is removed and routed again with all other lines in place. On the final layout this search also looks three times further out for a detour that avoids the crossing |
+| 6. Pick the best candidate | Which whole layout to keep | Several layouts are produced from different starting orders and different layer widths; the one with the best score wins |
 
 ### 6.4 Placement pipeline
 
 Input: boxes with sizes, edges with kinds, groups, and optionally some fixed positions.
 
-1. **Split.** Handle each connected part of the diagram separately and pack the parts together at the end. Lay out the content of each package first, then treat the package as one large box in its parent.
+1. **Split.** Handle each connected part of the diagram separately and pack the parts together at the end. Lay out the content of each package first, then treat the package as one large box in its parent. Laid out alone, a package cannot know where its outside lines go, which caused most crossings in diagrams with packages. So the whole placement runs again twice: each round, every package gets a stand-in for each outside line, placed where the line's other end was in the round before, and the parts of a package that are not connected to each other are placed left to right by where their outside lines go. Mathematically this optimises one package's order at a time with everything else held fixed.
 2. **Direct the edges.** Generalization and realization always point up to the parent. Composition and aggregation prefer the whole above the part. Associations and dependencies have no fixed direction.
-3. **Assign layers.** Only the hierarchy edges force a box into a lower layer. Associations only pull their two ends close together, so associated classes tend to land side by side in the same layer. This gives the classic look: inheritance runs vertically, associations run horizontally. Layers are chosen to make the weighted total edge length as small as possible (network simplex method). If a layer becomes too wide for a target shape of about 16:10, some associations are promoted to span layers so the diagram grows downward.
+3. **Assign layers.** Only the hierarchy edges force a box into a lower layer. Associations only pull their two ends close together, so associated classes tend to land side by side in the same layer. This gives the classic look: inheritance runs vertically, associations run horizontally. Each box in turn moves to the layer its hard rules allow that makes its weighted edge length smallest, until nothing moves. If a layer becomes too wide for a target shape of about 16:10, some boxes are pushed down so the diagram grows downward. Fewer, wider layers do not mean fewer crossings: removing this width limit cut long lines sharply but raised crossings by a third, because crowded layers cross more. How the boxes spread over layers changes the result more than any later step, so candidates try narrower and wider targets (0.6 to 1.7 times the usual).
 4. **Order each layer.** Step 1 in the table above. Children of the same parent are kept next to each other so their inheritance lines can share one trunk.
 5. **Assign coordinates.** Place boxes so long lines run straight and parents sit centred over their children (Brandes–Köpf method), respecting real box sizes and minimum gaps. Snap everything to the grid.
 6. **Route.** Section 6.5.
@@ -236,8 +237,9 @@ Input: boxes with sizes, edges with kinds, groups, and optionally some fixed pos
 
 All lines are orthogonal: horizontal and vertical segments only, with slightly rounded corners.
 
-- The router searches a grid of candidate lanes that run along box edges and midway between boxes. It finds the cheapest path, where cost is length plus a penalty per bend plus a large penalty per crossing. Boxes and labels are obstacles.
-- Lines are routed in a fixed order: inheritance first, then the rest from shortest to longest. Then the reroute pass (step 4 in the table) runs.
+- The router searches a grid of candidate lanes that run along box edges and midway between boxes. It finds the cheapest path, where cost is length plus a penalty per bend plus a large penalty per crossing (as much as 100 grid units of length). Boxes and labels are obstacles.
+- The search first looks within 14 grid units of the two boxes. Where that only offers a crossing route, the thorough mode looks three times as far, keeping only a route that is cheaper. The thorough mode runs on the winning Tidy layout, when a file opens, and when a drag ends; candidates and drag frames use the quick mode.
+- Lines are routed in a fixed order: inheritance first, then the rest from shortest to longest. Then the reroute pass (step 5 in the table) runs.
 - Inheritance lines to the same parent merge into one tree: a single stem out of the parent's bottom edge, one horizontal bar, and a drop to each child.
 - A final pass spreads apart lines that share a lane, ordered so they do not cross where they turn.
 - Lines always meet a box edge at a right angle and never at a corner.
@@ -277,6 +279,17 @@ Soft costs, with starting weights to be tuned on the test corpus:
 | Area and distance from the target shape | small |
 
 The status bar shows the current crossing count, so the user can see whether Tidy would help.
+
+### 6.8 What was measured
+
+Changes to the engine were judged on 52 generated class diagrams of 40 to 150 classes, with and without packages, by their total crossing count, because single diagrams vary too much from small changes to show a real effect. Against the engine before these changes (November 2026), the total fell from 4942 to 3414 crossings (−31%), and banking from 3 to 0. Tidy of a 40-class diagram takes about 130 ms.
+
+Tried and rejected, so they need not be tried again:
+
+- **A truer cost for same-layer lines** (counting the lines of the boxes they pass instead of the boxes): no gain overall, and worse on small diagrams with packages.
+- **Minimum total line length for layers** (fewer layers, fewer long lines): about a third more crossings, as layers get crowded.
+- **More restarts for small diagrams:** lower ordering cost, but no fewer crossings once routed. The ordering's count is only a model of the drawing.
+- **A smaller wider-search area, or a limit on its steps:** saved little time and lost much of its effect.
 
 ## 7. Visual style
 

@@ -16,6 +16,22 @@ pub(crate) struct FlatEdge {
     pub kind: EdgeKind,
     /// Room the edge's labels need when its ends sit side by side.
     pub gap: i32,
+    /// Where the line attaches along the width of its `a` and `b` item, as
+    /// a fraction in `0..1`. A package item has one port per member line;
+    /// a plain box attaches in the middle (0.5).
+    pub ports: (f64, f64),
+}
+
+impl FlatEdge {
+    pub fn new(a: usize, b: usize, kind: EdgeKind, gap: i32) -> FlatEdge {
+        FlatEdge {
+            a,
+            b,
+            kind,
+            gap,
+            ports: (0.5, 0.5),
+        }
+    }
 }
 
 /// The `(upper, lower)` pair an edge asks for, if it is a hard rule.
@@ -73,7 +89,19 @@ fn push_down(succ: &[Vec<usize>], layer: &[usize], v: usize, to: usize) -> Vec<(
 }
 
 /// Returns a layer (0 = top) for each of the `n` items.
+#[cfg(test)]
 pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) -> Vec<usize> {
+    assign_layers_with(n, edges, sizes, 1.0)
+}
+
+/// As [`assign_layers`], with layers allowed to grow `width` times as wide
+/// as usual before boxes are pushed down.
+pub(crate) fn assign_layers_with(
+    n: usize,
+    edges: &[FlatEdge],
+    sizes: &[(i32, i32)],
+    width: f64,
+) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
     }
@@ -170,7 +198,7 @@ pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) 
         .map(|&(w, h)| ((w + NODE_GAP) * (h + LAYER_GAP)) as f64)
         .sum();
     let widest = sizes.iter().map(|s| s.0).max().unwrap_or(0) as f64;
-    let target = widest.max((total * 1.6).sqrt() * 1.8);
+    let target = widest.max((total * 1.6).sqrt() * 1.8 * width);
     // Layers where nothing can move; skipped so other layers still balance.
     let mut stuck: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for _ in 0..n * 4 {
@@ -235,7 +263,7 @@ mod tests {
     use super::*;
 
     fn e(a: usize, b: usize, kind: EdgeKind) -> FlatEdge {
-        FlatEdge { a, b, kind, gap: 0 }
+        FlatEdge::new(a, b, kind, 0)
     }
 
     #[test]
@@ -256,6 +284,18 @@ mod tests {
         let edges = [e(0, 1, EdgeKind::Hierarchy), e(1, 0, EdgeKind::Hierarchy)];
         let l = assign_layers(2, &edges, &[(10, 4); 2]);
         assert_ne!(l[0], l[1]);
+    }
+
+    /// A narrower width target gives more, shorter layers.
+    #[test]
+    fn width_factor_sets_how_wide_layers_grow() {
+        let edges: Vec<FlatEdge> = (1..30).map(|i| e(0, i, EdgeKind::Assoc)).collect();
+        let count = |f: f64| {
+            let l = assign_layers_with(30, &edges, &[(14, 6); 30], f);
+            l.iter().max().unwrap() + 1
+        };
+        assert!(count(0.5) > count(1.0), "{} {}", count(0.5), count(1.0));
+        assert!(count(1.0) > count(2.0), "{} {}", count(1.0), count(2.0));
     }
 
     #[test]

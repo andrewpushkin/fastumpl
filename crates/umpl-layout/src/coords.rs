@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::graph::{LAYER_GAP, NODE_GAP};
-use crate::ordering::Layered;
+use crate::ordering::{Adj, Layered};
 
 /// Weighted isotonic regression: the nondecreasing `y` closest to `t`.
 fn pav(t: &[f64], w: &[f64]) -> Vec<f64> {
@@ -105,22 +105,25 @@ pub(crate) fn assign_coords(lay: &Layered, widths: &[i32], heights: &[i32]) -> V
             let mut desired = Vec::with_capacity(layer.len());
             let mut weight = Vec::with_capacity(layer.len());
             for &i in layer {
-                let mut nb: Vec<usize> = Vec::new();
+                let mut nb: Vec<&Adj> = Vec::new();
                 if mode != 1 {
-                    nb.extend(lay.neighbors_up(i));
+                    nb.extend(lay.up_links(i));
                 }
                 if mode != 0 {
-                    nb.extend(lay.neighbors_down(i));
+                    nb.extend(lay.down_links(i));
                 }
                 if nb.is_empty() {
                     desired.push(center[i]);
                     weight.push(0.3);
                 } else {
+                    // Offset of a port from its item's centre.
+                    let off = |j: usize, port: f64| (port - 0.5) * widths[j] as f64;
                     let mut s = 0.0;
                     let mut ws = 0.0;
-                    for &o in &nb {
-                        let w = weights.get(&(i, o)).copied().unwrap_or(1.0);
-                        s += w * center[o];
+                    for a in &nb {
+                        let w = weights.get(&(i, a.other)).copied().unwrap_or(1.0);
+                        // Centre that puts both ports on one vertical line.
+                        s += w * (center[a.other] + off(a.other, a.at_other) - off(i, a.at_self));
                         ws += w;
                     }
                     desired.push(s / ws);
@@ -180,7 +183,7 @@ fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i3
         let layer = &lay.layers[k];
         for &i in layer {
             let mut yy = 0;
-            for &u in lay.neighbors_up(i) {
+            for u in lay.neighbors_up(i) {
                 yy = yy.max(y[u] + heights[u] + gap);
             }
             let (l, r) = (left[i] - 1, left[i] + widths[i] + 1);
