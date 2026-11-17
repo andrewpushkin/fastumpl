@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use umpl_core::{Document, Editor};
 use umpl_draw::Diagram;
-use umpl_text::{parse, print, write_atomic, Problem};
+use umpl_text::{parse, plantuml, print, write_as, write_atomic, Format, Parsed, Problem};
 
 pub struct Session {
     pub editor: Editor,
@@ -16,6 +16,9 @@ pub struct Session {
     pub problems: Vec<Problem>,
     /// Modification time of the file when we last read or wrote it.
     disk_stamp: Option<SystemTime>,
+    /// File name offered by Save for a diagram without a file, such as
+    /// one imported from PlantUML.
+    pub suggested_name: Option<String>,
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {
@@ -30,6 +33,7 @@ impl Session {
             saved_revision: 0,
             problems: Vec::new(),
             disk_stamp: None,
+            suggested_name: None,
         }
     }
 
@@ -45,8 +49,26 @@ impl Session {
         Ok(s)
     }
 
+    /// Reads a PlantUML file into a new, unsaved diagram without a file,
+    /// so Save asks for a `.umpl` name and never overwrites the source.
+    pub fn import(path: &Path) -> Result<Session, String> {
+        let src = std::fs::read_to_string(path)
+            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        let mut s = Session::from_parsed(plantuml::import(&src));
+        let stem = path
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Untitled".into());
+        s.suggested_name = Some(format!("{stem}.umpl"));
+        s.mark_dirty();
+        Ok(s)
+    }
+
     pub fn from_text(src: &str) -> Session {
-        let parsed = parse(src);
+        Session::from_parsed(parse(src))
+    }
+
+    pub fn from_parsed(parsed: Parsed) -> Session {
         let mut editor = Editor::new(parsed.doc);
         if editor.doc.elements.values().any(|e| e.pos.is_none()) {
             let diagram = if parsed.has_layout {
@@ -64,6 +86,7 @@ impl Session {
             saved_revision,
             problems: parsed.problems,
             disk_stamp: None,
+            suggested_name: None,
         }
     }
 
@@ -80,7 +103,22 @@ impl Session {
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
+            .or_else(|| self.suggested_name.clone())
             .unwrap_or_else(|| "Untitled.umpl".into())
+    }
+
+    /// The display name without its extension, for exported files.
+    pub fn stem(&self) -> String {
+        let name = self.display_name();
+        match name.rsplit_once('.') {
+            Some((stem, _)) if !stem.is_empty() => stem.to_string(),
+            _ => name,
+        }
+    }
+
+    /// The diagram in another text format.
+    pub fn export_text(&self, format: Format) -> String {
+        write_as(format, &self.editor.doc)
     }
 
     pub fn text(&self) -> String {

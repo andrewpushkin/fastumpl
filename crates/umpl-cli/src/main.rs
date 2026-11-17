@@ -7,7 +7,7 @@ use std::time::Instant;
 use umpl_core::Editor;
 use umpl_draw::{build_scene, svg::to_svg, Diagram, SceneOptions, Theme};
 use umpl_layout::Options;
-use umpl_text::{parse, print, write_atomic, Parsed};
+use umpl_text::{parse, print, read_as, write_as, write_atomic, Format, Parsed};
 
 /// Release version (0.1.N, N = commits on main), set by the build as
 /// UMPL_VERSION; plain builds show the Cargo version.
@@ -20,20 +20,25 @@ const HELP: &str = "\
 umpl - render, format and check fastumpl diagrams
 
 Usage:
-  umpl render <file.umpl> -o <out.svg|out.png> [--tidy] [--dark] [--scale N]
+  umpl render <file> -o <out.svg|out.png> [--tidy] [--dark] [--scale N]
+  umpl convert <file> -o <out.umpl|out.puml|out.mmd|out.md> [--tidy]
+  umpl convert <file> --to <umpl|plantuml|mermaid|markdown>   to stdout
   umpl tidy <file.umpl>...         lay out again and save positions
   umpl fmt [--check] <file.umpl>...
-  umpl check <file.umpl>...        list problems; exit 1 if any
-  umpl stats <file.umpl> [--tidy]  crossings, bends and score
+  umpl check <file>...             list problems; exit 1 if any
+  umpl stats <file> [--tidy]       crossings, bends and score
   umpl --version
 
+Input files are .umpl or PlantUML (.puml, .plantuml, .pu, .iuml, .wsd).
 Elements without a stored position are placed automatically; --tidy lays
-out the whole diagram from scratch.";
+out the whole diagram from scratch. Mermaid and PlantUML output carry no
+positions.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("render") => render(&args[1..]),
+        Some("convert") => convert(&args[1..]),
         Some("tidy") => tidy(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("check") => check(&args[1..]),
@@ -67,6 +72,7 @@ struct Args {
     dark: bool,
     check: bool,
     scale: f32,
+    to: Option<Format>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -81,6 +87,12 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--tidy" => a.tidy = true,
             "--dark" => a.dark = true,
             "--check" => a.check = true,
+            "--to" => {
+                let name = it.next().ok_or("--to needs a format")?;
+                a.to = Some(Format::from_name(name).ok_or(format!(
+                    "unknown format `{name}` (umpl, plantuml, mermaid, markdown)"
+                ))?)
+            }
             "--scale" => {
                 a.scale = it
                     .next()
@@ -98,9 +110,30 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     Ok(a)
 }
 
+/// The format of an input file: PlantUML by extension, otherwise `.umpl`.
+fn input_format(path: &Path) -> Format {
+    match Format::from_path(path) {
+        Some(f) if f.can_read() => f,
+        _ => Format::Umpl,
+    }
+}
+
 fn read(path: &Path) -> Result<Parsed, String> {
     let src = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(parse(&src))
+    Ok(read_as(input_format(path), &src))
+}
+
+/// `fmt` and `tidy` rewrite their input as `.umpl`, which would destroy a
+/// PlantUML file.
+fn refuse_foreign(path: &Path, command: &str) -> Result<(), String> {
+    match input_format(path) {
+        Format::Umpl => Ok(()),
+        _ => Err(format!(
+            "{}: `{command}` rewrites .umpl files only; use `umpl convert {} -o <file.umpl>` first",
+            path.display(),
+            path.display()
+        )),
+    }
 }
 
 fn arrange(parsed: &Parsed, tidy: bool) -> Diagram {
@@ -147,9 +180,42 @@ fn render(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
+fn convert(args: &[String]) -> Result<bool, String> {
+    let a = parse_args(args)?;
+    let [input] = &a.files[..] else {
+        return Err("convert takes one input file".into());
+    };
+    let format = match (&a.out, a.to) {
+        (_, Some(f)) => f,
+        (Some(out), None) => Format::from_path(out).ok_or(format!(
+            "{}: output must end in .umpl, .puml, .mmd or .md (or use --to)",
+            out.display()
+        ))?,
+        (None, None) => return Err("convert needs -o <file> or --to <format>".into()),
+    };
+    let parsed = read(input)?;
+    report(input, &parsed);
+    let mut doc = parsed.doc;
+    if a.tidy {
+        let diagram = Diagram::tidy(&doc, &Options::default());
+        let mut ed = Editor::new(doc);
+        ed.set_positions(&diagram.positions());
+        doc = ed.doc;
+    }
+    let text = write_as(format, &doc);
+    match &a.out {
+        Some(out) => {
+            write_atomic(out, text.as_bytes()).map_err(|e| format!("{}: {e}", out.display()))?
+        }
+        None => print!("{text}"),
+    }
+    Ok(true)
+}
+
 fn tidy(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     for path in &a.files {
+        refuse_foreign(path, "tidy")?;
         let parsed = read(path)?;
         report(path, &parsed);
         let diagram = Diagram::tidy(&parsed.doc, &Options::default());
@@ -170,6 +236,7 @@ fn fmt(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     let mut ok = true;
     for path in &a.files {
+        refuse_foreign(path, "fmt")?;
         let src = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let formatted = print(&parse(&src).doc);
         if formatted == src {

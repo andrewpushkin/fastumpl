@@ -12,6 +12,7 @@ use umpl_core::{ElementId, Pos};
 use umpl_draw::svg::to_svg;
 use umpl_draw::{build_scene, Diagram, SceneOptions, Theme};
 use umpl_layout::Options;
+use umpl_text::{Format, PLANTUML_EXTENSIONS};
 
 use crate::camera::Camera;
 use crate::canvas::CanvasState;
@@ -174,12 +175,38 @@ impl App {
     }
 
     pub fn open_path(&mut self, path: &Path) {
+        if Format::from_path(path) == Some(Format::PlantUml) {
+            return self.import_path(path);
+        }
         match Session::open(path) {
             Ok(s) => self.install_session(s),
             Err(e) => {
                 self.recent.retain(|p| p != path);
                 self.storage.save_recent(&self.recent);
                 self.error("Cannot open file", e);
+            }
+        }
+    }
+
+    /// Opens a PlantUML file as a new, unsaved diagram.
+    fn import_path(&mut self, path: &Path) {
+        match Session::import(path) {
+            Ok(s) => {
+                let problems = s.problems.len();
+                self.install_session(s);
+                push_recent(&mut self.recent, path);
+                self.storage.save_recent(&self.recent);
+                let name = path.display();
+                self.notify(if problems == 0 {
+                    format!("Imported {name}; Save writes a .umpl file")
+                } else {
+                    format!("Imported {name} with {problems} problem(s) — see Problems")
+                });
+            }
+            Err(e) => {
+                self.recent.retain(|p| p != path);
+                self.storage.save_recent(&self.recent);
+                self.error("Cannot import file", e);
             }
         }
     }
@@ -204,8 +231,12 @@ impl App {
                 self.open_path(&path);
             }
             Pending::Open(None) => {
+                let mut diagrams = vec!["umpl"];
+                diagrams.extend(PLANTUML_EXTENSIONS);
                 let mut dlg = rfd::FileDialog::new()
+                    .add_filter("Diagrams", &diagrams)
                     .add_filter("fastumpl diagram", &["umpl"])
+                    .add_filter("PlantUML (imported)", &PLANTUML_EXTENSIONS)
                     .add_filter("All files", &["*"]);
                 if let Some(dir) = self
                     .session
@@ -302,12 +333,7 @@ impl App {
             return;
         };
         let s = self.session.as_ref().unwrap();
-        let stem = s
-            .path
-            .as_ref()
-            .and_then(|p| p.file_stem())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "diagram".into());
+        let stem = s.stem();
         let ext = if png { "png" } else { "svg" };
         let mut dlg = rfd::FileDialog::new()
             .add_filter(ext.to_uppercase(), &[ext])
@@ -328,6 +354,52 @@ impl App {
             Ok(()) => self.notify(format!("Exported {}", path.display())),
             Err(e) => self.error("Cannot export", e.to_string()),
         }
+    }
+
+    /// Exports the diagram as PlantUML or Mermaid text (Mermaid as `.mmd`
+    /// or, when the chosen name ends in `.md`, as a Markdown code block).
+    fn export_text(&mut self, format: Format) {
+        let Some(s) = &self.session else { return };
+        let mut dlg = rfd::FileDialog::new();
+        let ext = match format {
+            Format::PlantUml => {
+                dlg = dlg.add_filter("PlantUML", &["puml"]);
+                "puml"
+            }
+            _ => {
+                dlg = dlg
+                    .add_filter("Mermaid", &["mmd"])
+                    .add_filter("Markdown", &["md"]);
+                "mmd"
+            }
+        };
+        dlg = dlg.set_file_name(format!("{}.{ext}", s.stem()));
+        if let Some(dir) = s.path.as_ref().and_then(|p| p.parent()) {
+            dlg = dlg.set_directory(dir);
+        }
+        let Some(mut path) = dlg.save_file() else {
+            return;
+        };
+        if path.extension().is_none() {
+            path.set_extension(ext);
+        }
+        let format = match (format, Format::from_path(&path)) {
+            (Format::Mermaid, Some(Format::MermaidMarkdown)) => Format::MermaidMarkdown,
+            _ => format,
+        };
+        let text = self.session.as_ref().unwrap().export_text(format);
+        match umpl_text::write_atomic(&path, text.as_bytes()) {
+            Ok(()) => self.notify(format!("Exported {}", path.display())),
+            Err(e) => self.error("Cannot export", e.to_string()),
+        }
+    }
+
+    /// Puts the diagram on the clipboard as Mermaid text, ready to paste
+    /// into a Markdown `mermaid` block.
+    fn copy_mermaid(&mut self, ctx: &Context) {
+        let Some(s) = &self.session else { return };
+        ctx.copy_text(s.export_text(Format::Mermaid));
+        self.notify("Copied Mermaid to clipboard");
     }
 
     /// Copies the selection (or the whole diagram) to the clipboard as an
@@ -560,7 +632,10 @@ impl App {
             }
             Cmd::ExportSvg => self.export(ctx, false),
             Cmd::ExportPng => self.export(ctx, true),
+            Cmd::ExportPlantUml => self.export_text(Format::PlantUml),
+            Cmd::ExportMermaid => self.export_text(Format::Mermaid),
             Cmd::CopyImage => self.copy_image(ctx),
+            Cmd::CopyMermaid => self.copy_mermaid(ctx),
             Cmd::Quit => self.request(ctx, Pending::Quit),
             Cmd::Undo => {
                 if let Some(s) = &mut self.session {
@@ -828,7 +903,10 @@ impl App {
                     ui.separator();
                     self.menu_item(ui, Cmd::ExportSvg);
                     self.menu_item(ui, Cmd::ExportPng);
+                    self.menu_item(ui, Cmd::ExportPlantUml);
+                    self.menu_item(ui, Cmd::ExportMermaid);
                     self.menu_item(ui, Cmd::CopyImage);
+                    self.menu_item(ui, Cmd::CopyMermaid);
                     ui.separator();
                     self.menu_item(ui, Cmd::Quit);
                 });

@@ -321,3 +321,67 @@ fn detects_file_changed_on_disk() {
     assert!(!s.changed_on_disk());
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn opening_plantuml_imports_an_unsaved_untitled_diagram() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-import-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("model.puml");
+    let src = "@startuml\nclass Order\nOrder *-- Line\nhide empty members\n@enduml\n";
+    std::fs::write(&path, src).unwrap();
+
+    let mut h = new_app();
+    h.state_mut().open_path(&path);
+    h.run_steps(3);
+    let app = h.state();
+    let s = app.session.as_ref().unwrap();
+    assert_eq!(s.path, None);
+    assert!(s.is_dirty());
+    assert_eq!(s.display_name(), "model.umpl");
+    assert_eq!(s.editor.doc.elements.len(), 2);
+    assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
+    assert_eq!(s.problems.len(), 1);
+    assert!(app.status.as_ref().unwrap().0.contains("1 problem"));
+    assert!(app.recent.contains(&path));
+    // The PlantUML file itself is never touched.
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), src);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn copy_as_mermaid_puts_text_on_the_clipboard() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    h.state_mut()
+        .session
+        .as_mut()
+        .unwrap()
+        .editor
+        .connect(a, b, RelationKind::Directed);
+    h.run_steps(2);
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::CopyMermaid);
+    h.run_steps(1);
+    let out = h.output().platform_output.commands.clone();
+    let text = out
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("nothing copied");
+    assert!(text.starts_with("classDiagram\n"), "{text}");
+    assert!(text.contains("    A --> B\n"), "{text}");
+    assert_eq!(
+        h.state().status.as_ref().unwrap().0,
+        "Copied Mermaid to clipboard"
+    );
+}
+
+#[test]
+fn export_and_copy_commands_are_in_the_palette() {
+    for cmd in [Cmd::ExportPlantUml, Cmd::ExportMermaid, Cmd::CopyMermaid] {
+        assert!(Cmd::all().contains(&cmd));
+    }
+}

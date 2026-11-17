@@ -1,0 +1,127 @@
+//! Runs the `umpl` binary on real files.
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+const SHOP: &str = include_str!("../../../examples/shop.umpl");
+
+const PUML: &str = "@startuml
+title Imported
+skinparam monochrome true
+class Order {
+  +total() : Money
+}
+Order \"1\" *-- \"*\" Line
+Order --> Customer
+@enduml
+";
+
+/// A fresh, empty folder for one test.
+fn workdir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("umpl-cli-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn umpl(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_umpl"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap()
+}
+
+fn text(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
+}
+
+#[test]
+fn converts_umpl_to_mermaid_and_plantuml() {
+    let dir = workdir("export");
+    std::fs::write(dir.join("shop.umpl"), SHOP).unwrap();
+    for (out, start) in [
+        ("shop.mmd", "classDiagram"),
+        ("shop.md", "```mermaid"),
+        ("shop.puml", "@startuml"),
+    ] {
+        let r = umpl(&dir, &["convert", "shop.umpl", "-o", out]);
+        assert!(r.status.success(), "{out}: {}", text(&r.stderr));
+        let written = std::fs::read_to_string(dir.join(out)).unwrap();
+        assert!(written.contains(start), "{out}:\n{written}");
+    }
+    let r = umpl(&dir, &["convert", "shop.umpl", "--to", "mermaid"]);
+    assert!(r.status.success());
+    assert_eq!(
+        text(&r.stdout),
+        std::fs::read_to_string(dir.join("shop.mmd")).unwrap()
+    );
+}
+
+#[test]
+fn imports_plantuml() {
+    let dir = workdir("import");
+    std::fs::write(dir.join("model.puml"), PUML).unwrap();
+
+    let r = umpl(&dir, &["convert", "model.puml", "-o", "model.umpl"]);
+    assert!(r.status.success(), "{}", text(&r.stderr));
+    // The skipped skinparam is reported with its line.
+    assert!(text(&r.stderr).contains("model.puml:3:1: PlantUML `skinparam`"));
+    let umpl_text = std::fs::read_to_string(dir.join("model.umpl")).unwrap();
+    assert!(
+        umpl_text.starts_with("diagram \"Imported\"\n"),
+        "{umpl_text}"
+    );
+    assert!(
+        umpl_text.contains("Order \"1\" *-- \"*\" Line\n"),
+        "{umpl_text}"
+    );
+    assert!(!umpl_text.contains("layout {"));
+
+    // The converted file is clean and can be tidied and checked.
+    assert!(umpl(&dir, &["check", "model.umpl"]).status.success());
+    let r = umpl(
+        &dir,
+        &["convert", "model.puml", "-o", "tidy.umpl", "--tidy"],
+    );
+    assert!(r.status.success());
+    let tidied = std::fs::read_to_string(dir.join("tidy.umpl")).unwrap();
+    assert!(tidied.contains("layout {\n"), "{tidied}");
+
+    // Reading commands accept PlantUML directly.
+    let r = umpl(&dir, &["render", "model.puml", "-o", "model.svg"]);
+    assert!(r.status.success(), "{}", text(&r.stderr));
+    let svg = std::fs::read_to_string(dir.join("model.svg")).unwrap();
+    assert!(svg.contains("Customer"));
+    assert!(umpl(&dir, &["stats", "model.puml"]).status.success());
+    // `check` fails because of the skipped line.
+    assert!(!umpl(&dir, &["check", "model.puml"]).status.success());
+}
+
+#[test]
+fn rewriting_commands_refuse_plantuml() {
+    let dir = workdir("refuse");
+    std::fs::write(dir.join("model.puml"), PUML).unwrap();
+    for cmd in ["fmt", "tidy"] {
+        let r = umpl(&dir, &[cmd, "model.puml"]);
+        assert!(!r.status.success(), "{cmd}");
+        assert!(text(&r.stderr).contains("umpl convert"), "{cmd}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.join("model.puml")).unwrap(),
+        PUML
+    );
+}
+
+#[test]
+fn convert_needs_a_known_output() {
+    let dir = workdir("bad");
+    std::fs::write(dir.join("shop.umpl"), SHOP).unwrap();
+    assert!(!umpl(&dir, &["convert", "shop.umpl"]).status.success());
+    assert!(!umpl(&dir, &["convert", "shop.umpl", "-o", "x.txt"])
+        .status
+        .success());
+    assert!(!umpl(&dir, &["convert", "shop.umpl", "--to", "png"])
+        .status
+        .success());
+}

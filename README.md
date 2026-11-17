@@ -10,6 +10,7 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 - **Type, don't click.** Double-click a class and type its members: `+total(): Money`.
 - **Plain text files.** Diagrams are `.umpl` text files that diff well. The model sits at the top and positions at the bottom.
 - **Command line too.** `umpl` renders SVG and PNG, formats and checks files.
+- **PlantUML and Mermaid.** Open `.puml` files directly; export to PlantUML or Mermaid, or copy Mermaid to paste into a GitHub README or issue.
 
 ## Download
 
@@ -77,7 +78,18 @@ umpl tidy diagram.umpl                       # lay out again and save positions
 umpl fmt [--check] diagram.umpl              # rewrite in standard style
 umpl check diagram.umpl                      # list problems, exit 1 if any
 umpl stats diagram.umpl [--tidy]             # crossings, bends, score
+umpl convert diagram.puml -o diagram.umpl    # import PlantUML; --tidy stores a layout
+umpl convert diagram.umpl -o diagram.mmd     # export: .mmd, .md (Mermaid block), .puml
+umpl convert diagram.umpl --to mermaid       # write to standard output
 ```
+
+`render`, `check` and `stats` also read PlantUML files (`.puml`, `.plantuml`, `.pu`, `.iuml`, `.wsd`).
+
+## PlantUML and Mermaid
+
+- **Import.** Open a PlantUML class diagram (File → Open, drag and drop, or `fastumpl model.puml`). It opens as a new, unsaved diagram and is laid out at once; Save writes a `.umpl` file and leaves the PlantUML file alone. Styling commands such as `skinparam` and `hide` are skipped and listed under Problems.
+- **Export.** File → Export PlantUML… and Export Mermaid… (`.mmd`, or `.md` for a ready-made ```` ```mermaid ```` block). **Copy as Mermaid** puts the diagram on the clipboard for pasting into Markdown on GitHub, GitLab, Notion or Obsidian.
+- Both formats lay diagrams out themselves, so positions are not exported.
 
 ## Keys
 
