@@ -553,7 +553,7 @@ impl App {
                     self.notify("Diagram changed while tidying; run Tidy again");
                     return;
                 }
-                s.editor.set_positions(&diagram.positions());
+                s.editor.set_positions("Tidy", &diagram.positions());
                 let crossings = diagram.layout.stats.crossings;
                 self.view.install(diagram, s.editor.revision);
                 self.notify(format!("Tidy done: {crossings} crossing(s)"));
@@ -590,7 +590,7 @@ impl App {
                 Some((*id, Some(Pos::new(p.0, p.1))))
             })
             .collect();
-        s.editor.set_positions(&positions);
+        s.editor.set_positions("Tidy selection", &positions);
     }
 
     // ----- commands --------------------------------------------------------
@@ -607,22 +607,9 @@ impl App {
             .copied()
             .filter(|r| s.editor.doc.relations.contains_key(r))
             .collect();
-        if !rels.is_empty() && self.sel.elements.is_empty() && self.sel.packages.is_empty() {
-            s.editor.delete_relations(&rels);
-        } else {
-            // Relations of deleted elements go with them; delete the others
-            // in the same step.
-            let mut ops_rel = rels;
-            ops_rel.retain(|r| {
-                let rel = &s.editor.doc.relations[r];
-                !self.sel.elements.contains(&rel.from.element)
-                    && !self.sel.elements.contains(&rel.to.element)
-            });
-            if !ops_rel.is_empty() {
-                s.editor.delete_relations(&ops_rel);
-            }
-            s.editor.delete(&self.sel.elements, &self.sel.packages);
-        }
+        // One undo step: relations of deleted elements go with them.
+        s.editor
+            .delete_items(&self.sel.elements, &self.sel.packages, &rels);
         self.sel.clear();
     }
 
@@ -646,15 +633,19 @@ impl App {
             Cmd::Quit => self.request(ctx, Pending::Quit),
             Cmd::Undo => {
                 if let Some(s) = &mut self.session {
+                    let label = s.editor.undo_label().map(str::to_string);
                     if s.editor.undo() {
                         self.sel.retain_existing(&s.editor.doc);
+                        self.notify(format!("Undone: {}", label.unwrap_or_default()));
                     }
                 }
             }
             Cmd::Redo => {
                 if let Some(s) = &mut self.session {
+                    let label = s.editor.redo_label().map(str::to_string);
                     if s.editor.redo() {
                         self.sel.retain_existing(&s.editor.doc);
+                        self.notify(format!("Redone: {}", label.unwrap_or_default()));
                     }
                 }
             }
@@ -695,6 +686,20 @@ impl App {
                 self.tool = t;
                 self.canvas.cancel();
             }
+        }
+    }
+
+    /// The label of `cmd` in menus and the palette; Undo and Redo name
+    /// the step they would undo or redo: "Undo Move Order".
+    pub fn command_label(&self, cmd: Cmd) -> String {
+        let step = self.session.as_ref().and_then(|s| match cmd {
+            Cmd::Undo => s.editor.undo_label(),
+            Cmd::Redo => s.editor.redo_label(),
+            _ => None,
+        });
+        match step {
+            Some(step) => format!("{} {step}", cmd.label()),
+            None => cmd.label(),
         }
     }
 
@@ -797,7 +802,11 @@ impl App {
                 Some((*id, Pos::new(p.x + dx * step, p.y + dy * step)))
             })
             .collect();
-        s.editor.move_elements(&moves, Some("nudge"));
+        // Nudges merge into one step while the selection stays the same.
+        let mut ids: Vec<ElementId> = moves.iter().map(|(id, _)| *id).collect();
+        ids.sort();
+        s.editor
+            .move_elements(&moves, Some(&format!("nudge {ids:?}")));
     }
 
     // ----- frame -----------------------------------------------------------
@@ -877,7 +886,7 @@ impl App {
     }
 
     fn menu_item(&mut self, ui: &mut egui::Ui, cmd: Cmd) {
-        let mut b = Button::new(cmd.label());
+        let mut b = Button::new(self.command_label(cmd));
         if let Some(sc) = cmd.shortcut() {
             b = b.shortcut_text(ui.ctx().format_shortcut(&sc));
         }
@@ -973,6 +982,28 @@ impl App {
                         self.run(ui.ctx(), Cmd::Fit);
                     }
                     ui.label(format!("{:.0}%", self.camera.zoom * 100.0));
+                    ui.separator();
+                    // Right to left: Redo first, so Undo shows on its left.
+                    for (cmd, icon) in [(Cmd::Redo, "⟳"), (Cmd::Undo, "⟲")] {
+                        let sc = cmd.shortcut().map(|sc| ui.ctx().format_shortcut(&sc));
+                        let tip = match sc {
+                            Some(sc) => format!("{} ({sc})", self.command_label(cmd)),
+                            None => self.command_label(cmd),
+                        };
+                        let b = ui
+                            .add_enabled(
+                                self.enabled(cmd),
+                                Button::new(RichText::new(icon).size(15.0)),
+                            )
+                            .on_hover_text(&tip)
+                            .on_disabled_hover_text(format!(
+                                "Nothing to {}",
+                                cmd.label().to_lowercase()
+                            ));
+                        if b.clicked() {
+                            self.run(ui.ctx(), cmd);
+                        }
+                    }
                 });
             });
         });

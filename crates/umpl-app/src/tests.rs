@@ -4,7 +4,7 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
-use egui_kittest::Harness;
+use egui_kittest::{kittest::Queryable, Harness};
 use umpl_core::{ElementId, ElementKind, Pos, RelationKind};
 use umpl_draw::{RectF, GRID};
 
@@ -420,4 +420,96 @@ fn export_and_copy_commands_are_in_the_palette() {
     ] {
         assert!(Cmd::all().contains(&cmd));
     }
+}
+
+fn doc<'a>(h: &'a Harness<'static, App>) -> &'a umpl_core::Document {
+    &h.state().session.as_ref().unwrap().editor.doc
+}
+
+#[test]
+fn deleting_boxes_and_another_line_is_one_undo_step() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    let c = add(&mut h, "C", 0, 40);
+    let ab = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.connect(b, c, RelationKind::Association);
+        s.editor.connect(a, b, RelationKind::Association)
+    };
+    h.run_steps(2);
+    let before = doc(&h).clone();
+    // C (taking B--C with it) and the line A--B, which touches neither.
+    h.state_mut().sel = crate::view::Selection {
+        elements: vec![c],
+        relations: vec![ab],
+        packages: vec![],
+    };
+    h.key_press(Key::Delete);
+    h.run_steps(2);
+    assert!(doc(&h).relations.is_empty());
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(*doc(&h), before);
+}
+
+#[test]
+fn nudging_another_selection_is_a_new_undo_step() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    let pos = |h: &Harness<'static, App>, id| doc(h).elements[&id].pos.unwrap();
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    h.key_press(Key::ArrowRight);
+    h.key_press(Key::ArrowRight);
+    h.run_steps(2);
+    h.state_mut().sel = crate::view::Selection::only_element(b);
+    h.key_press(Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!((pos(&h, a), pos(&h, b)), (Pos::new(2, 0), Pos::new(30, 1)));
+    // Undo takes back B's nudge only, then both of A's at once.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!((pos(&h, a), pos(&h, b)), (Pos::new(2, 0), Pos::new(30, 0)));
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(pos(&h, a), Pos::new(0, 0));
+}
+
+#[test]
+fn undo_and_redo_name_the_step() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.move_elements(&[(a, Pos::new(4, 4))], None);
+    }
+    h.run_steps(2);
+    assert_eq!(h.state().command_label(Cmd::Undo), "Undo Move A");
+    assert_eq!(h.state().command_label(Cmd::Redo), "Redo");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state().status.as_ref().unwrap().0, "Undone: Move A");
+    assert_eq!(h.state().command_label(Cmd::Redo), "Redo Move A");
+    assert_eq!(h.state().command_label(Cmd::Undo), "Undo Add class");
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state().status.as_ref().unwrap().0, "Redone: Move A");
+}
+
+#[test]
+fn toolbar_buttons_undo_and_redo() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.move_elements(&[(a, Pos::new(4, 4))], None);
+    }
+    h.run_steps(2);
+    h.get_by_label("⟲").click();
+    h.run_steps(2);
+    assert_eq!(doc(&h).elements[&a].pos, Some(Pos::new(0, 0)));
+    h.get_by_label("⟳").click();
+    h.run_steps(2);
+    assert_eq!(doc(&h).elements[&a].pos, Some(Pos::new(4, 4)));
 }

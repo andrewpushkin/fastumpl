@@ -180,7 +180,7 @@ impl App {
         let matches: Vec<Cmd> = Cmd::all()
             .into_iter()
             .filter(|c| {
-                let l = c.label().to_lowercase();
+                let l = self.command_label(*c).to_lowercase();
                 words.iter().all(|w| l.contains(w.as_str()))
             })
             .collect();
@@ -204,7 +204,7 @@ impl App {
                             .shortcut()
                             .map(|s| ctx.format_shortcut(&s))
                             .unwrap_or_default();
-                        let text = format!("{:<34}{}", cmd.label(), sc);
+                        let text = format!("{:<34}{}", self.command_label(*cmd), sc);
                         let resp = ui.selectable_label(i == index, RichText::new(text).monospace());
                         if resp.clicked() {
                             run = Some(*cmd);

@@ -110,7 +110,7 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | Ctrl+T | Tidy |
 | F | Fit diagram in window |
 | Ctrl+K | Command palette |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo |
+| Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo; also the ⟲ ⟳ buttons, and the Edit menu names the step ("Undo Move Order") |
 | Right- or middle-drag, scroll | Pan |
 | Ctrl+scroll | Zoom |
 

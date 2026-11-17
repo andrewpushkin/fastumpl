@@ -434,7 +434,7 @@ Decisions made while building, for the record:
 - **Notes** are elements of kind Note (`note N1 "text"`), and attaching one is a relation `N1 .. Order`. This puts notes in the `layout` block like any box.
 - **End labels** are one quoted string per end, `"1..* items"`: multiplicity first, then role.
 - **Unknown plain names** used only in a relation create a class, as PlantUML does. An unknown dotted name keeps the line as raw text with a problem.
-- **Undo** uses set-slot operations: each op replaces one element, relation, package, the root list or the title, and returns the old value.
+- **Undo** uses set-slot operations: each op replaces one element, relation, package, the root list or the title, and returns the old value. Each step carries a name ("Move Order", "Delete 3 items", "Tidy") shown in the Edit menu, the palette, the ⟲ ⟳ toolbar tooltips and the status bar after undo or redo. A drag is one step; arrow-key nudges merge into one step while the selection stays the same; deleting a mixed selection is one step.
 - **Lane spreading** is done by the router itself: sharing a lane costs as much as a crossing, except inheritance lines into one parent, which form a tree (stem, bar, drops) whenever that path is clear.
 - **Labels** avoid boxes, lines and each other; lines do not avoid labels. Boxes joined by a labelled line in the same row get extra room for the labels.
 - **Font**: DejaVu Sans Mono in four faces, bundled. Abstract names and operations are italic; static members are underlined.

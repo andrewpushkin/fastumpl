@@ -201,7 +201,7 @@ fn convert(args: &[String]) -> Result<bool, String> {
     if a.tidy {
         let diagram = Diagram::tidy(&doc, &Options::default());
         let mut ed = Editor::new(doc);
-        ed.set_positions(&diagram.positions());
+        ed.set_positions("Tidy", &diagram.positions());
         doc = ed.doc;
     }
     let text = write_as(format, &doc);
@@ -222,7 +222,7 @@ fn tidy(args: &[String]) -> Result<bool, String> {
         report(path, &parsed);
         let diagram = Diagram::tidy(&parsed.doc, &Options::default());
         let mut ed = Editor::new(parsed.doc);
-        ed.set_positions(&diagram.positions());
+        ed.set_positions("Tidy", &diagram.positions());
         write_atomic(path, print(&ed.doc).as_bytes())
             .map_err(|e| format!("{}: {e}", path.display()))?;
         println!(

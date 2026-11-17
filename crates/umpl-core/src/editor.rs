@@ -10,6 +10,8 @@ struct Group {
     inverse: Vec<Op>,
     /// Actions with the same key merge into one group until [`Editor::seal`].
     key: Option<String>,
+    /// What the action did, for menus: "Move Order", "Delete 3 items".
+    label: String,
 }
 
 /// A document plus its undo history. All edits go through here.
@@ -32,15 +34,16 @@ impl Editor {
         }
     }
 
-    /// Applies `ops` as one undo step.
-    pub fn transact(&mut self, ops: Vec<Op>) {
-        self.push(ops, None);
+    /// Applies `ops` as one undo step named `label`.
+    pub fn transact(&mut self, label: &str, ops: Vec<Op>) {
+        self.push(ops, None, label);
     }
 
     /// Applies `ops`, merging with the previous step if it has the same key
-    /// and has not been sealed. Used for drags: one drag is one undo step.
-    pub fn transact_merge(&mut self, key: &str, ops: Vec<Op>) {
-        self.push(ops, Some(key.to_string()));
+    /// and has not been sealed. Used for drags: one drag is one undo step,
+    /// keeping the label of its first part.
+    pub fn transact_merge(&mut self, key: &str, label: &str, ops: Vec<Op>) {
+        self.push(ops, Some(key.to_string()), label);
     }
 
     /// Ends merging: the next `transact_merge` starts a new step.
@@ -50,7 +53,7 @@ impl Editor {
         }
     }
 
-    fn push(&mut self, ops: Vec<Op>, key: Option<String>) {
+    fn push(&mut self, ops: Vec<Op>, key: Option<String>, label: &str) {
         if ops.is_empty() {
             return;
         }
@@ -67,7 +70,11 @@ impl Editor {
                 return;
             }
         }
-        self.undo.push(Group { inverse, key });
+        self.undo.push(Group {
+            inverse,
+            key,
+            label: label.to_string(),
+        });
     }
 
     /// Applies `ops` as part of the most recent undo step, for follow-up
@@ -84,7 +91,11 @@ impl Editor {
                 last.inverse
                     .extend(inverse.into_iter().filter(|o| !seen.contains(&o.slot())));
             }
-            None => self.undo.push(Group { inverse, key: None }),
+            None => self.undo.push(Group {
+                inverse,
+                key: None,
+                label: "Edit".into(),
+            }),
         }
     }
 
@@ -110,6 +121,16 @@ impl Editor {
         !self.redo.is_empty()
     }
 
+    /// What [`Editor::undo`] would undo, such as "Move Order".
+    pub fn undo_label(&self) -> Option<&str> {
+        self.undo.last().map(|g| g.label.as_str())
+    }
+
+    /// What [`Editor::redo`] would redo.
+    pub fn redo_label(&self) -> Option<&str> {
+        self.redo.last().map(|g| g.label.as_str())
+    }
+
     pub fn undo(&mut self) -> bool {
         let Some(g) = self.undo.pop() else {
             return false;
@@ -123,6 +144,7 @@ impl Editor {
         self.redo.push(Group {
             inverse: redo,
             key: None,
+            label: g.label,
         });
         self.revision += 1;
         true
@@ -141,6 +163,7 @@ impl Editor {
         self.undo.push(Group {
             inverse: undo,
             key: None,
+            label: g.label,
         });
         self.revision += 1;
         true
@@ -173,7 +196,7 @@ impl Editor {
         let mut body = self.doc.body(pkg).to_vec();
         body.push(Decl::Element(id));
         let ops = vec![Op::Element(id, Some(el)), self.container_op(pkg, body)];
-        self.transact(ops);
+        self.transact(&format!("Add {}", kind.label().to_lowercase()), ops);
         id
     }
 
@@ -184,7 +207,7 @@ impl Editor {
         let mut body = self.doc.body(parent).to_vec();
         body.push(Decl::Package(id));
         let ops = vec![Op::Package(id, Some(pkg)), self.container_op(parent, body)];
-        self.transact(ops);
+        self.transact("Add package", ops);
         id
     }
 
@@ -217,6 +240,18 @@ impl Editor {
     /// Deletes elements, every relation touching them, and `packages`
     /// with all their contents, as one undo step.
     pub fn delete(&mut self, elements: &[ElementId], packages: &[PackageId]) {
+        self.delete_items(elements, packages, &[]);
+    }
+
+    /// Deletes elements, packages (with their contents) and relations, and
+    /// every relation touching a deleted element, as one undo step.
+    pub fn delete_items(
+        &mut self,
+        elements: &[ElementId],
+        packages: &[PackageId],
+        relations: &[RelationId],
+    ) {
+        let label = self.delete_label(elements, packages, relations);
         let mut els: HashSet<ElementId> = elements.iter().copied().collect();
         let mut pkgs: HashSet<PackageId> = HashSet::new();
         for p in packages {
@@ -239,7 +274,11 @@ impl Editor {
             .doc
             .relations
             .iter()
-            .filter(|(_, r)| els.contains(&r.from.element) || els.contains(&r.to.element))
+            .filter(|(id, r)| {
+                relations.contains(id)
+                    || els.contains(&r.from.element)
+                    || els.contains(&r.to.element)
+            })
             .map(|(id, _)| *id)
             .collect();
         let mut decls: HashSet<Decl> = HashSet::new();
@@ -260,7 +299,37 @@ impl Editor {
         let mut pkgs_sorted: Vec<_> = pkgs.into_iter().collect();
         pkgs_sorted.sort();
         ops.extend(pkgs_sorted.into_iter().map(|p| Op::Package(p, None)));
-        self.transact(ops);
+        self.transact(&label, ops);
+    }
+
+    /// "Delete Order", "Delete package billing", "Delete association", or
+    /// "Delete 3 items". Relations that go with a deleted element are not
+    /// counted.
+    fn delete_label(
+        &self,
+        elements: &[ElementId],
+        packages: &[PackageId],
+        relations: &[RelationId],
+    ) -> String {
+        let els: Vec<&Element> = elements
+            .iter()
+            .filter_map(|e| self.doc.elements.get(e))
+            .collect();
+        let pkgs: Vec<&Package> = packages
+            .iter()
+            .filter_map(|p| self.doc.packages.get(p))
+            .collect();
+        let rels: Vec<&Relation> = relations
+            .iter()
+            .filter_map(|r| self.doc.relations.get(r))
+            .filter(|r| !elements.contains(&r.from.element) && !elements.contains(&r.to.element))
+            .collect();
+        match (&els[..], &pkgs[..], &rels[..]) {
+            ([e], [], []) => format!("Delete {}", e.name),
+            ([], [p], []) => format!("Delete package {}", p.name),
+            ([], [], [r]) => format!("Delete {}", r.kind.label().to_lowercase()),
+            _ => format!("Delete {} items", els.len() + pkgs.len() + rels.len()),
+        }
     }
 
     pub fn delete_elements(&mut self, ids: &[ElementId]) {
@@ -287,9 +356,10 @@ impl Editor {
         if !self.doc.name_is_free(name, pkg) {
             return Err(format!("'{name}' already exists here"));
         }
+        let label = format!("Rename {} to {name}", el.name);
         let mut el = el.clone();
         el.name = name.to_string();
-        self.transact(vec![Op::Element(id, Some(el))]);
+        self.transact(&label, vec![Op::Element(id, Some(el))]);
         Ok(())
     }
 
@@ -308,9 +378,10 @@ impl Editor {
         if !self.doc.name_is_free(name, parent) {
             return Err(format!("'{name}' already exists here"));
         }
+        let label = format!("Rename package {} to {name}", p.name);
         let mut p = p.clone();
         p.name = name.to_string();
-        self.transact(vec![Op::Package(id, Some(p))]);
+        self.transact(&label, vec![Op::Package(id, Some(p))]);
         Ok(())
     }
 
@@ -318,7 +389,8 @@ impl Editor {
     /// its name check to [`Editor::rename`].
     pub fn set_element(&mut self, id: ElementId, el: Element) {
         if self.doc.elements.get(&id) != Some(&el) {
-            self.transact(vec![Op::Element(id, Some(el))]);
+            let label = format!("Edit {}", el.name);
+            self.transact(&label, vec![Op::Element(id, Some(el))]);
         }
     }
 
@@ -327,24 +399,25 @@ impl Editor {
         let id = self.doc.new_relation_id();
         let mut root = self.doc.root.clone();
         root.push(Decl::Relation(id));
-        self.transact(vec![
-            Op::Relation(id, Some(Relation::new(kind, from, to))),
-            Op::Root(root),
-        ]);
+        self.transact(
+            &format!("Add {}", kind.label().to_lowercase()),
+            vec![
+                Op::Relation(id, Some(Relation::new(kind, from, to))),
+                Op::Root(root),
+            ],
+        );
         id
     }
 
     pub fn set_relation(&mut self, id: RelationId, rel: Relation) {
         if self.doc.relations.get(&id) != Some(&rel) {
-            self.transact(vec![Op::Relation(id, Some(rel))]);
+            let label = format!("Edit {}", rel.kind.label().to_lowercase());
+            self.transact(&label, vec![Op::Relation(id, Some(rel))]);
         }
     }
 
     pub fn delete_relations(&mut self, ids: &[RelationId]) {
-        let decls: HashSet<Decl> = ids.iter().map(|r| Decl::Relation(*r)).collect();
-        let mut ops = self.removal_ops(&decls, &HashSet::new());
-        ops.extend(ids.iter().map(|r| Op::Relation(*r, None)));
-        self.transact(ops);
+        self.delete_items(&[], &[], ids);
     }
 
     fn position_ops(&self, moves: &[(ElementId, Option<Pos>)]) -> Vec<Op> {
@@ -365,23 +438,30 @@ impl Editor {
     /// Moves elements. With a `merge_key`, repeated calls merge into one
     /// undo step until [`Editor::seal`].
     pub fn move_elements(&mut self, moves: &[(ElementId, Pos)], merge_key: Option<&str>) {
+        let label = match moves {
+            [(id, _)] => match self.doc.elements.get(id) {
+                Some(el) => format!("Move {}", el.name),
+                None => "Move".into(),
+            },
+            _ => format!("Move {} items", moves.len()),
+        };
         let moves: Vec<_> = moves.iter().map(|(id, p)| (*id, Some(*p))).collect();
         let ops = self.position_ops(&moves);
         match merge_key {
-            Some(k) => self.transact_merge(k, ops),
-            None => self.transact(ops),
+            Some(k) => self.transact_merge(k, &label, ops),
+            None => self.transact(&label, ops),
         }
     }
 
-    /// Sets many positions as one undo step (Tidy).
-    pub fn set_positions(&mut self, positions: &[(ElementId, Option<Pos>)]) {
+    /// Sets many positions as one undo step named `label` (Tidy).
+    pub fn set_positions(&mut self, label: &str, positions: &[(ElementId, Option<Pos>)]) {
         let ops = self.position_ops(positions);
-        self.transact(ops);
+        self.transact(label, ops);
     }
 
     pub fn set_title(&mut self, title: Option<String>) {
         if self.doc.title != title {
-            self.transact(vec![Op::Title(title)]);
+            self.transact("Change title", vec![Op::Title(title)]);
         }
     }
 }
@@ -419,6 +499,77 @@ mod tests {
         assert_eq!(ed.doc.elements[&a].name, "A");
         assert_eq!(ed.doc.root, vec![Decl::Element(a)]);
         assert!(!ed.can_redo());
+    }
+
+    #[test]
+    fn steps_are_named_for_undo_and_redo() {
+        let mut ed = Editor::new(Document::new());
+        assert_eq!((ed.undo_label(), ed.redo_label()), (None, None));
+        let a = ed.add_element(ElementKind::Class, "Order", None, Some(Pos::new(0, 0)));
+        assert_eq!(ed.undo_label(), Some("Add class"));
+        let b = ed.add_element(ElementKind::Note, "N", None, Some(Pos::new(9, 0)));
+        assert_eq!(ed.undo_label(), Some("Add note"));
+        // A drag is one step, named after what moved.
+        ed.move_elements(&[(a, Pos::new(5, 0))], Some("drag"));
+        ed.move_elements(&[(a, Pos::new(6, 0))], Some("drag"));
+        assert_eq!(ed.undo_label(), Some("Move Order"));
+        ed.seal();
+        ed.move_elements(&[(a, Pos::new(1, 1)), (b, Pos::new(2, 2))], None);
+        assert_eq!(ed.undo_label(), Some("Move 2 items"));
+        ed.rename(a, "Invoice").unwrap();
+        assert_eq!(ed.undo_label(), Some("Rename Order to Invoice"));
+        let mut el = ed.doc.elements[&a].clone();
+        el.members.push(Member::plain("id"));
+        ed.set_element(a, el);
+        assert_eq!(ed.undo_label(), Some("Edit Invoice"));
+        let r = ed.connect(a, b, RelationKind::Composition);
+        assert_eq!(ed.undo_label(), Some("Add composition"));
+        let mut rel = ed.doc.relations[&r].clone();
+        rel.name = Some("owns".into());
+        ed.set_relation(r, rel);
+        assert_eq!(ed.undo_label(), Some("Edit composition"));
+        ed.set_positions("Tidy", &[(a, Some(Pos::new(30, 30)))]);
+        assert_eq!(ed.undo_label(), Some("Tidy"));
+        ed.set_title(Some("T".into()));
+        assert_eq!(ed.undo_label(), Some("Change title"));
+        let p = ed.add_package("billing", None);
+        assert_eq!(ed.undo_label(), Some("Add package"));
+        ed.rename_package(p, "pay").unwrap();
+        assert_eq!(ed.undo_label(), Some("Rename package billing to pay"));
+        ed.delete_relations(&[r]);
+        assert_eq!(ed.undo_label(), Some("Delete composition"));
+        ed.delete(&[], &[p]);
+        assert_eq!(ed.undo_label(), Some("Delete package pay"));
+        ed.delete(&[a], &[]);
+        assert_eq!(ed.undo_label(), Some("Delete Invoice"));
+        ed.delete(&[b], &[]);
+        ed.undo();
+        ed.undo();
+        assert_eq!(ed.redo_label(), Some("Delete Invoice"));
+        assert_eq!(ed.undo_label(), Some("Delete package pay"));
+        ed.redo();
+        assert_eq!(ed.undo_label(), Some("Delete Invoice"));
+        assert_eq!(ed.redo_label(), Some("Delete N"));
+    }
+
+    #[test]
+    fn deleting_elements_and_other_relations_is_one_step() {
+        let mut ed = Editor::new(Document::new());
+        let a = ed.add_element(ElementKind::Class, "A", None, None);
+        let b = ed.add_element(ElementKind::Class, "B", None, None);
+        let c = ed.add_element(ElementKind::Class, "C", None, None);
+        let ab = ed.connect(a, b, RelationKind::Association);
+        let bc = ed.connect(b, c, RelationKind::Association);
+        let before = ed.doc.clone();
+        // C (with B--C) and the unrelated A--B go together.
+        ed.delete_items(&[c], &[], &[ab]);
+        assert!(ed.doc.relations.is_empty());
+        assert!(!ed.doc.elements.contains_key(&c));
+        assert_eq!(ed.undo_label(), Some("Delete 2 items"));
+        assert!(ed.undo());
+        assert_eq!(ed.doc, before);
+        assert!(ed.doc.relations.contains_key(&bc));
+        assert_eq!(ed.undo_label(), Some("Add association"));
     }
 
     #[test]
