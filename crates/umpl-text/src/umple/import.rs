@@ -1267,6 +1267,7 @@ impl<'a> Importer<'a> {
             doc: self.doc,
             problems: self.problems,
             has_layout: false,
+            spans: Vec::new(),
         }
     }
 

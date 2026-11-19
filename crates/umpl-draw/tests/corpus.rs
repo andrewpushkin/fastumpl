@@ -193,3 +193,39 @@ fn dump_generated() {
         std::fs::write(root().join(format!("target/flat-{n}-{seed}.umpl")), text).unwrap();
     }
 }
+
+/// The benchmark layout changes are judged on (design §6.8): 52 generated
+/// diagrams of 40 to 150 classes, with and without packages. Single
+/// diagrams swing too much with small changes; totals do not.
+///     cargo test --release -p umpl-draw --test corpus -- --ignored --nocapture benchmark
+#[test]
+#[ignore = "manual benchmark"]
+fn benchmark() {
+    let (mut crossings, mut score, mut wide) = (0, 0.0, 0);
+    let mut shapes = Vec::new();
+    let start = Instant::now();
+    for seed in 1..=26u64 {
+        let n = 40 + (seed as usize * 37) % 111;
+        for packages in [true, false] {
+            let doc = generated_with(seed, n, packages);
+            let d = Diagram::tidy(&doc, &Options::default());
+            let s = d.layout.stats;
+            assert_eq!(s.overlaps, 0);
+            crossings += s.crossings;
+            score += s.score();
+            let b = d.layout.bounds(&d.graph);
+            let shape = b.w as f64 / b.h.max(1) as f64;
+            wide += usize::from(!(1.0 / 3.0..=3.0).contains(&shape));
+            shapes.push(shape);
+        }
+    }
+    shapes.sort_by(f64::total_cmp);
+    println!(
+        "52 diagrams: {crossings} crossings, score {score:.0}, width:height median {:.2} \
+         (10% {:.2}, 90% {:.2}), {wide} beyond 3:1, {} s",
+        shapes[26],
+        shapes[5],
+        shapes[46],
+        start.elapsed().as_secs()
+    );
+}

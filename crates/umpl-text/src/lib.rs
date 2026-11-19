@@ -15,7 +15,7 @@ pub mod umple;
 use std::path::Path;
 
 pub use fs::write_atomic;
-pub use parser::{parse, Parsed, Problem, UNCLOSED};
+pub use parser::{parse, Item, Parsed, Problem, Span, UNCLOSED};
 pub use printer::{print, print_model};
 use umpl_core::Document;
 
@@ -77,6 +77,18 @@ pub fn read_as(format: Format, src: &str) -> Parsed {
         Format::PlantUml => plantuml::import(src),
         Format::Umple => umple::import(src),
         Format::Mermaid | Format::MermaidMarkdown => panic!("{format:?} cannot be read"),
+    }
+}
+
+/// Reads the file at `path` in `format`. PlantUML files have their
+/// `!include`s of other files read too, relative to the file.
+pub fn read_path(format: Format, path: &Path) -> std::io::Result<Parsed> {
+    match format {
+        Format::PlantUml => plantuml::import_path(path),
+        _ => {
+            let bytes = std::fs::read(path)?;
+            Ok(read_as(format, &String::from_utf8_lossy(&bytes)))
+        }
     }
 }
 

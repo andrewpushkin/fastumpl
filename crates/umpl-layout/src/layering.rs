@@ -91,16 +91,16 @@ fn push_down(succ: &[Vec<usize>], layer: &[usize], v: usize, to: usize) -> Vec<(
 /// Returns a layer (0 = top) for each of the `n` items.
 #[cfg(test)]
 pub(crate) fn assign_layers(n: usize, edges: &[FlatEdge], sizes: &[(i32, i32)]) -> Vec<usize> {
-    assign_layers_with(n, edges, sizes, 1.0)
+    assign_layers_with(n, edges, sizes, crate::place::Target::usual())
 }
 
-/// As [`assign_layers`], with layers allowed to grow `width` times as wide
+/// As [`assign_layers`], with layers allowed to grow `target.width` times as wide
 /// as usual before boxes are pushed down.
 pub(crate) fn assign_layers_with(
     n: usize,
     edges: &[FlatEdge],
     sizes: &[(i32, i32)],
-    width: f64,
+    target: crate::place::Target,
 ) -> Vec<usize> {
     if n == 0 {
         return Vec::new();
@@ -192,13 +192,21 @@ pub(crate) fn assign_layers_with(
         }
     }
 
-    // 4. Keep layers from growing much wider than a 16:10 drawing.
+    // 4. Keep layers from growing much wider than a drawing of the target
+    // shape (16:10 unless the view is another shape).
     let total: f64 = sizes
         .iter()
         .map(|&(w, h)| ((w + NODE_GAP) * (h + LAYER_GAP)) as f64)
         .sum();
     let widest = sizes.iter().map(|s| s.0).max().unwrap_or(0) as f64;
-    let target = widest.max((total * 1.6).sqrt() * 1.8 * width);
+    let fill = target.fill;
+    let target = widest.max((total * target.aspect).sqrt() * 1.8 * target.width);
+    // Moving a child costs more than moving a box without a parent: its
+    // inheritance line stretches and its row of siblings splits. At the
+    // top level, which should fill the view, children move as soon as a
+    // layer is too wide; inside a package, whose target comes from its own
+    // few boxes, only when a layer is twice too wide.
+    let child_limit = if fill { target } else { 2.0 * target };
     // Layers where nothing can move; skipped so other layers still balance.
     let mut stuck: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for _ in 0..n * 4 {
@@ -214,26 +222,34 @@ pub(crate) fn assign_layers_with(
         }) else {
             break;
         };
-        // Cheapest box to move one layer down. Rows of siblings stay
-        // together, so only boxes without a parent move: association-held
-        // boxes alone, roots together with everything below them.
-        let movable = (0..n)
-            .filter(|&v| layer[v] == k && pred[v].is_empty())
-            .map(|v| {
-                let moved = push_down(&succ, &layer, v, k + 1);
-                let mut after = layer.clone();
-                for &(u, l) in &moved {
-                    after[u] = l;
-                }
-                // Change in cost of every edge touching a moved box.
-                let mut c = 0.0;
-                for &(u, l) in &moved {
-                    c += cost(u, l, &after) - cost(u, layer[u], &layer);
-                }
-                // Moving a big subtree is a bigger change.
-                (c + 0.2 * moved.len() as f64, v, moved)
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        // Cheapest box to move one layer down. Boxes without a parent move
+        // first: association-held boxes alone, roots together with
+        // everything below them. Only when none can, children move too: a
+        // child need only be below its parent, not right below it, so a
+        // long row of siblings folds into several rows (width-bounded
+        // layering, as Coffman and Graham's) instead of one row as wide
+        // as all of them.
+        let pick = |roots: bool| {
+            (0..n)
+                .filter(|&v| layer[v] == k && pred[v].is_empty() == roots)
+                .map(|v| {
+                    let moved = push_down(&succ, &layer, v, k + 1);
+                    let mut after = layer.clone();
+                    for &(u, l) in &moved {
+                        after[u] = l;
+                    }
+                    // Change in cost of every edge touching a moved box.
+                    let mut c = 0.0;
+                    for &(u, l) in &moved {
+                        c += cost(u, l, &after) - cost(u, layer[u], &layer);
+                    }
+                    // Moving a big subtree is a bigger change.
+                    (c + 0.2 * moved.len() as f64, v, moved)
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+        };
+        let movable =
+            pick(true).or_else(|| (width[k] > child_limit).then(|| pick(false)).flatten());
         match movable {
             Some((_, _, moved)) => {
                 for (u, l) in moved {
@@ -291,11 +307,26 @@ mod tests {
     fn width_factor_sets_how_wide_layers_grow() {
         let edges: Vec<FlatEdge> = (1..30).map(|i| e(0, i, EdgeKind::Assoc)).collect();
         let count = |f: f64| {
-            let l = assign_layers_with(30, &edges, &[(14, 6); 30], f);
+            let t = crate::place::Target {
+                width: f,
+                ..crate::place::Target::usual()
+            };
+            let l = assign_layers_with(30, &edges, &[(14, 6); 30], t);
             l.iter().max().unwrap() + 1
         };
         assert!(count(0.5) > count(1.0), "{} {}", count(0.5), count(1.0));
         assert!(count(1.0) > count(2.0), "{} {}", count(1.0), count(2.0));
+    }
+
+    /// Sixty children of one parent fold into rows instead of one row.
+    #[test]
+    fn many_siblings_fold_into_rows() {
+        let edges: Vec<FlatEdge> = (1..61).map(|i| e(i, 0, EdgeKind::Hierarchy)).collect();
+        let l = assign_layers(61, &edges, &[(14, 6); 61]);
+        assert_eq!(l[0], 0);
+        assert!(l[1..].iter().all(|&x| x >= 1), "children below the parent");
+        let rows = *l.iter().max().unwrap();
+        assert!(rows >= 3, "{rows} rows of children");
     }
 
     #[test]

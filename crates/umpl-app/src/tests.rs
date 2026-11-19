@@ -292,7 +292,7 @@ fn save_writes_file_that_reopens() {
     };
     assert!(ok.is_ok());
     assert!(!h.state().session.as_ref().unwrap().is_dirty());
-    let reopened = crate::session::Session::open(&path).unwrap();
+    let reopened = crate::session::Session::open(&path, umpl_layout::DEFAULT_ASPECT).unwrap();
     assert_eq!(reopened.editor.doc.elements.len(), 2);
     assert_eq!(reopened.editor.doc.relations.len(), 1);
     assert!(!reopened.is_dirty());
@@ -301,7 +301,10 @@ fn save_writes_file_that_reopens() {
 
 #[test]
 fn opening_file_without_layout_places_everything_without_dirtying() {
-    let s = crate::session::Session::from_text("class A\nclass B\nB --|> A\n");
+    let s = crate::session::Session::from_text(
+        "class A\nclass B\nB --|> A\n",
+        umpl_layout::DEFAULT_ASPECT,
+    );
     assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
     assert!(!s.is_dirty());
     assert!(!s.editor.can_undo());
@@ -311,7 +314,7 @@ fn opening_file_without_layout_places_everything_without_dirtying() {
 fn detects_file_changed_on_disk() {
     let path = std::env::temp_dir().join(format!("fastumpl-disk-{}.umpl", std::process::id()));
     std::fs::write(&path, "class A\n").unwrap();
-    let mut s = crate::session::Session::open(&path).unwrap();
+    let mut s = crate::session::Session::open(&path, umpl_layout::DEFAULT_ASPECT).unwrap();
     assert!(!s.changed_on_disk());
     // File systems may store modification times in whole seconds.
     std::thread::sleep(Duration::from_millis(1100));
@@ -331,7 +334,8 @@ fn opening_plantuml_imports_an_unsaved_untitled_diagram() {
     std::fs::write(&path, src).unwrap();
 
     let mut h = new_app();
-    h.state_mut().open_path(&path);
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
     h.run_steps(3);
     let app = h.state();
     let s = app.session.as_ref().unwrap();
@@ -360,7 +364,8 @@ fn opening_umple_imports_an_unsaved_untitled_diagram() {
     std::fs::write(&path, src).unwrap();
 
     let mut h = new_app();
-    h.state_mut().open_path(&path);
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
     h.run_steps(3);
     let app = h.state();
     let s = app.session.as_ref().unwrap();
@@ -815,4 +820,312 @@ fn every_export_is_under_file_export() {
             "{label} not in the submenu"
         );
     }
+}
+
+// ----- text and drawing linked -------------------------------------------------
+
+/// Puts the text cursor at the start of `line` (1-based) in the focused
+/// text panel.
+fn cursor_to_line(h: &mut Harness<'static, App>, line: usize) {
+    use egui::text::{CCursor, CCursorRange};
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(1);
+    let c = crate::link::line_start_char(&source_text(h), line);
+    let mut state = egui::TextEdit::load_state(&h.ctx, id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(CCursorRange::one(CCursor::new(c))));
+    egui::TextEdit::store_state(&h.ctx, id, state);
+    h.run_steps(2);
+}
+
+fn text_cursor(h: &Harness<'static, App>) -> Option<usize> {
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    egui::TextEdit::load_state(&h.ctx, id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| r.primary.index)
+}
+
+fn linked_app() -> (Harness<'static, App>, ElementId, ElementId) {
+    let mut h = app_with_text();
+    let a = add(&mut h, "Order", 2, 2);
+    let b = add(&mut h, "Customer", 30, 2);
+    let s = h.state_mut().session.as_mut().unwrap();
+    let mut el = s.editor.doc.elements[&a].clone();
+    el.members = vec![umpl_core::Member::parse_line("+id: int")];
+    s.editor.set_element(a, el);
+    s.editor.connect(a, b, RelationKind::Directed);
+    h.run_steps(3);
+    assert_eq!(
+        source_text(&h),
+        "class Order {\n  +id: int\n}\n\nclass Customer\n\nOrder --> Customer\n"
+    );
+    (h, a, b)
+}
+
+#[test]
+fn clicking_a_box_marks_its_lines_and_puts_the_cursor_there() {
+    let (mut h, _, b) = linked_app();
+    let at = screen(&h, rect_of(&h, b).center());
+    click(&mut h, at);
+    assert_eq!(h.state().sel.elements, vec![b]);
+    assert_eq!(h.state().source.highlight, vec![(5, 5)]);
+    let start = crate::link::line_start_char(&source_text(&h), 5);
+    assert_eq!(text_cursor(&h), Some(start));
+    // The keyboard stays with the canvas: Delete deletes the box.
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    assert!(!h.ctx.memory(|m| m.has_focus(id)));
+
+    // A box with members: its whole block is marked.
+    let a = doc_of(&h).find("Order").unwrap();
+    let at = screen(&h, rect_of(&h, a).center());
+    click(&mut h, at);
+    assert_eq!(h.state().source.highlight, vec![(1, 3)]);
+    // Empty canvas: nothing marked.
+    let empty = h.state().canvas.rect.right_bottom() - Vec2::new(60.0, 60.0);
+    click(&mut h, empty);
+    assert!(h.state().sel.is_empty());
+    assert!(h.state().source.highlight.is_empty());
+}
+
+#[test]
+fn moving_the_text_cursor_selects_what_is_declared_there() {
+    let (mut h, a, b) = linked_app();
+    cursor_to_line(&mut h, 2);
+    assert_eq!(h.state().sel.elements, vec![a]);
+    assert_eq!(h.state().source.highlight, vec![(1, 3)]);
+    cursor_to_line(&mut h, 5);
+    assert_eq!(h.state().sel.elements, vec![b]);
+    cursor_to_line(&mut h, 7);
+    let r = *doc_of(&h).relations.keys().next().unwrap();
+    assert_eq!(h.state().sel.relations, vec![r]);
+    assert!(h.state().sel.elements.is_empty());
+    // A blank line leaves the selection as it was.
+    cursor_to_line(&mut h, 6);
+    assert_eq!(h.state().sel.relations, vec![r]);
+    // The panel keeps the keyboard while the cursor moves.
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    assert!(h.ctx.memory(|m| m.has_focus(id)));
+}
+
+#[test]
+fn the_text_cursor_brings_its_box_into_view() {
+    let (mut h, _, b) = linked_app();
+    // Pan far away so Customer is off screen.
+    h.state_mut().camera.pan(Vec2::new(-5000.0, 0.0));
+    h.run_steps(2);
+    let view = h.state().canvas.rect;
+    assert!(!view.contains(screen(&h, rect_of(&h, b).center())));
+    cursor_to_line(&mut h, 5);
+    let c = screen(&h, rect_of(&h, b).center());
+    assert!(view.contains(c), "{c:?} not in {view:?}");
+}
+
+#[test]
+fn text_can_be_copied_cut_and_pasted() {
+    let (mut h, _, _) = linked_app();
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Copy);
+    h.run_steps(1);
+    let copied = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("nothing copied");
+    assert_eq!(copied, source_text(&h));
+    // Select-all in the text selects text, not boxes.
+    assert!(h.state().sel.elements.len() <= 1);
+
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Cut);
+    h.run_steps(2);
+    assert_eq!(source_text(&h), "");
+    h.event(Event::Paste("class Pasted\n".into()));
+    h.run_steps(2);
+    h.event(Event::Paste(copied.clone()));
+    settle(&mut h);
+    assert_eq!(source_text(&h), format!("class Pasted\n{copied}"));
+    let doc = doc_of(&h);
+    assert!(doc.find("Pasted").is_some() && doc.find("Order").is_some());
+    assert_eq!(doc.relations.len(), 1);
+}
+
+// ----- find --------------------------------------------------------------------
+
+#[test]
+fn find_steps_through_matches_and_marks_them() {
+    let (mut h, a, b) = linked_app();
+    h.key_press_modifiers(Modifiers::COMMAND, Key::F);
+    h.run_steps(2);
+    assert!(h.state().find.open);
+    let field = egui::Id::new(crate::find::FIELD_ID);
+    assert!(
+        h.ctx.memory(|m| m.has_focus(field)),
+        "the field takes the keyboard"
+    );
+    // "o" is in Order, Customer and the relation's ends: the first match is
+    // selected and its declaration marked in the text.
+    h.event(Event::Text("o".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().find.matches.len(), 2, "Order and Customer");
+    assert_eq!(h.state().sel.elements, vec![a]);
+    assert_eq!(h.state().source.highlight, vec![(1, 3)]);
+    // Every occurrence in the text is found.
+    let ranges = h.state().find_text_ranges();
+    assert_eq!(
+        ranges.len(),
+        source_text(&h).to_lowercase().matches('o').count()
+    );
+    // Enter steps on, wrapping round; the field keeps the keyboard.
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().sel.elements, vec![b]);
+    assert!(h.ctx.memory(|m| m.has_focus(field)));
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().sel.elements, vec![a]);
+    h.key_press_modifiers(Modifiers::SHIFT, Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().sel.elements, vec![b]);
+    // A narrower query.
+    h.event(Event::Text("rder".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().find.matches.len(), 1);
+    assert_eq!(h.state().sel.elements, vec![a]);
+    // Esc closes the bar.
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().find.open);
+    assert!(h.state().find_text_ranges().is_empty());
+}
+
+#[test]
+fn find_says_when_nothing_matches() {
+    let (mut h, _, _) = linked_app();
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::Find);
+    h.run_steps(2);
+    h.event(Event::Text("zzz".into()));
+    h.run_steps(2);
+    assert!(h.state().find.matches.is_empty());
+    assert!(h.query_by_label("No matches").is_some());
+    assert!(Cmd::all().contains(&Cmd::Find));
+}
+
+// ----- big diagrams --------------------------------------------------------------
+
+#[test]
+fn a_big_diagram_opens_at_once_and_is_laid_out_in_the_background() {
+    let mut h = new_app();
+    let n = crate::session::DEFER_ABOVE + 50;
+    let mut text = String::new();
+    for i in 0..n {
+        text.push_str(&format!("class C{i}\n"));
+    }
+    for i in 1..n {
+        text.push_str(&format!("C{i} --> C{}\n", (i * 7) % i));
+    }
+    let dir = std::env::temp_dir().join(format!("fastumpl-big-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("big.umpl");
+    std::fs::write(&path, &text).unwrap();
+    let ctx = h.ctx.clone();
+    let started = Instant::now();
+    h.state_mut().open_path(&ctx, &path);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "open waited for the layout"
+    );
+    assert!(h.state().tidy.as_ref().is_some_and(|t| t.initial));
+    // The window keeps running meanwhile.
+    h.run_steps(2);
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while h.state().tidy.is_some() && Instant::now() < deadline {
+        h.run_steps(5);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    h.run_steps(3);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
+    assert!(!s.is_dirty(), "the first layout is not a change");
+    assert!(!s.editor.can_undo(), "nor an undo step");
+    assert_eq!(h.state().view.diagram.mapping.nodes.len(), n);
+    // Fitted to fill the canvas.
+    let canvas = h.state().canvas.rect;
+    let bounds = h
+        .state()
+        .view
+        .diagram
+        .layout
+        .bounds(&h.state().view.diagram.graph);
+    let shown = h.state().camera.rect_to_screen(RectF::new(
+        bounds.x as f32 * GRID,
+        bounds.y as f32 * GRID,
+        bounds.w as f32 * GRID,
+        bounds.h as f32 * GRID,
+    ));
+    assert!(
+        canvas.expand(1.0).contains_rect(shown),
+        "{shown:?} in {canvas:?}"
+    );
+    let fill = (shown.width() / canvas.width()).max(shown.height() / canvas.height());
+    assert!(fill > 0.9, "fills {fill:.2} of the canvas");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn opening_a_sequence_diagram_says_what_it_is() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-seq-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("flow.puml");
+    std::fs::write(
+        &path,
+        "@startuml\nAlice -> Bob : hello\nactivate Bob\n@enduml\n",
+    )
+    .unwrap();
+    let mut h = new_app();
+    add(&mut h, "Kept", 0, 0);
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
+    h.run_steps(3);
+    match &h.state().dialog {
+        Some(crate::app::Dialog::Message(_, m)) => {
+            assert!(m.contains("This is a sequence diagram"), "{m}")
+        }
+        _ => panic!("no message"),
+    }
+    // The open diagram stays.
+    assert!(doc_of(&h).find("Kept").is_some());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn plantuml_includes_next_to_the_file_are_read() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-inc-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("common")).unwrap();
+    std::fs::write(dir.join("common/base.iuml"), "abstract class Base\n").unwrap();
+    let path = dir.join("model.puml");
+    std::fs::write(
+        &path,
+        "@startuml\n!include common\\base.iuml\nclass Order\nOrder --|> Base\n@enduml\n",
+    )
+    .unwrap();
+    let mut h = new_app();
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
+    h.run_steps(3);
+    let doc = doc_of(&h);
+    let base = doc.find("Base").expect("Base from the include");
+    assert_eq!(doc.elements[&base].kind, ElementKind::Abstract);
+    assert_eq!(h.state().session.as_ref().unwrap().problems, vec![]);
+    let _ = std::fs::remove_dir_all(dir);
 }

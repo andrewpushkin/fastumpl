@@ -8,10 +8,11 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 - **Few crossings.** Crossings are removed at several stages, from box order to line routing, and several candidate layouts compete. The status bar shows the crossing count.
 - **Lines follow you.** Drag a class and its lines re-route as you move.
 - **Type, don't click.** Double-click a class and type its members: `+total(): Money`.
-- **Text and drawing side by side.** The text panel shows the diagram as `.umpl` text. Edit either one and the other follows as you work: type a class or a relation and it appears, laid out; drag, rename or delete on the canvas and the text updates. Show or hide the text with View → Text or Ctrl+B; it starts hidden.
+- **Text and drawing side by side.** The text panel shows the diagram as `.umpl` text. Edit either one and the other follows as you work: type a class or a relation and it appears, laid out; drag, rename or delete on the canvas and the text updates. Click a box and its lines in the text light up; put the cursor in a line and its box is selected. Show or hide the text with View → Text or Ctrl+B; it starts hidden.
+- **Find.** Ctrl+F finds classes, members, relations and packages; matches are outlined in the drawing and marked in the text, and Enter steps through them.
 - **Plain text files.** Diagrams are `.umpl` text files that diff well. The model sits at the top and positions at the bottom.
 - **Command line too.** `umpl` renders SVG and PNG, formats and checks files.
-- **PlantUML and Mermaid.** Open `.puml` files directly; export to PlantUML or Mermaid, or copy Mermaid to paste into a GitHub README or issue.
+- **PlantUML and Mermaid.** Open `.puml` files directly, `!include`s and macros included, and big ones too: they open at once and are laid out to fill the window. Export to PlantUML or Mermaid, or copy Mermaid to paste into a GitHub README or issue.
 - **Umple.** Open the class model of an [Umple](https://umple.org) `.ump` file and see it laid out; export a diagram as Umple for the Umple compiler to generate code from.
 
 ## Download
@@ -79,6 +80,8 @@ The panel on the left shows the model part of the file (everything above `layout
 - **Text to drawing.** A quarter of a second after you stop typing, the text is read again and the diagram updated. A class you rename keeps its place and its selection; a new class is placed in a free spot; a class whose line you delete and retype gets its place back. While a `{` is still open the diagram waits (the panel says so), so a half-typed class body does not swallow the classes below it. Lines that are not understood get a red background and are listed under the text.
 - **Drawing to text.** Changes on the canvas, in the inspector, and undo or redo rewrite the text. Moving boxes does not, since positions are not shown; a `layout` block typed into the panel is still applied.
 - **Undo.** Typing is one undo step until you pause for two seconds or leave the panel. Inside the panel Ctrl+Z undoes typing; outside it, the step ("Undo Edit text").
+- **Linked both ways.** Click a box, line or package and the lines that declare it get a blue background, scroll into view and get the text cursor; the keyboard stays with the drawing, so Delete still deletes the box. Move the cursor into a declaration (click, arrow keys) and that item is selected in the drawing and brought into view. A blank or comment line leaves the selection as it is.
+- **Editing.** The panel is an ordinary text editor: select, cut, copy and paste (Ctrl+X, Ctrl+C, Ctrl+V) with other programs, select all with Ctrl+A, undo typing with Ctrl+Z.
 
 ## Command line
 
@@ -99,6 +102,9 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 ## PlantUML and Mermaid
 
 - **Import.** Open a PlantUML class diagram (File → Open, drag and drop, or `fastumpl model.puml`). It opens as a new, unsaved diagram and is laid out at once; Save writes a `.umpl` file and leaves the PlantUML file alone. Styling commands such as `skinparam` and `hide` are skipped and listed under Problems.
+- **Includes and macros.** `!include`, `!include_once`, `!include_many` and `!includesub` of other files are followed, relative to the including file (`\` works as a folder separator too). PlantUML's preprocessor is read as far as class diagrams use it: `!define` and `!definelong` macros, `!$variables`, `!procedure` and `!function`, and `!if`/`!ifdef`/`!else`/`!endif`. Includes from the web (`!includeurl`, `https://…`) and from PlantUML's standard library (`<C4/…>`) are not fetched; each is listed under Problems.
+- **What is read.** Class and object diagrams; entity-relationship lines with crow's feet (`User ||--o{ Order` gets multiplicities `1` and `0..*`); namespaces written `a.b.C` or `a::b::C`; links (`[[url]]`) and line styles (`#red;line.dashed`) are dropped. Component, deployment and use case diagrams are read as boxes with their kind as stereotype: `node`, `rectangle`, `folder`, `cloud`, `database` and the like with a body become packages, `[Component]`, `(Use case)` and `:Actor:` become boxes. Calls of library procedures whose library could not be read, such as C4's `Person(…)`, `Container(…)` and `Rel(…)`, become boxes and lines. Sequence, activity, state, timing, mind map, Gantt and other diagrams are not class diagrams: opening one says which kind it is.
+- **Big diagrams.** A diagram of more than 150 classes or 300 relations opens at once and is laid out in the background (the status bar says so; Esc keeps the first layout found). The layout fills the window: loose parts are arranged to the shape of the canvas rather than in one long row, and the view zooms to fit. Drawings too large to route (over 12 million grid points, such as a 5000-class model) get draft lines that do not go around boxes.
 - **Export.** File → Export → PlantUML… and Mermaid… (`.mmd`, or `.md` for a ready-made ```` ```mermaid ```` block). **Copy as Mermaid** puts the diagram on the clipboard for pasting into Markdown on GitHub, GitLab, Notion or Obsidian.
 - Both formats lay diagrams out themselves, so positions are not exported.
 
@@ -117,8 +123,9 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | Drag from a dot on a box edge | Connect (pick the relation kind) |
 | V C A I E N P R | Tools: select, class, abstract, interface, enum, note, package, relation (also the icons on the left) |
 | Ctrl+T | Tidy |
-| F | Fit diagram in window |
+| F | Fit diagram in window (zooms in up to 200 % for a small diagram) |
 | Ctrl+K | Command palette |
+| Ctrl+F, then Enter / Shift+Enter (or F3 / Shift+F3) | Find, next and previous match; Esc closes |
 | Ctrl+B | Show or hide the text panel (also View → Text) |
 | Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo; also the ⟲ ⟳ buttons, and the Edit menu names the step ("Undo Move Order") |
 | Right- or middle-drag, scroll, the scroll bars | Pan |
@@ -161,6 +168,16 @@ scripts/dev.sh cargo run -p umpl-app -- examples/library.umpl
 | `umpl-app` | The editor (egui) |
 
 The design is in [docs/design.md](docs/design.md). Layout quality is guarded by a corpus test (`tests/corpus/scores.txt`): a change that adds crossings or worsens the score fails the build.
+
+PlantUML import is checked against real files. The dev image holds three sample repositories in `/opt/puml-samples` (spiegel-im-spiegel/plantuml-sample, okunev-e/plantuml_examples, plantuml-stdlib/Azure-PlantUML, each pinned to a commit), and `scripts/puml-corpus.py` builds a corpus of about 8000 PlantUML files over 5 KB from public GitHub repositories, with what they include; [tests/puml-corpus/manifest.tsv](tests/puml-corpus/manifest.tsv) lists each file with its repository and commit, so the same corpus can be downloaded again:
+
+```
+python3 scripts/puml-corpus.py fetch            # download into target/puml-corpus
+PUML_CORPUS=/opt/puml-samples:target/puml-corpus scripts/dev.sh \
+    cargo test --release -p umpl-draw --test puml_corpus -- --ignored --nocapture
+```
+
+The test opens every file as the editor does, lays it out, fails on a panic, an overlap or a file that takes over a minute, and reports problems by kind, the shape of the drawings and the slowest files (`PUML_CORPUS_LAYOUT=0` imports only, `=4` lays out every fourth file).
 
 Releases: every push to `main` builds all packages (with the `make` targets above, plus the `.dmg` on macOS) and publishes release `v0.1.N`, where N is the number of commits on `main`. CI runs only on `main`; pull requests do not trigger it. The website in `site/` is published to GitHub Pages from `main` (set Pages to "GitHub Actions" once in the repository settings).
 

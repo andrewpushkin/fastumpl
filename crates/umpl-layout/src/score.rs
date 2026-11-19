@@ -16,6 +16,9 @@ pub struct Stats {
     pub shared_lanes: usize,
     /// Area of the bounding box, in square grid units.
     pub area: i64,
+    /// The drawing was too big to route: lines are drafts that do not go
+    /// around boxes.
+    pub draft: bool,
 }
 
 impl Stats {
@@ -180,6 +183,7 @@ pub fn measure(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]) -> Stats {
         overlaps,
         shared_lanes: shared_lanes(graph, routes),
         area,
+        draft: false,
     }
 }
 

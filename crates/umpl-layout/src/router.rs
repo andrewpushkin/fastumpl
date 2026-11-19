@@ -47,6 +47,36 @@ const WIDE_BUDGET: usize = 30_000;
 /// Diagrams with up to this many lines get the wider look without limit.
 const WIDE_UNLIMITED: usize = 200;
 
+/// Routing grows with the area of the drawing; in large ones each search
+/// is bounded. Above this many lines a diagram routes one candidate only;
+/// above this many grid points its searches are bounded.
+pub(crate) const LARGE_EDGES: usize = 300;
+pub(crate) const LARGE_CELLS: usize = 3_000_000;
+/// In a large diagram the search estimate is inflated this many times
+/// (weighted A*): routes may be a little longer than the cheapest, but a
+/// search no longer floods its window hunting a crossing-free detour that
+/// a dense drawing does not have.
+const LARGE_WEIGHT: u32 = 3;
+/// States one search may visit in a large diagram: inside the window, and
+/// over the whole grid when the window has no way through.
+const LARGE_BUDGET: usize = 40_000;
+const LARGE_FULL_BUDGET: usize = 100_000;
+/// States the exact searches of one routing may visit in all, a few
+/// seconds of work. Searches in a sparse drawing stay far below this (a
+/// 972-class diagram routes in about a second); in a dense one, where most
+/// lines must cross something, each search floods its window looking for a
+/// detour that is not there. Once a routing has spent this, its remaining
+/// searches are bounded as in a large drawing.
+const EXACT_TOTAL: usize = 100_000_000;
+/// The final polish only routes again the lines that cross: a quarter.
+const POLISH_TOTAL: usize = EXACT_TOTAL / 4;
+/// Beyond this many grid points (about a gigabyte of search tables) lines
+/// are drawn as drafts, without going around boxes.
+pub const DRAFT_CELLS: usize = 12_000_000;
+/// Bytes of tables one router keeps per grid point (owners, occupancy,
+/// search state), to bound how many route at once.
+pub(crate) const BYTES_PER_CELL: usize = 90;
+
 const NONE: u32 = u32::MAX;
 const MULTI: u32 = u32::MAX - 1;
 
@@ -384,6 +414,10 @@ struct Router<'a> {
     /// crossing. Thorough but slower; off while comparing candidates and
     /// while dragging.
     wide: bool,
+    /// A large diagram: searches are bounded (see [`LARGE_EDGES`]).
+    large: bool,
+    /// States visited by every search so far (see [`EXACT_TOTAL`]).
+    visited: usize,
 }
 
 fn rect_distance(r: &Rect, p: (i32, i32)) -> i32 {
@@ -396,6 +430,7 @@ impl<'a> Router<'a> {
     fn new(graph: &'a Graph, nodes: &[(i32, i32)], wide: bool) -> Router<'a> {
         let grid = Grid::new(graph, nodes);
         let n = grid.owner.len();
+        let large = n > LARGE_CELLS;
         let mut dense: HashMap<u32, u32> = HashMap::new();
         let bundle = (0..graph.edges.len())
             .map(|e| {
@@ -408,7 +443,9 @@ impl<'a> Router<'a> {
             grid,
             search: Search::new(n),
             bundle,
-            wide,
+            wide: wide && !large,
+            large,
+            visited: 0,
         }
     }
 
@@ -424,26 +461,32 @@ impl<'a> Router<'a> {
             }
         }
         let window = src.union(&dst).expand(WINDOW);
-        if let Some((r, cost)) = self.astar(e, occ, Some(window), u32::MAX, usize::MAX) {
+        let bounded = self.large || self.visited > EXACT_TOTAL;
+        let (weight, budget, full_budget) = if bounded {
+            (LARGE_WEIGHT, LARGE_BUDGET, LARGE_FULL_BUDGET)
+        } else {
+            (1, usize::MAX, usize::MAX)
+        };
+        if let Some((r, cost)) = self.astar(e, occ, Some(window), u32::MAX, budget, weight) {
             // The window may hide a detour that avoids the crossing. Only a
             // route cheaper than this one is of use, which bounds the search.
-            if self.wide && self.crosses(&r, occ, self.bundle[e]) {
+            if self.wide && !bounded && self.crosses(&r, occ, self.bundle[e]) {
                 let wide = src.union(&dst).expand(WIDE_WINDOW);
                 let budget = if self.graph.edges.len() <= WIDE_UNLIMITED {
                     usize::MAX
                 } else {
                     WIDE_BUDGET
                 };
-                if let Some((w, _)) = self.astar(e, occ, Some(wide), cost, budget) {
+                if let Some((w, _)) = self.astar(e, occ, Some(wide), cost, budget, 1) {
                     return w;
                 }
             }
             return r;
         }
-        if let Some((r, _)) = self.astar(e, occ, None, u32::MAX, usize::MAX) {
+        if let Some((r, _)) = self.astar(e, occ, None, u32::MAX, full_budget, weight) {
             return r;
         }
-        fallback(&src, &dst)
+        draft_route(&src, &dst)
     }
 
     /// Does `route` cross a line of another bundle?
@@ -542,6 +585,7 @@ impl<'a> Router<'a> {
         window: Option<Rect>,
         bound: u32,
         budget: usize,
+        weight: u32,
     ) -> Option<(Route, u32)> {
         let graph = self.graph;
         let edge = &graph.edges[e];
@@ -560,7 +604,7 @@ impl<'a> Router<'a> {
         } else {
             STEP
         };
-        let h = |p: (i32, i32)| rect_distance(&dst, p) as u32 * unit;
+        let h = |p: (i32, i32)| rect_distance(&dst, p) as u32 * unit * weight;
 
         for &side in src_sides {
             let d = side.outward();
@@ -665,6 +709,7 @@ impl<'a> Router<'a> {
                 }
             }
         }
+        self.visited += visited;
 
         let mut state = goal?;
         let cost = s.g[state];
@@ -706,6 +751,72 @@ fn fallback(src: &Rect, dst: &Rect) -> Route {
     };
     r.simplify();
     r
+}
+
+/// A line drawn without searching: straight between boxes that face each
+/// other, otherwise one bend. It leaves and meets box edges at right
+/// angles but does not go around other boxes.
+fn draft_route(src: &Rect, dst: &Rect) -> Route {
+    let (sc, dc) = (src.center(), dst.center());
+    let ox = (src.x.max(dst.x), src.right().min(dst.right()));
+    let oy = (src.y.max(dst.y), src.bottom().min(dst.bottom()));
+    let points = if ox.0 < ox.1 && (src.bottom() <= dst.y || dst.bottom() <= src.y) {
+        let x = (ox.0 + ox.1) / 2;
+        if src.bottom() <= dst.y {
+            vec![(x, src.bottom()), (x, dst.y)]
+        } else {
+            vec![(x, src.y), (x, dst.bottom())]
+        }
+    } else if oy.0 < oy.1 && (src.right() <= dst.x || dst.right() <= src.x) {
+        let y = (oy.0 + oy.1) / 2;
+        if src.right() <= dst.x {
+            vec![(src.right(), y), (dst.x, y)]
+        } else {
+            vec![(src.x, y), (dst.right(), y)]
+        }
+    } else if dc.1 < src.y || dc.1 > src.bottom() {
+        let sy = if dc.1 > sc.1 { src.bottom() } else { src.y };
+        let ex = if sc.0 < dc.0 { dst.x } else { dst.right() };
+        vec![(sc.0, sy), (sc.0, dc.1), (ex, dc.1)]
+    } else {
+        return fallback(src, dst);
+    };
+    Route { points }
+}
+
+/// Grid points routing `nodes` would take, without allocating the grid.
+pub(crate) fn grid_cells(graph: &Graph, nodes: &[(i32, i32)]) -> usize {
+    let mut b: Option<Rect> = None;
+    for (n, p) in graph.nodes.iter().zip(nodes) {
+        let r = Rect::new(p.0, p.1, n.w, n.h);
+        b = Some(b.map_or(r, |b| b.union(&r)));
+    }
+    for g in group_rects(graph, nodes) {
+        b = Some(b.map_or(g, |b| b.union(&g)));
+    }
+    b.map_or(0, |b| {
+        let b = b.expand(MARGIN);
+        (b.w as usize + 1) * (b.h as usize + 1)
+    })
+}
+
+/// Draft routes for every edge (a drawing too big to route).
+fn draft_all(graph: &Graph, nodes: &[(i32, i32)]) -> Vec<Route> {
+    let rect = |n: usize| Rect::new(nodes[n].0, nodes[n].1, graph.nodes[n].w, graph.nodes[n].h);
+    let mut loops: HashMap<usize, i32> = HashMap::new();
+    graph
+        .edges
+        .iter()
+        .map(|e| {
+            if e.from == e.to {
+                let k = loops.entry(e.from).or_insert(0);
+                *k += 1;
+                self_loop(&rect(e.from), *k - 1)
+            } else {
+                draft_route(&rect(e.from), &rect(e.to))
+            }
+        })
+        .collect()
 }
 
 fn routing_order(graph: &Graph, nodes: &[(i32, i32)], edges: &[usize]) -> Vec<usize> {
@@ -822,6 +933,9 @@ pub(crate) fn route_all_with(graph: &Graph, nodes: &[(i32, i32)], wide: bool) ->
     if graph.edges.is_empty() {
         return routes;
     }
+    if grid_cells(graph, nodes) > DRAFT_CELLS {
+        return draft_all(graph, nodes);
+    }
     // First routes are quick; the wide search is spent on lines that still
     // cross when they are ripped up and routed again.
     let mut router = Router::new(graph, nodes, false);
@@ -842,10 +956,12 @@ pub(crate) fn route_all_with(graph: &Graph, nodes: &[(i32, i32)], wide: bool) ->
 /// Routes again, with the wide search, the lines of `routes` that cross
 /// another line, keeping every new route only where it crosses less.
 pub(crate) fn polish(graph: &Graph, nodes: &[(i32, i32)], routes: &mut [Route]) {
-    if graph.edges.is_empty() {
+    // A large drawing had its one bounded pass already.
+    if graph.edges.is_empty() || grid_cells(graph, nodes) > LARGE_CELLS {
         return;
     }
     let mut router = Router::new(graph, nodes, true);
+    router.visited = EXACT_TOTAL - POLISH_TOTAL;
     let all: Vec<usize> = (0..graph.edges.len()).collect();
     let passes = if graph.edges.len() <= 100 { 3 } else { 1 };
     improve(&mut router, routes, &all, passes);
@@ -894,6 +1010,13 @@ pub fn reroute(graph: &Graph, nodes: &[(i32, i32)], routes: &mut Vec<Route>, mov
         })
         .collect();
     if dirty.is_empty() {
+        return;
+    }
+    if grid_cells(graph, nodes) > DRAFT_CELLS {
+        let all = draft_all(graph, nodes);
+        for &e in &dirty {
+            routes[e] = all[e].clone();
+        }
         return;
     }
     let mut router = Router::new(graph, nodes, false);

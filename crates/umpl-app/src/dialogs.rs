@@ -49,7 +49,7 @@ impl App {
                             keep = false;
                             if let Some(p) = self.session.as_ref().and_then(|s| s.path.clone()) {
                                 self.clear_recovery();
-                                self.open_path(&p);
+                                self.open_path(ui.ctx(), &p);
                             }
                         }
                         if ui.button("Keep my version").clicked() {

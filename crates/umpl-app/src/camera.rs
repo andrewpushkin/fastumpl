@@ -1,8 +1,12 @@
 use egui::{Pos2, Rect, Vec2};
 use umpl_draw::RectF;
 
-pub const MIN_ZOOM: f32 = 0.1;
+pub const MIN_ZOOM: f32 = 0.05;
 pub const MAX_ZOOM: f32 = 4.0;
+/// Fitting a small diagram zooms in at most this far.
+pub const FIT_MAX_ZOOM: f32 = 2.0;
+/// Space kept free around a fitted diagram, in screen points.
+const FIT_MARGIN: f32 = 16.0;
 
 /// Maps diagram pixels ("world") to screen points.
 #[derive(Clone, Copy, Debug)]
@@ -61,7 +65,8 @@ impl Camera {
         self.origin += delta;
     }
 
-    /// Shows all of `bounds` inside `view`, at most at 100 %.
+    /// Shows all of `bounds` filling `view`, zoomed in to at most
+    /// [`FIT_MAX_ZOOM`].
     pub fn fit(&mut self, bounds: RectF, view: Rect) {
         if bounds.w <= 0.0 || bounds.h <= 0.0 {
             *self = Camera {
@@ -70,9 +75,9 @@ impl Camera {
             };
             return;
         }
-        let zx = (view.width() - 40.0) / bounds.w;
-        let zy = (view.height() - 40.0) / bounds.h;
-        self.zoom = zx.min(zy).clamp(MIN_ZOOM, 1.0);
+        let zx = (view.width() - 2.0 * FIT_MARGIN) / bounds.w;
+        let zy = (view.height() - 2.0 * FIT_MARGIN) / bounds.h;
+        self.zoom = zx.min(zy).clamp(MIN_ZOOM, FIT_MAX_ZOOM);
         let center = view.center();
         self.origin = Pos2::new(
             center.x - (bounds.x + bounds.w / 2.0) * self.zoom,
@@ -84,6 +89,25 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fit_fills_the_view() {
+        let view = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(800.0, 600.0));
+        let mut c = Camera::default();
+        // Wider than the view: it fills the width.
+        c.fit(RectF::new(0.0, 0.0, 1536.0, 400.0), view);
+        let r = c.rect_to_screen(RectF::new(0.0, 0.0, 1536.0, 400.0));
+        assert!(
+            (r.width() - (800.0 - 2.0 * FIT_MARGIN)).abs() < 0.5,
+            "{r:?}"
+        );
+        assert!((r.center() - view.center()).length() < 0.5);
+        // Small: zoomed in, but not past the cap.
+        c.fit(RectF::new(0.0, 0.0, 300.0, 200.0), view);
+        assert!(c.zoom > 1.0 && c.zoom <= FIT_MAX_ZOOM, "{}", c.zoom);
+        c.fit(RectF::new(0.0, 0.0, 30.0, 20.0), view);
+        assert_eq!(c.zoom, FIT_MAX_ZOOM);
+    }
 
     #[test]
     fn zoom_keeps_anchor() {

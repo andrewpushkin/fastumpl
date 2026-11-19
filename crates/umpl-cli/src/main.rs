@@ -7,7 +7,7 @@ use std::time::Instant;
 use umpl_core::Editor;
 use umpl_draw::{build_scene, svg::to_svg, Diagram, SceneOptions, Theme};
 use umpl_layout::Options;
-use umpl_text::{parse, print, read_as, write_as, write_atomic, Format, Parsed};
+use umpl_text::{parse, print, read_path, write_as, write_atomic, Format, Parsed};
 
 /// Release version (0.1.N, N = commits on main), set by the build as
 /// UMPL_VERSION; plain builds show the Cargo version.
@@ -121,8 +121,7 @@ fn input_format(path: &Path) -> Format {
 }
 
 fn read(path: &Path) -> Result<Parsed, String> {
-    let src = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(read_as(input_format(path), &src))
+    read_path(input_format(path), path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// `fmt` and `tidy` rewrite their input as `.umpl`, which would destroy a
@@ -273,11 +272,15 @@ fn stats(args: &[String]) -> Result<bool, String> {
         let start = Instant::now();
         let d = arrange(&parsed, a.tidy);
         let s = d.layout.stats;
+        let b = d.layout.bounds(&d.graph);
         println!(
-            "{}: {} boxes, {} lines, {} crossings, {} bends, length {}, {} upward, {} overlaps, {} shared lanes, score {:.1}, {} ms",
+            "{}: {} boxes, {} lines, size {}x{}{}, {} crossings, {} bends, length {}, {} upward, {} overlaps, {} shared lanes, score {:.1}, {} ms",
             path.display(),
             d.graph.nodes.len(),
             d.graph.edges.len(),
+            b.w,
+            b.h,
+            if s.draft { " (draft lines)" } else { "" },
             s.crossings,
             s.bends,
             s.length,

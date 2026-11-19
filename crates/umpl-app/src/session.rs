@@ -6,7 +6,11 @@ use std::time::SystemTime;
 
 use umpl_core::{Document, Editor};
 use umpl_draw::Diagram;
-use umpl_text::{parse, print, read_as, write_as, write_atomic, Format, Parsed, Problem};
+use umpl_text::{parse, print, read_path, write_as, write_atomic, Format, Parsed, Problem};
+
+/// Diagrams with more elements than this (or twice as many relations)
+/// open at once and are laid out in the background.
+pub const DEFER_ABOVE: usize = 150;
 
 pub struct Session {
     pub editor: Editor,
@@ -38,12 +42,13 @@ impl Session {
     }
 
     /// Reads a file. Elements without a stored position are placed (the
-    /// whole diagram is laid out if the file has no `layout` block); that
-    /// does not count as an unsaved change.
-    pub fn open(path: &Path) -> Result<Session, String> {
+    /// whole diagram is laid out, to fill a view of width : height
+    /// `aspect`, if the file has no `layout` block); that does not count as
+    /// an unsaved change.
+    pub fn open(path: &Path, aspect: f64) -> Result<Session, String> {
         let src = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-        let mut s = Session::from_text(&src);
+        let mut s = Session::from_text(&src, aspect);
         s.path = Some(path.to_path_buf());
         s.disk_stamp = mtime(path);
         Ok(s)
@@ -51,11 +56,24 @@ impl Session {
 
     /// Reads a PlantUML or Umple file into a new, unsaved diagram without
     /// a file, so Save asks for a `.umpl` name and never overwrites the
-    /// source.
-    pub fn import(path: &Path, format: Format) -> Result<Session, String> {
-        let src = std::fs::read_to_string(path)
-            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-        let mut s = Session::from_parsed(read_as(format, &src));
+    /// source. PlantUML `!include`s of files next to it are read too. A
+    /// PlantUML diagram of a kind fastumpl does not read (sequence,
+    /// activity, …) is an error.
+    pub fn import(path: &Path, format: Format, aspect: f64) -> Result<Session, String> {
+        let parsed =
+            read_path(format, path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        if format == Format::PlantUml && parsed.doc.elements.is_empty() {
+            if let Some(p) = parsed
+                .problems
+                .iter()
+                .find(|p| p.message.starts_with("this is a"))
+            {
+                let mut m = p.message.clone();
+                m[..1].make_ascii_uppercase();
+                return Err(format!("{}: {m}.", path.display()));
+            }
+        }
+        let mut s = Session::from_parsed(parsed, aspect);
         let stem = path
             .file_stem()
             .map(|n| n.to_string_lossy().into_owned())
@@ -65,17 +83,26 @@ impl Session {
         Ok(s)
     }
 
-    pub fn from_text(src: &str) -> Session {
-        Session::from_parsed(parse(src))
+    pub fn from_text(src: &str, aspect: f64) -> Session {
+        Session::from_parsed(parse(src), aspect)
     }
 
-    pub fn from_parsed(parsed: Parsed) -> Session {
+    pub fn from_parsed(parsed: Parsed, aspect: f64) -> Session {
         let mut editor = Editor::new(parsed.doc);
-        if editor.doc.elements.values().any(|e| e.pos.is_none()) {
+        // A big diagram is laid out on a background thread instead
+        // (see `App::install_session`), so the window does not freeze.
+        let deferred = !parsed.has_layout
+            && (editor.doc.elements.len() > DEFER_ABOVE
+                || editor.doc.relations.len() > 2 * DEFER_ABOVE);
+        if !deferred && editor.doc.elements.values().any(|e| e.pos.is_none()) {
             let diagram = if parsed.has_layout {
                 Diagram::arrange(&editor.doc)
             } else {
-                Diagram::tidy(&editor.doc, &umpl_layout::Options::default())
+                let opts = umpl_layout::Options {
+                    aspect,
+                    ..umpl_layout::Options::default()
+                };
+                Diagram::tidy(&editor.doc, &opts)
             };
             let ops = editor.position_changes(&diagram.positions());
             editor.apply_silently(ops);
@@ -88,6 +115,28 @@ impl Session {
             problems: parsed.problems,
             disk_stamp: None,
             suggested_name: None,
+        }
+    }
+
+    /// Elements still waiting for the first layout, which the app starts
+    /// in the background.
+    pub fn needs_layout(&self) -> bool {
+        self.editor.doc.elements.values().any(|e| e.pos.is_none())
+    }
+
+    /// Takes in the first layout of a diagram opened without one: no undo
+    /// step, and a file that was unchanged stays unchanged.
+    pub fn settle_layout(&mut self, positions: &[(umpl_core::ElementId, Option<umpl_core::Pos>)]) {
+        let clean = !self.is_dirty();
+        let known: Vec<_> = positions
+            .iter()
+            .filter(|(id, _)| self.editor.doc.elements.contains_key(id))
+            .copied()
+            .collect();
+        let ops = self.editor.position_changes(&known);
+        self.editor.apply_silently(ops);
+        if clean {
+            self.saved_revision = self.editor.revision;
         }
     }
 

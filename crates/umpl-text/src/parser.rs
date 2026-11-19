@@ -24,6 +24,43 @@ pub struct Parsed {
     /// Whether the file had a `layout` block. Without one the editor lays
     /// the whole diagram out on open.
     pub has_layout: bool,
+    /// Where each element, relation and package is declared in the text.
+    /// Only [`parse`] fills this in; imports leave it empty.
+    pub spans: Vec<Span>,
+}
+
+/// Something declared in the text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Item {
+    Element(ElementId),
+    Relation(RelationId),
+    Package(PackageId),
+}
+
+/// The lines that declare an item: from its first line to the `}` that
+/// closes its body (1-based, inclusive). A package's span holds its
+/// contents, so the innermost span containing a line names what is there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub item: Item,
+    pub first: usize,
+    pub last: usize,
+}
+
+impl Parsed {
+    /// The item declared at `line` (1-based): the innermost span holding it.
+    pub fn item_at(&self, line: usize) -> Option<Item> {
+        self.spans
+            .iter()
+            .filter(|s| s.first <= line && line <= s.last)
+            .min_by_key(|s| s.last - s.first)
+            .map(|s| s.item)
+    }
+
+    /// The span of `item`, if it was declared in the text.
+    pub fn span_of(&self, item: Item) -> Option<Span> {
+        self.spans.iter().find(|s| s.item == item).copied()
+    }
 }
 
 enum Ctx {
@@ -60,6 +97,7 @@ struct Parser {
     positions: Vec<PendingPos>,
     has_layout: bool,
     last_line: usize,
+    spans: Vec<Span>,
 }
 
 /// Parses a `.umpl` file. Never fails; see [`Parsed::problems`].
@@ -95,6 +133,21 @@ impl Parser {
         }
     }
 
+    fn open_span(&mut self, item: Item, n: usize) {
+        self.spans.push(Span {
+            item,
+            first: n,
+            last: n,
+        });
+    }
+
+    /// Ends the span of `item` at line `n`, where its `}` is.
+    fn close_span(&mut self, item: Item, n: usize) {
+        if let Some(s) = self.spans.iter_mut().rev().find(|s| s.item == item) {
+            s.last = n;
+        }
+    }
+
     /// Keeps a line we could not understand, with any comments before it.
     fn raw(&mut self, n: usize, text: &str, message: impl Into<String>) {
         for c in std::mem::take(&mut self.comments) {
@@ -111,6 +164,7 @@ impl Parser {
                 let (id, is_enum) = (*id, *is_enum);
                 if t == "}" {
                     self.stack.pop();
+                    self.close_span(Item::Element(id), n);
                 } else if !t.is_empty() {
                     let el = self.doc.elements.get_mut(&id).unwrap();
                     if is_enum {
@@ -147,8 +201,10 @@ impl Parser {
             return;
         }
         if t == "}" {
-            if let Some(Ctx::Package(_)) = self.stack.last() {
+            if let Some(Ctx::Package(p)) = self.stack.last() {
+                let p = *p;
                 self.stack.pop();
+                self.close_span(Item::Package(p), n);
             } else {
                 self.raw(n, t, "`}` without a matching `{`");
             }
@@ -203,6 +259,7 @@ impl Parser {
         pkg.comments = std::mem::take(&mut self.comments);
         self.doc.packages.insert(id, pkg);
         self.push_decl(Decl::Package(id));
+        self.open_span(Item::Package(id), n);
         if open {
             self.stack.push(Ctx::Package(id));
         }
@@ -316,6 +373,7 @@ impl Parser {
         }
         self.doc.elements.insert(id, el);
         self.push_decl(Decl::Element(id));
+        self.open_span(Item::Element(id), n);
         if open {
             self.stack.push(Ctx::Body { id, is_enum });
         }
@@ -343,6 +401,7 @@ impl Parser {
         el.comments = std::mem::take(&mut self.comments);
         self.doc.elements.insert(id, el);
         self.push_decl(Decl::Element(id));
+        self.open_span(Item::Element(id), n);
         true
     }
 
@@ -368,6 +427,7 @@ impl Parser {
         }
         let id = self.doc.new_relation_id();
         self.push_decl(Decl::Relation(id));
+        self.open_span(Item::Relation(id), n);
         self.relations.push(PendingRelation {
             id,
             container: self.container(),
@@ -386,7 +446,14 @@ impl Parser {
         if !self.stack.is_empty() {
             let line = self.last_line.max(1);
             self.problem(line, 1, UNCLOSED);
-            self.stack.clear();
+            // Bodies still open run to the end of the text.
+            for c in std::mem::take(&mut self.stack) {
+                match c {
+                    Ctx::Package(p) => self.close_span(Item::Package(p), line),
+                    Ctx::Body { id, .. } => self.close_span(Item::Element(id), line),
+                    Ctx::Layout => {}
+                }
+            }
         }
 
         let mut names: HashMap<String, ElementId> = self
@@ -428,6 +495,7 @@ impl Parser {
                     let col = rel.text.find(bad.as_str()).map(|i| i + 1).unwrap_or(1);
                     let message = format!("unknown element `{bad}`; line kept as written");
                     self.problem(rel.line, col, message);
+                    self.spans.retain(|s| s.item != Item::Relation(rel.id));
                     let mut replacement: Vec<Decl> = rel
                         .comments
                         .iter()
@@ -462,6 +530,7 @@ impl Parser {
             doc: self.doc,
             problems: self.problems,
             has_layout: self.has_layout,
+            spans: self.spans,
         }
     }
 
@@ -675,6 +744,35 @@ layout {
             p.doc.relations.values().next().unwrap().kind,
             RelationKind::NoteLink
         );
+    }
+
+    #[test]
+    fn spans_name_the_lines_of_each_declaration() {
+        let src = "diagram \"S\"\n\npackage p {\n  class A {\n    +x: int\n  }\n  note N \"n\"\n}\nclass B\nA --> B\nweird line\nC --> D.E\nenum E {\n  R\n";
+        let p = parse(src);
+        let d = &p.doc;
+        let el = |n: &str| Item::Element(d.find(n).unwrap());
+        let span = |item| p.span_of(item).map(|s| (s.first, s.last));
+        let pkg = Item::Package(*d.packages.keys().next().unwrap());
+        assert_eq!(span(pkg), Some((3, 8)));
+        assert_eq!(span(el("p.A")), Some((4, 6)));
+        assert_eq!(span(el("p.N")), Some((7, 7)));
+        assert_eq!(span(el("B")), Some((9, 9)));
+        let rel = Item::Relation(*d.relations.keys().next().unwrap());
+        assert_eq!(span(rel), Some((10, 10)));
+        // An unclosed body runs to the end.
+        assert_eq!(span(el("E")), Some((13, 14)));
+        // Innermost span wins; lines outside any span name nothing.
+        assert_eq!(p.item_at(5), Some(el("p.A")));
+        assert_eq!(p.item_at(4), Some(el("p.A")));
+        assert_eq!(p.item_at(3), Some(pkg));
+        assert_eq!(p.item_at(8), Some(pkg));
+        assert_eq!(p.item_at(10), Some(rel));
+        assert_eq!(p.item_at(2), None);
+        assert_eq!(p.item_at(11), None);
+        // A relation kept as raw text has no span.
+        assert_eq!(p.item_at(12), None);
+        assert_eq!(p.spans.len(), 6);
     }
 
     #[test]

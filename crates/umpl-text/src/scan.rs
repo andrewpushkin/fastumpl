@@ -3,6 +3,7 @@
 use umpl_core::RelationKind;
 
 /// A cursor over one line.
+#[derive(Clone)]
 pub struct Cursor<'a> {
     pub s: &'a str,
     pub pos: usize,

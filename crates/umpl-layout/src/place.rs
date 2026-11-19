@@ -26,7 +26,13 @@ pub struct Options {
     pub seed: u64,
     /// Set to stop early; the best layout found so far is returned.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// Width : height of the view the drawing should fill, such as the
+    /// editor's canvas. Layers and loose parts are arranged to fit it.
+    pub aspect: f64,
 }
+
+/// The usual drawing shape, 16:10.
+pub const DEFAULT_ASPECT: f64 = 1.6;
 
 impl Default for Options {
     fn default() -> Self {
@@ -34,6 +40,29 @@ impl Default for Options {
             candidates: 12,
             seed: 1,
             cancel: None,
+            aspect: DEFAULT_ASPECT,
+        }
+    }
+}
+
+/// The shape a candidate aims for: how wide layers may grow (a factor of
+/// the usual) and the width : height of the view.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Target {
+    pub width: f64,
+    pub aspect: f64,
+    /// Loose parts fill a view of the target shape (the top level), or
+    /// pack tight (inside a package, whose box should stay compact).
+    pub fill: bool,
+}
+
+#[cfg(test)]
+impl Target {
+    pub(crate) fn usual() -> Target {
+        Target {
+            width: 1.0,
+            aspect: DEFAULT_ASPECT,
+            fill: true,
         }
     }
 }
@@ -127,7 +156,7 @@ fn layout_scope(
     hint: Option<&[f64]>,
     start: Start,
     ghosts: &[Ghost],
-    width: f64,
+    target: Target,
 ) -> Vec<(i32, i32)> {
     let n = sizes.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -173,7 +202,7 @@ fn layout_scope(
                 ..*g
             })
             .collect();
-        let layers = assign_layers_with(comp.len(), &sub_edges, &sub_sizes, width);
+        let layers = assign_layers_with(comp.len(), &sub_edges, &sub_sizes, target);
         let mut lay = Layered::build_with_ghosts(comp.len(), &layers, &sub_edges, &sub_ghosts);
         let sub_hint: Option<Vec<f64>> = hint.map(|h| comp.iter().map(|&i| h[i]).collect());
         match start {
@@ -198,8 +227,8 @@ fn layout_scope(
         placed.push((comp.clone(), pos, bounds.unwrap_or_default()));
     }
 
-    // Pack the parts in rows, biggest first, trying several row widths and
-    // keeping the packing closest to a 16:10 drawing.
+    // Pack the parts in rows, biggest first, trying many row widths and
+    // keeping the packing that best fills a view of the target shape.
     let mut order: Vec<usize> = (0..placed.len()).collect();
     order.sort_by_key(|&i| {
         (
@@ -230,7 +259,7 @@ fn layout_scope(
         order.sort_by(|&a, &b| key[a].total_cmp(&key[b]));
     }
     let rects: Vec<Rect> = order.iter().map(|&i| placed[i].2).collect();
-    let offsets = best_packing(&rects);
+    let offsets = best_packing(&rects, target);
     let mut out = vec![(0, 0); n];
     for (k, &i) in order.iter().enumerate() {
         let (comp, pos, b) = &placed[i];
@@ -261,17 +290,65 @@ fn pack_rows(rects: &[Rect], row_width: i32) -> (Vec<(i32, i32)>, i32, i32) {
     (out, width, y + row_h)
 }
 
-fn best_packing(rects: &[Rect]) -> Vec<(i32, i32)> {
+/// Packs `rects` in rows, trying many row widths.
+///
+/// At the top level the drawing should fill a view of the target shape:
+/// the packing wins whose bounding box needs the least zoom to fit such a
+/// view, `max(w, h * aspect)`, then the smaller area. (Smallest area alone
+/// puts many small parts in one long row, since a second row costs a whole
+/// gap between rows; the editor then shows a thin strip.) Inside a package
+/// the package box should stay compact: smallest area, nudged towards
+/// 16:10.
+/// A compact packing of more than `STRIP_PARTS` parts, longer than
+/// `STRIP` (width : height), is a strip. A few boxes in a row are not.
+const STRIP: f64 = 6.0;
+const STRIP_PARTS: usize = 8;
+
+fn best_packing(rects: &[Rect], target: Target) -> Vec<(i32, i32)> {
+    let (offsets, w, h) = packing(rects, target);
+    // Compact, but not a strip: many loose parts in a package (58 classes
+    // implementing an interface outside it) would otherwise make one row.
+    let shape = w.max(1) as f64 / h.max(1) as f64;
+    if !target.fill && rects.len() > STRIP_PARTS && !(1.0 / STRIP..=STRIP).contains(&shape) {
+        let fill = Target {
+            fill: true,
+            aspect: DEFAULT_ASPECT,
+            ..target
+        };
+        return packing(rects, fill).0;
+    }
+    offsets
+}
+
+/// The best row packing for `target`, with its width and height.
+fn packing(rects: &[Rect], target: Target) -> (Vec<(i32, i32)>, i32, i32) {
     let widest = rects.iter().map(|r| r.w).max().unwrap_or(0);
     let all: i32 = rects.iter().map(|r| r.w + 2 * NODE_GAP).sum();
-    let mut best: Option<(f64, Vec<(i32, i32)>)> = None;
-    for k in 0..=12 {
-        let row_width = widest + (all - widest) * k / 12;
+    let steps: i32 = if target.fill { 48 } else { 12 };
+    type Packing = ((f64, f64), (Vec<(i32, i32)>, i32, i32));
+    let mut best: Option<Packing> = None;
+    let mut last_width = -1;
+    for k in 0..=steps {
+        let row_width = widest + (all - widest) * k / steps;
+        if row_width == last_width {
+            continue;
+        }
+        last_width = row_width;
         let (offsets, w, h) = pack_rows(rects, row_width);
-        let (w, h) = (w.max(1) as f64, h.max(1) as f64);
-        let cost = w * h * (1.0 + 0.3 * ((w / h) / 1.6).ln().abs());
-        if best.as_ref().is_none_or(|(c, _)| cost < *c - 1e-9) {
-            best = Some((cost, offsets));
+        let (wf, hf) = (w.max(1) as f64, h.max(1) as f64);
+        let cost = if target.fill {
+            (wf.max(hf * target.aspect), wf * hf)
+        } else {
+            (
+                wf * hf * (1.0 + 0.3 * ((wf / hf) / DEFAULT_ASPECT).ln().abs()),
+                0.0,
+            )
+        };
+        let better = best.as_ref().is_none_or(|(c, _)| {
+            cost.0 < c.0 - 1e-9 || (cost.0 < c.0 + 1e-9 && cost.1 < c.1 - 1e-9)
+        });
+        if better {
+            best = Some((cost, (offsets, w, h)));
         }
     }
     best.map(|b| b.1).unwrap_or_default()
@@ -307,7 +384,7 @@ fn side_towards(r: &Rect, c: (f64, f64)) -> GhostSide {
 fn place_all(
     graph: &Graph,
     start: Start,
-    width: f64,
+    target: Target,
     prev: Option<&[(i32, i32)]>,
 ) -> Vec<(i32, i32)> {
     let ng = graph.groups.len();
@@ -378,7 +455,18 @@ fn place_all(
             (Start::Hint, None) => Start::DepthFirst,
             (s, _) => s,
         };
-        let pos = layout_scope(&sizes, &edges, hint.as_deref(), start, &ghosts, width);
+        let scope_target = Target {
+            fill: scope.is_none(),
+            ..target
+        };
+        let pos = layout_scope(
+            &sizes,
+            &edges,
+            hint.as_deref(),
+            start,
+            &ghosts,
+            scope_target,
+        );
         if let Some(g) = scope {
             let mut mx = HashMap::new();
             for (it, p) in items.iter().zip(&pos) {
@@ -435,11 +523,11 @@ const ROUNDS: usize = 2;
 
 /// Places everything, then again `ROUNDS` times with each package seeing
 /// where its outside lines went in the round before.
-fn place_rounds(graph: &Graph, start: Start, width: f64) -> Vec<(i32, i32)> {
-    let mut nodes = place_all(graph, start, width, None);
+fn place_rounds(graph: &Graph, start: Start, target: Target) -> Vec<(i32, i32)> {
+    let mut nodes = place_all(graph, start, target, None);
     if !graph.groups.is_empty() {
         for _ in 0..ROUNDS {
-            nodes = place_all(graph, Start::Hint, width, Some(&nodes));
+            nodes = place_all(graph, Start::Hint, target, Some(&nodes));
         }
     }
     nodes
@@ -467,6 +555,35 @@ fn width_of(start: Start, seed: u64) -> f64 {
     }
 }
 
+/// Memory the routing of candidates may take at once, in bytes.
+const MEMORY: usize = 1_500_000_000;
+
+/// Crossings of the straight lines between box centres: a cheap stand-in
+/// for the crossings of routed lines, to choose a candidate to route.
+fn straight_crossings(graph: &Graph, nodes: &[(i32, i32)]) -> usize {
+    let center = |n: usize| {
+        (
+            nodes[n].0 as f64 + graph.nodes[n].w as f64 / 2.0,
+            nodes[n].1 as f64 + graph.nodes[n].h as f64 / 2.0,
+        )
+    };
+    let segs: Vec<((f64, f64), (f64, f64))> = graph
+        .edges
+        .iter()
+        .filter(|e| e.from != e.to)
+        .map(|e| (center(e.from), center(e.to)))
+        .collect();
+    let mut count = 0;
+    for a in 0..segs.len() {
+        for b in a + 1..segs.len() {
+            if segments_cross(segs[a].0, segs[a].1, segs[b].0, segs[b].1) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 /// Routes, labels and measures a layout with nodes at `nodes`.
 pub(crate) fn finalize(graph: &Graph, nodes: Vec<(i32, i32)>) -> Layout {
     finalize_with(graph, nodes, true)
@@ -477,7 +594,8 @@ fn finalize_with(graph: &Graph, nodes: Vec<(i32, i32)>, wide: bool) -> Layout {
     let routes = route_all_with(graph, &nodes, wide);
     let groups = group_rects(graph, &nodes);
     let labels = place_labels(graph, &nodes, &routes);
-    let stats = measure(graph, &nodes, &routes);
+    let mut stats = measure(graph, &nodes, &routes);
+    stats.draft = crate::router::grid_cells(graph, &nodes) > crate::router::DRAFT_CELLS;
     Layout {
         nodes,
         routes,
@@ -518,37 +636,81 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
     let threads = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(starts.len());
-
-    let mut results: Vec<Option<Layout>> = vec![None; starts.len()];
-    std::thread::scope(|s| {
-        let chunks: Vec<Vec<usize>> = (0..threads)
-            .map(|t| (t..starts.len()).step_by(threads).collect())
-            .collect();
-        let handles: Vec<_> = chunks
-            .into_iter()
-            .map(|idx| {
-                let starts = &starts;
-                let cancelled = &cancelled;
-                s.spawn(move || {
-                    idx.into_iter()
-                        .filter_map(|i| {
-                            // The first candidate always runs.
-                            if i > 0 && cancelled() {
-                                return None;
-                            }
-                            let width = width_of(starts[i], opts.seed);
-                            let nodes = place_rounds(graph, starts[i], width);
-                            Some((i, finalize_with(graph, nodes, false)))
+    let in_parallel =
+        |count: usize, threads: usize, work: &(dyn Fn(usize) -> Option<Layout> + Sync)| {
+            let mut out: Vec<Option<Layout>> = vec![None; count];
+            let threads = threads.min(count).max(1);
+            std::thread::scope(|s| {
+                let handles: Vec<_> = (0..threads)
+                    .map(|t| {
+                        s.spawn(move || {
+                            (t..count)
+                                .step_by(threads)
+                                .filter_map(|i| work(i).map(|l| (i, l)))
+                                .collect::<Vec<_>>()
                         })
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        for h in handles {
-            for (i, l) in h.join().expect("layout thread panicked") {
-                results[i] = Some(l);
-            }
+                    })
+                    .collect();
+                for h in handles {
+                    for (i, l) in h.join().expect("layout thread panicked") {
+                        out[i] = Some(l);
+                    }
+                }
+            });
+            out
+        };
+
+    // Placing is cheap; routing is not, and grows with the drawing.
+    let placed: Vec<Option<Layout>> = in_parallel(starts.len(), threads, &|i| {
+        // The first candidate always runs.
+        if i > 0 && cancelled() {
+            return None;
         }
+        let target = Target {
+            width: width_of(starts[i], opts.seed),
+            aspect: opts.aspect,
+            fill: true,
+        };
+        Some(Layout {
+            nodes: place_rounds(graph, starts[i], target),
+            ..Layout::default()
+        })
+    });
+    // A large diagram routes one candidate only: the one whose straight
+    // lines cross least. That keeps one router's tables in memory, not
+    // one per candidate, and the time to that of a single routing.
+    let large = graph.edges.len() > crate::router::LARGE_EDGES
+        || placed
+            .iter()
+            .flatten()
+            .any(|l| crate::router::grid_cells(graph, &l.nodes) > crate::router::LARGE_CELLS);
+    let chosen: Vec<usize> = if large {
+        let best = placed
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| l.as_ref().map(|l| (straight_crossings(graph, &l.nodes), i)))
+            .min()
+            .map(|(_, i)| i)
+            .unwrap_or(0);
+        vec![best]
+    } else {
+        (0..placed.len()).filter(|&i| placed[i].is_some()).collect()
+    };
+    // As many route at once as fit in about 1.5 GB of routing tables.
+    let cells = chosen
+        .iter()
+        .filter_map(|&i| placed[i].as_ref())
+        .map(|l| crate::router::grid_cells(graph, &l.nodes))
+        .max()
+        .unwrap_or(0);
+    let fit = MEMORY / (cells * crate::router::BYTES_PER_CELL).max(1);
+    let results: Vec<Option<Layout>> = in_parallel(chosen.len(), threads.min(fit.max(1)), &|k| {
+        let i = chosen[k];
+        if k > 0 && cancelled() {
+            return None;
+        }
+        let nodes = placed[i].as_ref()?.nodes.clone();
+        Some(finalize_with(graph, nodes, false))
     });
     // Candidates are compared with quick routing; the winner is routed
     // again with the thorough router, which only ever lowers its cost.
@@ -558,14 +720,15 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
         .enumerate()
         .min_by(|(i, a), (j, b)| a.stats.score().total_cmp(&b.stats.score()).then(i.cmp(j)))
         .map(|(_, l)| l)
-        .unwrap();
+        .unwrap_or_default();
     if cancelled() {
         return best;
     }
     let mut routes = best.routes.clone();
     polish(graph, &best.nodes, &mut routes);
     let labels = place_labels(graph, &best.nodes, &routes);
-    let stats = measure(graph, &best.nodes, &routes);
+    let mut stats = measure(graph, &best.nodes, &routes);
+    stats.draft = best.stats.draft;
     if stats.score() <= best.stats.score() {
         Layout {
             routes,
@@ -898,6 +1061,39 @@ mod tests {
         }
     }
 
+    /// Many loose boxes at the top level fill a view of the target shape
+    /// instead of making one long row.
+    #[test]
+    fn loose_boxes_fill_the_view() {
+        for aspect in [0.8, 1.6, 2.4] {
+            let t = Target {
+                aspect,
+                ..Target::usual()
+            };
+            let pos = layout_scope(&[(14, 6); 30], &[], None, Start::DepthFirst, &[], t);
+            let w = pos.iter().map(|p| p.0 + 14).max().unwrap() as f64;
+            let h = pos.iter().map(|p| p.1 + 6).max().unwrap() as f64;
+            assert!(
+                (w / h / aspect).ln().abs() < 0.5,
+                "aspect {aspect}: {w} x {h}"
+            );
+        }
+    }
+
+    /// Many loose parts in a package make a block, not a strip.
+    #[test]
+    fn many_loose_parts_in_a_package_are_not_a_strip() {
+        let ghosts: Vec<Ghost> = (0..40).map(|i| ghost(i, GhostSide::Top, 50.0)).collect();
+        let t = Target {
+            fill: false,
+            ..Target::usual()
+        };
+        let pos = layout_scope(&[(30, 4); 40], &[], None, Start::DepthFirst, &ghosts, t);
+        let w = pos.iter().map(|p| p.0 + 30).max().unwrap() as f64;
+        let h = pos.iter().map(|p| p.1 + 4).max().unwrap() as f64;
+        assert!(w / h < STRIP, "{w} x {h}");
+    }
+
     /// Parts of a package that are not connected to each other are placed
     /// left to right by where their outside neighbours are.
     #[test]
@@ -906,7 +1102,17 @@ mod tests {
             ghost(0, GhostSide::Top, 100.0),
             ghost(1, GhostSide::Top, 0.0),
         ];
-        let pos = layout_scope(&[(10, 4); 2], &[], None, Start::DepthFirst, &ghosts, 1.0);
+        let pos = layout_scope(
+            &[(10, 4); 2],
+            &[],
+            None,
+            Start::DepthFirst,
+            &ghosts,
+            Target {
+                fill: false,
+                ..Target::usual()
+            },
+        );
         assert!(pos[1].0 < pos[0].0, "{pos:?}");
     }
 
@@ -922,7 +1128,17 @@ mod tests {
             ghost(1, GhostSide::Bottom, 100.0),
             ghost(2, GhostSide::Bottom, 0.0),
         ];
-        let pos = layout_scope(&[(10, 4); 3], &edges, None, Start::DepthFirst, &ghosts, 1.0);
+        let pos = layout_scope(
+            &[(10, 4); 3],
+            &edges,
+            None,
+            Start::DepthFirst,
+            &ghosts,
+            Target {
+                fill: false,
+                ..Target::usual()
+            },
+        );
         assert!(pos[2].0 < pos[1].0, "{pos:?}");
     }
 

@@ -28,6 +28,8 @@ pub struct TidyJob {
     revision: u64,
     rx: mpsc::Receiver<Diagram>,
     cancel: Arc<AtomicBool>,
+    /// The first layout of a diagram opened without one.
+    pub initial: bool,
 }
 
 /// What to do once unsaved changes are dealt with.
@@ -67,6 +69,7 @@ pub struct App {
     pub canvas: CanvasState,
     pub inspector: InspectorState,
     pub source: SourceState,
+    pub find: crate::find::FindState,
     allow_close: bool,
     last_disk_check: Instant,
     last_recovery: Instant,
@@ -122,6 +125,7 @@ impl App {
             canvas: CanvasState::default(),
             inspector: InspectorState::default(),
             source: SourceState::new(source_shown),
+            find: crate::find::FindState::default(),
             allow_close: false,
             last_disk_check: Instant::now(),
             last_recovery: Instant::now(),
@@ -131,7 +135,7 @@ impl App {
         app.apply_theme(&cc.egui_ctx);
         let recovered = app.find_recovery();
         if let Some(f) = file {
-            app.open_path(&f);
+            app.open_path(&cc.egui_ctx, &f);
         }
         if !recovered.is_empty() {
             app.dialog = Some(Dialog::Recovery(recovered));
@@ -170,6 +174,25 @@ impl App {
         });
     }
 
+    /// Width : height of the canvas, which layouts should fill. Before the
+    /// first frame, the window less the panels around the canvas.
+    pub fn view_aspect(&self, ctx: &Context) -> f64 {
+        let r = self.canvas.rect;
+        let (w, h) = if r.is_positive() && r.width() > 50.0 && r.height() > 50.0 {
+            (r.width(), r.height())
+        } else {
+            let screen = ctx.content_rect();
+            let text = if self.source.shown { 340.0 } else { 0.0 };
+            (screen.width() - 46.0 - 270.0 - text, screen.height() - 60.0)
+        };
+        if w > 50.0 && h > 50.0 {
+            (w / h) as f64
+        } else {
+            umpl_layout::DEFAULT_ASPECT
+        }
+        .clamp(0.4, 4.0)
+    }
+
     fn dirty(&self) -> bool {
         self.session.as_ref().is_some_and(Session::is_dirty)
     }
@@ -194,14 +217,19 @@ impl App {
         self.canvas = CanvasState::default();
         self.inspector = InspectorState::default();
         self.source.reset();
+        self.find.forget();
         self.fit_pending = true;
+        if self.session.as_ref().is_some_and(Session::needs_layout) {
+            self.start_tidy_with(true);
+        }
     }
 
-    pub fn open_path(&mut self, path: &Path) {
+    pub fn open_path(&mut self, ctx: &Context, path: &Path) {
+        let aspect = self.view_aspect(ctx);
         if let Some(f @ (Format::PlantUml | Format::Umple)) = Format::from_path(path) {
-            return self.import_path(path, f);
+            return self.import_path(path, f, aspect);
         }
-        match Session::open(path) {
+        match Session::open(path, aspect) {
             Ok(s) => self.install_session(s),
             Err(e) => {
                 self.recent.retain(|p| p != path);
@@ -212,8 +240,8 @@ impl App {
     }
 
     /// Opens a PlantUML or Umple file as a new, unsaved diagram.
-    fn import_path(&mut self, path: &Path, format: Format) {
-        match Session::import(path, format) {
+    fn import_path(&mut self, path: &Path, format: Format, aspect: f64) {
+        match Session::import(path, format, aspect) {
             Ok(s) => {
                 let problems = s.problems.len();
                 self.install_session(s);
@@ -251,7 +279,7 @@ impl App {
             }
             Pending::Open(Some(path)) => {
                 self.clear_recovery();
-                self.open_path(&path);
+                self.open_path(ctx, &path);
             }
             Pending::Open(None) => {
                 let mut diagrams = vec!["umpl"];
@@ -273,11 +301,11 @@ impl App {
                 }
                 if let Some(path) = dlg.pick_file() {
                     self.clear_recovery();
-                    self.open_path(&path);
+                    self.open_path(ctx, &path);
                 }
             }
             Pending::OpenText(text, path) => {
-                let mut s = Session::from_text(&text);
+                let mut s = Session::from_text(&text, self.view_aspect(ctx));
                 s.path = path;
                 s.mark_dirty();
                 self.install_session(s);
@@ -539,6 +567,13 @@ impl App {
     // ----- layout ----------------------------------------------------------
 
     pub fn start_tidy(&mut self) {
+        self.start_tidy_with(false);
+    }
+
+    /// Lays everything out on a background thread; `initial` for the first
+    /// layout of a diagram opened without positions.
+    fn start_tidy_with(&mut self, initial: bool) {
+        let initial = initial || self.tidy.as_ref().is_some_and(|t| t.initial);
         self.cancel_tidy();
         let Some(s) = &self.session else { return };
         let doc = s.editor.doc.clone();
@@ -546,9 +581,16 @@ impl App {
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
         let c = cancel.clone();
+        let r = self.canvas.rect;
+        let aspect = if r.is_positive() && r.width() > 50.0 && r.height() > 50.0 {
+            (r.width() / r.height()).clamp(0.4, 4.0) as f64
+        } else {
+            umpl_layout::DEFAULT_ASPECT
+        };
         std::thread::spawn(move || {
             let opts = Options {
                 cancel: Some(c),
+                aspect,
                 ..Options::default()
             };
             let _ = tx.send(Diagram::tidy(&doc, &opts));
@@ -557,6 +599,7 @@ impl App {
             revision,
             rx,
             cancel,
+            initial,
         });
     }
 
@@ -572,6 +615,17 @@ impl App {
             Ok(diagram) => {
                 let job = self.tidy.take().unwrap();
                 let Some(s) = &mut self.session else { return };
+                if job.initial {
+                    // Edits made meanwhile keep their places; new elements
+                    // are placed as usual.
+                    s.settle_layout(&diagram.positions());
+                    if s.editor.revision == job.revision + 1 {
+                        self.view.install(diagram, s.editor.revision);
+                    }
+                    self.fit_pending = true;
+                    ctx.request_repaint();
+                    return;
+                }
                 if s.editor.revision != job.revision {
                     self.notify("Diagram changed while tidying; run Tidy again");
                     return;
@@ -683,6 +737,7 @@ impl App {
                     };
                 }
             }
+            Cmd::Find => self.open_find(),
             Cmd::Tidy => self.start_tidy(),
             Cmd::TidySelection => self.tidy_selection(),
             Cmd::Fit => self.fit_pending = true,
@@ -778,9 +833,18 @@ impl App {
                 self.run(ctx, Cmd::Delete);
             }
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
-                if self.tidy.is_some() {
-                    self.cancel_tidy();
-                    self.notify("Tidy cancelled");
+                if let Some(t) = &self.tidy {
+                    if t.initial {
+                        // Without a first layout nothing can be shown:
+                        // stop early, keeping the first candidate.
+                        t.cancel.store(true, Ordering::Relaxed);
+                        self.notify("Finishing with the first layout found…");
+                    } else {
+                        self.cancel_tidy();
+                        self.notify("Tidy cancelled");
+                    }
+                } else if self.find.open {
+                    self.close_find();
                 } else if self.canvas.busy() {
                     self.canvas.cancel();
                 } else if self.tool != Tool::Select {
@@ -985,6 +1049,8 @@ impl App {
                     self.menu_item(ui, Cmd::Delete);
                     self.menu_item(ui, Cmd::SelectAll);
                     ui.separator();
+                    self.menu_item(ui, Cmd::Find);
+                    ui.separator();
                     self.menu_item(ui, Cmd::Palette);
                 });
                 ui.menu_button("View", |ui| {
@@ -1128,9 +1194,19 @@ impl App {
                         self.dialog = Some(Dialog::Problems);
                     }
                 }
-                if self.tidy.is_some() {
-                    ui.separator();
-                    ui.label("Tidying… (Esc to cancel)");
+                match &self.tidy {
+                    Some(t) if t.initial => {
+                        ui.separator();
+                        ui.spinner();
+                        ui.label(format!(
+                            "Laying out {classes} classes… (Esc: keep the first result)"
+                        ));
+                    }
+                    Some(_) => {
+                        ui.separator();
+                        ui.label("Tidying… (Esc to cancel)");
+                    }
+                    None => {}
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some((msg, at)) = &self.status {
@@ -1244,12 +1320,14 @@ impl eframe::App for App {
         self.poll_tidy(ctx);
         self.periodic(ctx);
         self.source_apply(ctx, false);
-        if let Some(s) = &mut self.session {
+        let laying_out = self.tidy.as_ref().is_some_and(|t| t.initial);
+        if let (Some(s), false) = (&mut self.session, laying_out) {
             self.view.sync(&mut s.editor);
         }
         self.source_refresh();
         self.keyboard(ctx);
         self.menu_bar(ctx);
+        self.find_bar(ctx);
         self.status_bar(ctx);
         if self.session.is_some() {
             self.tools_panel(ctx);

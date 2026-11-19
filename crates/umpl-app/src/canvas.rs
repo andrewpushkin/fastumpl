@@ -214,6 +214,59 @@ impl App {
         g
     }
 
+    /// Where `item` is drawn, in world pixels.
+    pub fn item_rect(&self, item: umpl_text::Item) -> Option<RectF> {
+        let d = &self.view.diagram;
+        let grid = |x: i32, y: i32, w: i32, h: i32| {
+            RectF::new(
+                x as f32 * GRID,
+                y as f32 * GRID,
+                w as f32 * GRID,
+                h as f32 * GRID,
+            )
+        };
+        match item {
+            umpl_text::Item::Element(id) => {
+                let i = d.mapping.node_of(id)?;
+                let p = d.layout.nodes.get(i)?;
+                let n = &d.graph.nodes[i];
+                Some(grid(p.0, p.1, n.w, n.h))
+            }
+            umpl_text::Item::Relation(id) => {
+                let pts = &d.layout.routes.get(d.mapping.edge_of(id)?)?.points;
+                let (x0, y0) = pts
+                    .iter()
+                    .fold((i32::MAX, i32::MAX), |a, p| (a.0.min(p.0), a.1.min(p.1)));
+                let (x1, y1) = pts
+                    .iter()
+                    .fold((i32::MIN, i32::MIN), |a, p| (a.0.max(p.0), a.1.max(p.1)));
+                (!pts.is_empty()).then(|| grid(x0, y0, x1 - x0, y1 - y0))
+            }
+            umpl_text::Item::Package(id) => {
+                let g = d.mapping.packages.iter().position(|p| *p == id)?;
+                let r = d.layout.groups.get(g)?;
+                Some(grid(r.x, r.y, r.w, r.h))
+            }
+        }
+    }
+
+    /// Pans the canvas so `item` is in view, unless it already is.
+    pub fn reveal(&mut self, item: umpl_text::Item) {
+        let Some(r) = self.item_rect(item) else {
+            return;
+        };
+        let view = self.canvas.rect;
+        if view.width() < 10.0 {
+            return;
+        }
+        let on_screen = self.camera.rect_to_screen(r);
+        if view.shrink(8.0).contains_rect(on_screen) {
+            return;
+        }
+        let target = view.center() - self.camera.to_screen(r.center());
+        self.camera.pan(target);
+    }
+
     fn hit(&self, geo: &Geometry, world: (f32, f32), with_handles: bool) -> Hit {
         let z = self.camera.zoom;
         // Any box's edge dots count, not only the hovered box's: by the
@@ -404,8 +457,14 @@ impl App {
         // Camera: fit, zoom, pan.
         if self.fit_pending && rect.width() > 50.0 {
             let s = self.session.as_ref().unwrap();
-            let bounds = self.view.scene(&s.editor, &self.sel, &theme, false).bounds;
-            self.camera.fit(bounds, rect);
+            if s.editor.doc.elements.is_empty() && s.editor.doc.packages.is_empty() {
+                // Nothing to fill the view with: start at 100 %.
+                self.camera
+                    .fit(umpl_draw::RectF::new(0.0, 0.0, 0.0, 0.0), rect);
+            } else {
+                let bounds = self.view.scene(&s.editor, &self.sel, &theme, false).bounds;
+                self.camera.fit(bounds, rect);
+            }
             self.fit_pending = false;
         }
         if resp.hovered() {
@@ -506,9 +565,55 @@ impl App {
             None => {}
         }
 
+        self.paint_found(&painter);
         self.scroll_bars(ui, rect, bounds);
         self.inline_editor(&ctx, &geo);
         self.connect_menu(&ctx);
+    }
+
+    /// Outlines what Find matched; the current match more strongly.
+    fn paint_found(&self, painter: &egui::Painter) {
+        if !self.find.active() {
+            return;
+        }
+        let color = Color32::from_rgb(0xf0, 0xa0, 0x20);
+        for (k, item) in self.find.matches.iter().enumerate() {
+            let current = self.find.current == Some(k);
+            let width = if current { 3.0 } else { 2.0 };
+            match item {
+                umpl_text::Item::Relation(id) => {
+                    let d = &self.view.diagram;
+                    let Some(route) = d.mapping.edge_of(*id).and_then(|e| d.layout.routes.get(e))
+                    else {
+                        continue;
+                    };
+                    let pts: Vec<Pos2> = route
+                        .points
+                        .iter()
+                        .map(|p| {
+                            self.camera
+                                .to_screen((p.0 as f32 * GRID, p.1 as f32 * GRID))
+                        })
+                        .collect();
+                    painter.add(Shape::line(
+                        pts,
+                        Stroke::new(width + 3.0, color.gamma_multiply(0.55)),
+                    ));
+                }
+                other => {
+                    let Some(r) = self.item_rect(*other) else {
+                        continue;
+                    };
+                    let r = self.camera.rect_to_screen(r).expand(4.0);
+                    let fill = if current {
+                        Color32::TRANSPARENT
+                    } else {
+                        color.gamma_multiply(0.08)
+                    };
+                    painter.rect(r, 6.0, fill, Stroke::new(width, color), StrokeKind::Outside);
+                }
+            }
+        }
     }
 
     fn paint_grid(&self, painter: &egui::Painter, rect: Rect, color: Color32) {

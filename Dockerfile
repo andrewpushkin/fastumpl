@@ -107,6 +107,26 @@ RUN curl -fsSL -o /tmp/innosetup.exe \
     && test -f "$HOME/.wine/drive_c/InnoSetup/ISCC.exe" \
     && rm /tmp/innosetup.exe
 
+# PlantUML samples to test the PlantUML import on, one folder per
+# repository, each fetched at a pinned commit without history. See
+# crates/umpl-draw/tests/puml_corpus.rs:
+#   PUML_CORPUS=/opt/puml-samples cargo test -p umpl-draw --test puml_corpus -- --ignored --nocapture
+ARG PUML_SAMPLES="\
+spiegel-im-spiegel/plantuml-sample@fa36460ae49a865f6e44448dfdae61392eaf020a \
+okunev-e/plantuml_examples@e92dc29e9cbb4843edd7f493a75d5ff411643b24 \
+plantuml-stdlib/Azure-PlantUML@f360835f8794e18bed6520bb2eea56b482816d95"
+USER root
+RUN mkdir -p /opt/puml-samples \
+    && for spec in ${PUML_SAMPLES}; do \
+        repo=${spec%@*}; commit=${spec#*@}; dir=/opt/puml-samples/${repo#*/}; \
+        git init --quiet "$dir" \
+        && git -C "$dir" fetch --quiet --depth 1 "https://github.com/$repo" "$commit" \
+        && git -C "$dir" checkout --quiet FETCH_HEAD \
+        || exit 1; \
+    done \
+    && chown -R ${USER_UID}:${USER_GID} /opt/puml-samples
+USER ${USERNAME}
+
 WORKDIR /work
 CMD ["bash"]
 

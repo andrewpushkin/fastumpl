@@ -1,6 +1,6 @@
 # fastumpl: design
 
-Status: version 1 implemented, 2026-11-16. Section 13 lists where the build differs from this design. PlantUML import and PlantUML/Mermaid export were added on 2026-11-17 (`docs/plans/2026-11-17-plantuml-mermaid.md`), and Umple import and export the same day (`docs/plans/2026-11-17-umple.md`).
+Status: version 1 implemented, 2026-11-16. Section 13 lists where the build differs from this design. PlantUML import and PlantUML/Mermaid export were added on 2026-11-17 (`docs/plans/2026-11-17-plantuml-mermaid.md`), and Umple import and export the same day (`docs/plans/2026-11-17-umple.md`). Real-world PlantUML files (includes, preprocessor, other diagram kinds), big diagrams that fill the window, the text panel linked to the selection, and Find were added on 2026-11-18 (`docs/plans/2026-11-18-big-plantuml.md`).
 
 ## 1. What this is
 
@@ -188,6 +188,7 @@ Rules:
 - If the file changes on disk while open, the app says so and offers to reload or keep the current version. It never overwrites silently.
 - The title bar shows the file name and an unsaved-changes mark. Closing with unsaved changes asks first.
 - Recent files are listed on the start screen. Files can also be opened by drag and drop or as a command-line argument.
+- A file without positions that holds more than 150 elements or 300 relations opens at once and is laid out on a background thread; the canvas stays empty and the status bar says "Laying out N classes…" until the layout arrives. That first layout is neither an undo step nor an unsaved change. Escape stops it early, keeping the first candidate (the layout cannot be skipped: there would be nothing to show).
 
 ## 6. Layout: how diagrams stay beautiful
 
@@ -225,9 +226,9 @@ Crossings are fought at six separate points, not one:
 
 Input: boxes with sizes, edges with kinds, groups, and optionally some fixed positions.
 
-1. **Split.** Handle each connected part of the diagram separately and pack the parts together at the end. Lay out the content of each package first, then treat the package as one large box in its parent. Laid out alone, a package cannot know where its outside lines go, which caused most crossings in diagrams with packages. So the whole placement runs again twice: each round, every package gets a stand-in for each outside line, placed where the line's other end was in the round before, and the parts of a package that are not connected to each other are placed left to right by where their outside lines go. Mathematically this optimises one package's order at a time with everything else held fixed.
+1. **Split.** Handle each connected part of the diagram separately and pack the parts together at the end. Lay out the content of each package first, then treat the package as one large box in its parent. Laid out alone, a package cannot know where its outside lines go, which caused most crossings in diagrams with packages. So the whole placement runs again twice: each round, every package gets a stand-in for each outside line, placed where the line's other end was in the round before, and the parts of a package that are not connected to each other are placed left to right by where their outside lines go. Mathematically this optimises one package's order at a time with everything else held fixed. The parts at the top level are packed in rows to fill the view: of 48 row widths, the one whose drawing needs the least zoom to fit a view of the target shape, `max(w, h · aspect)`, then the smallest area. Packing for the smallest area alone, as before, put many small parts in one long row, since a second row costs a whole gap between rows; a diagram of 100 unconnected classes opened as a thin strip. Inside a package the parts still pack for a compact package box, unless that box would be a strip of more than 8 parts longer than 6:1 (58 classes implementing an interface outside their package came out 40:1); then they too pack to fill. Below 6:1 a strip is kept: the parts are ordered left to right by where their outside lines go, and wrapping them into rows makes those lines cross (wrapping at 3:1 raised the 200-class test diagram from 211 to 263 crossings).
 2. **Direct the edges.** Generalization and realization always point up to the parent. Composition and aggregation prefer the whole above the part. Associations and dependencies have no fixed direction.
-3. **Assign layers.** Only the hierarchy edges force a box into a lower layer. Associations only pull their two ends close together, so associated classes tend to land side by side in the same layer. This gives the classic look: inheritance runs vertically, associations run horizontally. Each box in turn moves to the layer its hard rules allow that makes its weighted edge length smallest, until nothing moves. If a layer becomes too wide for a target shape of about 16:10, some boxes are pushed down so the diagram grows downward. Fewer, wider layers do not mean fewer crossings: removing this width limit cut long lines sharply but raised crossings by a third, because crowded layers cross more. How the boxes spread over layers changes the result more than any later step, so candidates try narrower and wider targets (0.6 to 1.7 times the usual).
+3. **Assign layers.** Only the hierarchy edges force a box into a lower layer. Associations only pull their two ends close together, so associated classes tend to land side by side in the same layer. This gives the classic look: inheritance runs vertically, associations run horizontally. Each box in turn moves to the layer its hard rules allow that makes its weighted edge length smallest, until nothing moves. If a layer becomes too wide for the target shape (the editor's canvas, width : height; 16:10 for the command line), some boxes are pushed down so the diagram grows downward. Boxes without a parent move first. When none can, children move too: inheritance only needs a child below its parent, not right below it, so sixty subclasses of one class fold into rows instead of one row as wide as all of them (width-bounded layering, as in Coffman and Graham's method). Moving a child stretches its inheritance line and splits its row of siblings, so inside a package, whose target comes from its own few boxes, children move only when a layer is twice too wide. Fewer, wider layers do not mean fewer crossings: removing this width limit cut long lines sharply but raised crossings by a third, because crowded layers cross more. How the boxes spread over layers changes the result more than any later step, so candidates try narrower and wider targets (0.6 to 1.7 times the usual).
 4. **Order each layer.** Step 1 in the table above. Children of the same parent are kept next to each other so their inheritance lines can share one trunk.
 5. **Assign coordinates.** Place boxes so long lines run straight and parents sit centred over their children (Brandes–Köpf method), respecting real box sizes and minimum gaps. Snap everything to the grid.
 6. **Route.** Section 6.5.
@@ -244,6 +245,16 @@ All lines are orthogonal: horizontal and vertical segments only, with slightly r
 - A final pass spreads apart lines that share a lane, ordered so they do not cross where they turn.
 - Lines always meet a box edge at a right angle and never at a corner.
 - Where a crossing cannot be avoided, one of the two lines gets a small gap so the eye follows each line correctly.
+
+The router's tables grow with the area of the drawing (about 90 bytes per grid point), and in a dense drawing its searches flood their window looking for a crossing-free detour that is not there: the estimate is the plain distance, while a crossing costs as much as 100 grid units. Measured on a 644-class, 1347-line C++ template diagram (15 million grid points), routing took 7 minutes. So:
+
+- Every routing pass may spend 100 million search states (a few seconds) on exact searches; the final polish a quarter of that. Sparse drawings never come near it (the 972-class diagram below routes in about a second); in a dense one, once it is spent, the remaining searches are bounded as in a large drawing. A budget per search does not work: dense and sparse searches look alike until they have run, and a search cut short in a sparse drawing loses a good route (tried: shared lanes in the 972-class diagram went from 0 to 582).
+- Above 3 million grid points a drawing is large: the search estimate is inflated three times (weighted A*: routes may be a little longer than the cheapest, the search goes straight at the target) and each search may visit 40,000 states in its window and 250,000 over the whole grid, then takes a draft line. The wider look and the final polish pass are skipped.
+- Above 300 lines, only one candidate is routed: every candidate is placed (cheap), and the one whose straight centre-to-centre lines cross least is routed.
+- Candidates route in parallel only as many at a time as fit in about 1.5 GB of tables.
+- Above 12 million grid points lines are drafts: straight between boxes that face each other, otherwise one bend, meeting box edges at right angles but not going around boxes. `Stats::draft` says so. The dense diagram above opens in 0.6 s; routing it in the bounded mode took 40 s and crossed as much.
+
+All limits count states and grid points, not time, so a layout stays the same on every machine.
 
 ### 6.6 Layout while editing
 
@@ -284,12 +295,17 @@ The status bar shows the current crossing count, so the user can see whether Tid
 
 Changes to the engine were judged on 52 generated class diagrams of 40 to 150 classes, with and without packages, by their total crossing count, because single diagrams vary too much from small changes to show a real effect. Against the engine before these changes (November 2026), the total fell from 4942 to 3414 crossings (−31%), and banking from 3 to 0. Tidy of a 40-class diagram takes about 130 ms.
 
+On 2026-11-18 the layout was made to fill the view (packing of loose parts, section 6.4 step 1, and children folding into rows, step 3). On the same 52 diagrams, extended into a test (section 10): 2808 → 2798 crossings, score 83161 → 83053, median width : height of the drawings 2.60 → 2.07, and drawings wider than 3:1 21 → 15. Sixty subclasses of one class went from a 34:1 strip to 4:1; 80 unconnected classes from one row to 1.6:1. The folded rows are still ragged (boxes of one row at a few heights, since compaction lets each rise until it meets a box above it); placing a large family of siblings as a grid would look cleaner.
+
 Tried and rejected, so they need not be tried again:
 
 - **A truer cost for same-layer lines** (counting the lines of the boxes they pass instead of the boxes): no gain overall, and worse on small diagrams with packages.
 - **Minimum total line length for layers** (fewer layers, fewer long lines): about a third more crossings, as layers get crowded.
 - **More restarts for small diagrams:** lower ordering cost, but no fewer crossings once routed. The ordering's count is only a model of the drawing.
 - **A smaller wider-search area, or a limit on its steps:** saved little time and lost much of its effect.
+- **Packing every scope to fill the view**, including the parts inside packages: banking's score rose from 199 to 221 and the 200-class diagram gained crossings. A package box should stay compact; only the top level fills the view.
+- **Folding children inside packages at the usual width:** small families of three or four subclasses split into rows for no gain (banking 199 → 220, same crossings).
+- **Bounded routing by line count (over 300 lines):** the 972-class diagram, which routes fully in 1.7 s, got 1692 shared lanes. Only the grid size predicts the cost.
 
 ## 7. Visual style
 
@@ -337,6 +353,8 @@ Interaction:
 - **Undo.** Every change is undoable with no limit within a session. A drag is one step, not one per frame.
 - **Keyboard.** Standard shortcuts for file and edit commands, single keys for tools, Ctrl-T for Tidy, and a command palette (Ctrl-K) that lists everything.
 - **Export.** File → Export holds every export: SVG, PNG, PlantUML, Mermaid and Umple to file, and copying as an image or as Mermaid.
+- **Find.** Ctrl+F opens a bar under the menu. It matches, ignoring case, element names, stereotypes and members, relation names and end labels, and package names. Every match is outlined in orange on the canvas and every occurrence of the text is tinted in the text panel; Enter and Shift+Enter (F3, Shift+F3) select the next or previous match and bring it into view, which also scrolls the text to its declaration.
+- **Fit.** Opening a diagram, and the F key, fit it to fill the canvas, zooming in up to 200 % for a small one and out to 5 % for a huge one.
 
 Undo is built on edit operations: each operation in `umpl-core` knows how to reverse itself, and a user action is a group of operations. The app never changes the document any other way, which also gives one place to mark the file as changed and to tell layout what needs redoing.
 
@@ -346,6 +364,7 @@ The text panel and the canvas edit one document; neither is a copy of the other.
 
 - **Text to document.** The parser builds a fresh document with fresh ids. Swapping it in would lose positions, the selection and undo, which all refer to ids, so `umpl_core::reconcile` maps the new items onto the current ones and emits ordinary edit operations for the difference. Packages match by full name; elements by package and name, then by name alone (moved between packages); relations by ends and kind. Whatever is left over is paired in declaration order when both sides have the same number left, which reads a single changed name as a rename rather than a delete and an add. An element the text removed is remembered by full name with its id and position, so a class that vanishes while its name is retyped returns to the same place. The operations go in as one merged undo step ("Edit text"), sealed when typing pauses for two seconds or the panel loses focus.
 - **When to apply.** The text is applied 0.25 s after the last keystroke, before any command runs, and when the panel loses focus. Text with an unclosed `{` is held back: the parser would read every following line as members of that class, and the diagram would lose those classes until the brace is typed.
+- **Linked to the selection.** The parser records, for each element, relation and package, the lines that declare it (to its closing `}`). The text has ids of its own, so items are matched with the document's by key: elements and packages by full name, relations by their ends, kind and which of the relations with those is meant (`app/link.rs`). Selecting an item in the drawing tints its lines blue, scrolls them into view and moves the text cursor there without taking the keyboard, so Delete still deletes the box. Moving the cursor in the text selects the innermost item declared on that line and pans the canvas to it if it is out of view; a line that declares nothing leaves the selection as it is.
 - **Document to text.** The panel shows `print_model`, the file without its `layout` block. After any revision the model text is printed again and compared with the one the panel last showed or applied; only when they differ is the panel's text replaced. Moving boxes, Tidy and placement of new boxes therefore never touch the text, and text the user typed stays as typed (not reformatted) until the model changes elsewhere.
 
 ## 9. Speed
@@ -378,6 +397,14 @@ Measured on 2026-11-16 (release build, 32-core machine; layout candidates run in
 
 Placement takes a few milliseconds; nearly all the time is line routing on the full grid. Meeting the targets needs a sparse routing graph (lanes only at box edges, ports and channel midpoints) instead of every grid point. Tidy runs on a background thread, so the editor stays responsive meanwhile.
 
+Measured on 2026-11-18 on real PlantUML files (release build, same machine), with the bounds of section 6.5:
+
+| File | Classes, lines | Before | After |
+|---|---|---|---|
+| bgembalczyk/F1 `uml_all_classes.puml` | 972, 536 | 1.7 s | 1.5 s, same layout |
+| LeDatPhucAn/CS202 `game_diagram.puml` (dense C++ templates) | 644, 1347 | 427 s | 0.6 s, draft lines |
+| lumin3000/rwsource `include.puml` | 5237, 11575 | out of memory | 36 s, draft lines |
+
 ## 10. Testing
 
 - **File round trip.** Reading a file and writing it gives the same document. Writing twice gives identical bytes. Tested with generated random documents as well as examples.
@@ -386,6 +413,8 @@ Placement takes a few milliseconds; nearly all the time is line routing on the f
 - **Pictures.** SVG output of the corpus is stored and compared, so visual changes show up in review.
 - **Speed.** Benchmarks for the targets in section 9.
 - **Editor.** Edit operations and undo are tested without a window. The window layer stays thin.
+- **Real PlantUML files.** `crates/umpl-draw/tests/puml_corpus.rs` opens every PlantUML file in given folders as the editor does and fails on a panic, an overlap or a file that takes more than a minute; it reports problems by kind, diagram kinds, drawing shapes and the slowest files. The corpus is about 8000 files over 5 KB from 4500 public GitHub repositories with the 6000 files they include (`scripts/puml-corpus.py`, pinned in `tests/puml-corpus/manifest.tsv`), plus three sample repositories in the dev image.
+- **Layout benchmark.** `cargo test --release -p umpl-draw --test corpus -- --ignored benchmark`: the 52 generated diagrams of section 6.8, total crossings, score and drawing shapes.
 
 ## 10a. Distribution
 
