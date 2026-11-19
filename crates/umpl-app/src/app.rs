@@ -18,6 +18,7 @@ use crate::camera::Camera;
 use crate::canvas::CanvasState;
 use crate::commands::{Cmd, ThemePref, Tool};
 use crate::inspector::InspectorState;
+use crate::prefs::Prefs;
 use crate::session::Session;
 use crate::source::SourceState;
 use crate::storage::{push_recent, Storage};
@@ -49,6 +50,7 @@ pub enum Dialog {
     Problems,
     Shortcuts,
     About,
+    Settings,
     /// A PlantUML file with several diagrams: which one to open.
     PickDiagram(PathBuf, Vec<umpl_text::plantuml::DiagramInfo>),
 }
@@ -65,6 +67,8 @@ pub struct App {
     pub show_grid: bool,
     /// Fewest line crossings (the default) or fill the window.
     pub layout_goal: Goal,
+    /// Fonts and text sizes.
+    pub prefs: Prefs,
     pub recent: Vec<PathBuf>,
     pub tidy: Option<TidyJob>,
     pub dialog: Option<Dialog>,
@@ -126,8 +130,9 @@ pub const EXPORT_MENU: [(Option<Cmd>, &str); 8] = [
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>) -> App {
-        crate::paint::install_fonts(&cc.egui_ctx);
         let storage = Storage::new();
+        let prefs = Prefs::load(&storage);
+        prefs.apply(&cc.egui_ctx);
         let theme_pref = match storage.load_setting("theme").as_deref() {
             Some("light") => ThemePref::Light,
             Some("dark") => ThemePref::Dark,
@@ -148,6 +153,7 @@ impl App {
             theme_pref,
             show_grid,
             layout_goal,
+            prefs,
             tidy: None,
             dialog: None,
             palette: None,
@@ -174,6 +180,10 @@ impl App {
             if let Some(id) = s.editor.doc.find(&name) {
                 app.sel = Selection::only_element(id);
             }
+        }
+        // For screenshots of a dialog: `UMPL_SHOW=settings`.
+        if std::env::var("UMPL_SHOW").as_deref() == Ok("settings") {
+            app.dialog = Some(Dialog::Settings);
         }
         app
     }
@@ -837,6 +847,7 @@ impl App {
             Cmd::Palette => self.palette = Some((String::new(), 0)),
             Cmd::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Cmd::About => self.dialog = Some(Dialog::About),
+            Cmd::Settings => self.dialog = Some(Dialog::Settings),
             Cmd::Tool(t) => {
                 self.tool = t;
                 self.canvas.cancel();
@@ -867,6 +878,8 @@ impl App {
             | Cmd::Theme(_)
             | Cmd::Shortcuts
             | Cmd::About
+            | Cmd::Settings
+            | Cmd::LayoutGoal(_)
             | Cmd::Palette => true,
             Cmd::Undo => self.session.as_ref().is_some_and(|s| s.editor.can_undo()),
             Cmd::Redo => self.session.as_ref().is_some_and(|s| s.editor.can_redo()),
@@ -1113,6 +1126,8 @@ impl App {
                             }
                         });
                     });
+                    ui.separator();
+                    self.menu_item(ui, Cmd::Settings);
                     ui.separator();
                     self.menu_item(ui, Cmd::Quit);
                 });

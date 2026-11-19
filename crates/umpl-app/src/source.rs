@@ -75,6 +75,7 @@ pub struct SourceState {
 struct GalleyKey {
     text: String,
     dark: bool,
+    size: f32,
     problems: Vec<usize>,
     linked: Vec<(usize, usize)>,
     found: Vec<std::ops::Range<usize>>,
@@ -229,6 +230,7 @@ impl App {
             .map(|p| p.line)
             .collect();
         let dark = ui.visuals().dark_mode;
+        let size = self.prefs.text_size;
         let linked = self.source.highlight.clone();
         let found = self.found_ranges();
         let found_bg = if dark {
@@ -244,6 +246,7 @@ impl App {
             if let Some((key, galley)) = cache.as_ref() {
                 let same = key.text == text
                     && key.dark == dark
+                    && key.size == size
                     && key.problems == problems
                     && key.linked == linked
                     && key.found == found;
@@ -251,7 +254,7 @@ impl App {
                     return galley.clone();
                 }
             }
-            let mut job = highlight(text, dark, &problem_lines, &linked);
+            let mut job = highlight(text, dark, size, &problem_lines, &linked);
             // Ranges found in an older text are dropped, not misplaced.
             if found.iter().all(|r| r.end <= job.text.len()) {
                 crate::find::mark(&mut job, &found, found_bg);
@@ -261,6 +264,7 @@ impl App {
                 GalleyKey {
                     text: text.to_string(),
                     dark,
+                    size,
                     problems: problems.clone(),
                     linked: linked.clone(),
                     found: found.clone(),
@@ -512,11 +516,12 @@ impl Palette {
 pub fn highlight(
     text: &str,
     dark: bool,
+    size: f32,
     problem_lines: &HashSet<usize>,
     linked: &[(usize, usize)],
 ) -> LayoutJob {
     let pal = Palette::new(dark);
-    let font = FontId::new(13.0, crate::paint::family(false, false));
+    let font = FontId::new(size, crate::paint::family(false, false));
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
     let mut in_body = false;
@@ -618,7 +623,7 @@ mod tests {
     #[test]
     fn highlight_keeps_every_character() {
         let text = "diagram \"Shop\"\n# c\nabstract class A <<x>> {\n  #f(): \"q\\é\"\n}\nA \"1\" *-- \"*\" B : has\nnöt ünderstood\n";
-        let job = highlight(text, false, &HashSet::from([7]), &[(3, 5)]);
+        let job = highlight(text, false, 13.0, &HashSet::from([7]), &[(3, 5)]);
         assert_eq!(job.text, text);
         let kw = Palette::new(false).keyword;
         let colored = |s: &str| {
@@ -660,7 +665,7 @@ mod timing {
         let text =
             umpl_text::print_model(&umpl_text::parse(&std::fs::read_to_string(path).unwrap()).doc);
         let start = std::time::Instant::now();
-        let job = super::highlight(&text, false, &Default::default(), &[(10, 20)]);
+        let job = super::highlight(&text, false, 13.0, &Default::default(), &[(10, 20)]);
         let t1 = start.elapsed();
         let ranges = crate::find::text_ranges(&text, "account");
         let t2 = start.elapsed() - t1;

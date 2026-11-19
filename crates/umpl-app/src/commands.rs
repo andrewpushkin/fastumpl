@@ -91,6 +91,7 @@ pub enum Cmd {
     Palette,
     Shortcuts,
     About,
+    Settings,
     Tool(Tool),
 }
 
@@ -137,6 +138,7 @@ impl Cmd {
             Cmd::LayoutGoal(Goal::FewestCrossings),
             Cmd::LayoutGoal(Goal::FillView),
             Cmd::Problems,
+            Cmd::Settings,
             Cmd::Shortcuts,
             Cmd::About,
             Cmd::Quit,
@@ -183,6 +185,7 @@ impl Cmd {
             Cmd::Palette => "Command palette".into(),
             Cmd::Shortcuts => "Keyboard shortcuts".into(),
             Cmd::About => "About fastumpl".into(),
+            Cmd::Settings => "Settings…".into(),
             Cmd::Tool(t) => format!("Tool: {}", t.label()),
         }
     }
@@ -203,6 +206,7 @@ impl Cmd {
             Cmd::Redo => k(CMD_SHIFT, Key::Z),
             Cmd::SelectAll => k(CMD, Key::A),
             Cmd::Find => k(CMD, Key::F),
+            Cmd::Settings => k(CMD, Key::Comma),
             Cmd::Tidy => k(CMD, Key::T),
             Cmd::Fit => k(Modifiers::NONE, Key::F),
             Cmd::ZoomIn => k(CMD, Key::Plus),

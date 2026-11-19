@@ -27,7 +27,10 @@ pub fn family(bold: bool, italic: bool) -> FontFamily {
 }
 
 /// Registers the bundled font faces as the families used by [`family`].
-pub fn install_fonts(ctx: &egui::Context) {
+/// Installs the diagram's fonts; with `mono_ui` the interface uses its
+/// regular face too (egui's own fonts stay behind it for other scripts and
+/// symbols).
+pub fn install_fonts(ctx: &egui::Context, mono_ui: bool) {
     use std::sync::Arc;
     let mut fonts = egui::FontDefinitions::default();
     let faces = [
@@ -43,6 +46,11 @@ pub fn install_fonts(ctx: &egui::Context) {
         fonts
             .families
             .insert(FontFamily::Name(name.into()), vec![name.into()]);
+    }
+    if mono_ui {
+        if let Some(list) = fonts.families.get_mut(&FontFamily::Proportional) {
+            list.insert(0, "mono".into());
+        }
     }
     ctx.set_fonts(fonts);
 }

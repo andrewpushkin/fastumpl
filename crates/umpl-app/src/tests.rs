@@ -774,6 +774,43 @@ fn the_text_panel_can_be_hidden_and_shown() {
 }
 
 #[test]
+fn settings_window_changes_and_saves_settings() {
+    let mut h = new_app();
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::Settings);
+    h.run_steps(3);
+    assert!(matches!(
+        h.state().dialog,
+        Some(crate::app::Dialog::Settings)
+    ));
+    // A pointer moves onto a control before it clicks.
+    h.get_by_label("Fill the window").hover();
+    h.run_steps(1);
+    h.get_by_label("Fill the window").click();
+    h.run_steps(3);
+    assert_eq!(h.state().layout_goal, umpl_layout::Goal::FillView);
+    // A bigger text panel font, as the slider would set it.
+    let mut prefs = h.state().prefs;
+    prefs.text_size = 18.0;
+    prefs.save(&h.state().storage);
+    let storage = &h.state().storage;
+    let loaded = crate::prefs::Prefs::load(storage);
+    let layout = storage.load_setting("layout");
+    // Back to the defaults, which the other tests expect.
+    h.get_by_label("Reset to defaults").hover();
+    h.run_steps(1);
+    h.get_by_label("Reset to defaults").click();
+    h.run_steps(3);
+    crate::prefs::Prefs::default().save(&h.state().storage);
+    assert_eq!(loaded.text_size, 18.0);
+    assert_eq!(layout.as_deref(), Some("fill"));
+    assert_eq!(h.state().layout_goal, umpl_layout::Goal::FewestCrossings);
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    assert!(h.state().dialog.is_none());
+}
+
+#[test]
 fn saved_settings_are_read_back() {
     use crate::app::{grid_shown, layout_goal, layout_goal_setting};
     use umpl_layout::Goal;

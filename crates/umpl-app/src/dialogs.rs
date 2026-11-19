@@ -178,6 +178,11 @@ impl App {
                         keep = false;
                     }
                 }
+                Dialog::Settings => {
+                    if self.settings_ui(ui) {
+                        keep = false;
+                    }
+                }
                 Dialog::About => {
                     ui.heading("fastumpl");
                     ui.label(format!("Version {}", crate::VERSION));

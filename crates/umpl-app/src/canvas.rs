@@ -994,7 +994,10 @@ impl App {
                     let edit = self.canvas.edit.as_mut().unwrap();
                     let name = ui.add(
                         egui::TextEdit::singleline(&mut edit.name)
-                            .font(FontId::new(15.0, crate::paint::family(true, false)))
+                            .font(FontId::new(
+                                self.prefs.ui(15.0),
+                                crate::paint::family(true, false),
+                            ))
                             .desired_width(f32::INFINITY)
                             .hint_text("Name"),
                     );
@@ -1021,7 +1024,10 @@ impl App {
                     );
                     ui.add(
                         egui::TextEdit::multiline(&mut edit.body)
-                            .font(FontId::new(13.0, crate::paint::family(false, false)))
+                            .font(FontId::new(
+                                self.prefs.ui(13.0),
+                                crate::paint::family(false, false),
+                            ))
                             .desired_rows(5)
                             .desired_width(f32::INFINITY)
                             .hint_text(hint),

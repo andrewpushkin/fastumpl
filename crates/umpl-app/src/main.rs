@@ -15,6 +15,7 @@ mod icons;
 mod inspector;
 mod link;
 mod paint;
+mod prefs;
 mod scrollbar;
 mod session;
 mod source;

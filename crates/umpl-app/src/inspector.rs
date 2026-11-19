@@ -179,7 +179,10 @@ impl App {
         });
         let r = ui.add(
             TextEdit::multiline(&mut self.inspector.members)
-                .font(egui::FontId::new(12.5, crate::paint::family(false, false)))
+                .font(egui::FontId::new(
+                    self.prefs.ui(12.5),
+                    crate::paint::family(false, false),
+                ))
                 .desired_rows(8)
                 .desired_width(f32::INFINITY),
         );

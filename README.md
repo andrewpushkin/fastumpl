@@ -85,10 +85,15 @@ The panel on the left shows the model part of the file (everything above `layout
 
 ## Settings
 
-Saved for the next run (in `~/.config/fastumpl/settings.txt`; on Windows `%APPDATA%\fastumpl`, or the `data` folder of the portable zip), with the recent files:
+File → Settings… (Ctrl+,) opens the Settings window. Every change applies at once and is saved for the next run (in `~/.config/fastumpl/settings.txt`; on Windows `%APPDATA%\fastumpl`, or the `data` folder of the portable zip), as are the recent files:
 
-- **Layout** (Arrange menu): lay diagrams out for the **fewest line crossings** (the default; a drawing may come out much wider or taller than the window), or for **filling the window**: the drawing takes the window's shape, with no blank band beside or below it, for a few more crossings where need be. It applies to diagrams opened from then on and to Tidy.
-- **Theme** (follow the system, light or dark), the **text panel** and the **grid** (View menu).
+- **Layout:** lay diagrams out for the **fewest line crossings** (the default; a drawing may come out much wider or taller than the window), or to **fill the window**: the drawing takes the window's shape, with no blank band beside or below it, for a few more crossings where need be. It applies to diagrams opened from then on and to Tidy (also in the Arrange menu).
+- **Theme:** follow the system, light or dark (also in the View menu).
+- **Interface text:** size, 80–160 %, and font: sans or monospace (DejaVu Sans Mono, the diagram's font).
+- **Text panel:** shown or hidden (also View → Text), and its font size, 9–24 pt.
+- **Canvas:** the grid shown or hidden (also View → Grid).
+
+The diagram's own text keeps its size, since boxes are measured from it and a saved layout would no longer fit them; zoom instead. **Reset to defaults** puts everything back.
 
 ## Command line
 
@@ -130,6 +135,7 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | Drag from a dot on a box edge | Connect (pick the relation kind) |
 | V C A I E N P R | Tools: select, class, abstract, interface, enum, note, package, relation (also the icons on the left) |
 | Ctrl+T | Tidy |
+| Ctrl+, | Settings |
 | F | Fit diagram in window (zooms in up to 200 % for a small diagram) |
 | Ctrl+K | Command palette |
 | Ctrl+F, then Enter / Shift+Enter (or F3 / Shift+F3) | Find, next and previous match; Esc closes |
