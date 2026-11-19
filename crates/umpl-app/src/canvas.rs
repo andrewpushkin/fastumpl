@@ -706,9 +706,16 @@ impl App {
             let show: Vec<ElementId> = self.canvas.hover.into_iter().collect();
             for id in show {
                 if let Some((_, r)) = geo.elements.iter().find(|(e, _)| *e == id) {
+                    // Connection points: small squares.
                     for h in handles(*r) {
                         let p = self.camera.to_screen(h);
-                        painter.circle(p, 4.5, c32(theme.box_fill), Stroke::new(1.5, accent));
+                        painter.rect(
+                            Rect::from_center_size(p, Vec2::splat(8.0)),
+                            1.0,
+                            c32(theme.box_fill),
+                            Stroke::new(1.5, accent),
+                            StrokeKind::Middle,
+                        );
                     }
                 }
             }
@@ -724,15 +731,10 @@ impl App {
                 .filter(|(id, _)| self.sel.packages.contains(id))
                 .map(|(_, r)| r);
             for r in selected_boxes.map(|(_, r)| r).chain(selected_packages) {
+                // Resize handles: small circles.
                 for c in corners(*r) {
                     let p = self.camera.to_screen(c);
-                    painter.rect(
-                        Rect::from_center_size(p, Vec2::splat(7.0)),
-                        1.0,
-                        c32(theme.box_fill),
-                        Stroke::new(1.5, accent),
-                        StrokeKind::Middle,
-                    );
+                    painter.circle(p, 4.0, c32(theme.box_fill), Stroke::new(1.5, accent));
                 }
             }
         }
