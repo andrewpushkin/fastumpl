@@ -1,17 +1,17 @@
-# name crossings score (lower is better)
-banking 0 199.0
-banking+fill 0 207.6
-library 0 74.7
-library+fill 0 84.6
-shapes 0 50.4
-shapes+fill 0 50.4
-shop 0 7.7
-shop+fill 0 7.7
-gen-20-1 0 63.6
-gen-20-1+fill 0 96.3
-gen-20-2 0 113.1
-gen-20-2+fill 0 84.4
-gen-80-3 40 1686.5
-gen-80-3+fill 40 1686.5
-gen-200-4 211 5668.0
-gen-200-4+fill 257 6468.3
+# name crossings score labels-over-something (lower is better)
+banking 0 199.0 0
+banking+fill 0 207.6 0
+library 0 74.7 0
+library+fill 0 82.8 0
+shapes 0 50.4 0
+shapes+fill 0 50.4 0
+shop 0 7.7 0
+shop+fill 0 7.7 0
+gen-20-1 0 63.6 0
+gen-20-1+fill 0 96.3 0
+gen-20-2 0 113.1 0
+gen-20-2+fill 0 84.4 0
+gen-80-3 40 1686.5 0
+gen-80-3+fill 40 1686.5 0
+gen-200-4 211 5668.0 0
+gen-200-4+fill 257 6468.3 0

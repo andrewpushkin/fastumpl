@@ -54,13 +54,15 @@ impl Edge {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Group {
     pub parent: Option<usize>,
     /// Height of the name tab above the content.
     pub header: i32,
     /// Minimum width (the name tab must fit).
     pub min_w: i32,
+    /// An area the frame covers besides its content (the user resized it).
+    pub frame: Option<Rect>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -286,6 +288,9 @@ pub fn group_rects(graph: &Graph, nodes: &[(i32, i32)]) -> Vec<Rect> {
             inner.h + 2 * GROUP_PAD + graph.groups[g].header,
         );
         r.w = r.w.max(graph.groups[g].min_w);
+        if let Some(f) = graph.groups[g].frame {
+            r = r.union(&f);
+        }
         rects[g] = r;
         if let Some(p) = graph.groups[g].parent {
             content[p] = Some(content[p].map_or(r, |c| c.union(&r)));
@@ -314,11 +319,13 @@ mod tests {
             parent: None,
             header: 3,
             min_w: 0,
+            frame: None,
         });
         g.groups.push(Group {
             parent: Some(0),
             header: 3,
             min_w: 0,
+            frame: None,
         });
         let a = g.add_node(10, 4);
         g.nodes[a].group = Some(1);

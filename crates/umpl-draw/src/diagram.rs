@@ -75,6 +75,9 @@ pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
                 .and_then(|q| group_of.get(&q).copied()),
             header: PACKAGE_HEADER,
             min_w: ((text_width(name, 12.0) + 24.0) / crate::GRID).ceil() as i32 + 4,
+            frame: doc.packages[p]
+                .frame
+                .map(|(pos, (w, h))| umpl_layout::Rect::new(pos.x, pos.y, w, h)),
         });
     }
     m.packages = packages.clone();
@@ -174,7 +177,11 @@ impl Diagram {
 
     /// Lays out everything from scratch (Tidy).
     pub fn tidy(doc: &Document, opts: &Options) -> Diagram {
-        let (graph, mapping) = build_graph(doc);
+        let (mut graph, mapping) = build_graph(doc);
+        // A new layout: frames go back to around their content.
+        for g in &mut graph.groups {
+            g.frame = None;
+        }
         let layout = umpl_layout::layout_all(&graph, opts);
         Diagram {
             graph,

@@ -461,10 +461,46 @@ impl Editor {
         }
     }
 
-    /// Sets many positions as one undo step named `label` (Tidy).
+    /// Sets many positions as one undo step named `label` (Tidy). A whole
+    /// new layout (`Tidy`) also drops the areas given to package frames,
+    /// which no longer fit it.
     pub fn set_positions(&mut self, label: &str, positions: &[(ElementId, Option<Pos>)]) {
-        let ops = self.position_ops(positions);
+        let mut ops = self.position_ops(positions);
+        if label == "Tidy" {
+            for (id, p) in &self.doc.packages {
+                if p.frame.is_some() {
+                    let mut new = p.clone();
+                    new.frame = None;
+                    ops.push(Op::Package(*id, Some(new)));
+                }
+            }
+        }
         self.transact(label, ops);
+    }
+
+    /// Gives package `id` the frame area `frame` (`None`: just around its
+    /// content). With a `merge_key`, repeated calls merge into one undo step
+    /// until [`Editor::seal`] (a drag).
+    pub fn set_package_frame(
+        &mut self,
+        id: PackageId,
+        frame: Option<(Pos, (i32, i32))>,
+        merge_key: Option<&str>,
+    ) {
+        let Some(p) = self.doc.packages.get(&id) else {
+            return;
+        };
+        if p.frame == frame {
+            return;
+        }
+        let label = format!("Resize {}", p.name);
+        let mut new = p.clone();
+        new.frame = frame;
+        let ops = vec![Op::Package(id, Some(new))];
+        match merge_key {
+            Some(k) => self.transact_merge(k, &label, ops),
+            None => self.transact(&label, ops),
+        }
     }
 
     /// Resizes element `id` to at least `size` grid units (`None`: as big

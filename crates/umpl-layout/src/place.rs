@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::coords::assign_coords;
 use crate::graph::*;
-use crate::labels::place_labels;
+use crate::labels::{label_overlaps, place_labels};
 use crate::layering::{assign_layers_with, FlatEdge};
 use crate::ordering::{Ghost, GhostSide, Layered};
 use crate::rng::Rng;
@@ -959,6 +959,7 @@ fn finalize_with(graph: &Graph, nodes: Vec<(i32, i32)>, wide: bool) -> Layout {
     let groups = group_rects(graph, &nodes);
     let labels = place_labels(graph, &nodes, &routes);
     let mut stats = measure(graph, &nodes, &routes);
+    stats.label_overlaps = label_overlaps(graph, &nodes, &routes, &labels);
     stats.draft = crate::router::grid_cells(graph, &nodes) > crate::router::DRAFT_CELLS;
     Layout {
         nodes,
@@ -1132,6 +1133,7 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
     polish(graph, &best.nodes, &mut routes);
     let labels = place_labels(graph, &best.nodes, &routes);
     let mut stats = measure(graph, &best.nodes, &routes);
+    stats.label_overlaps = label_overlaps(graph, &best.nodes, &routes, &labels);
     stats.draft = best.stats.draft;
     if stats.score() <= best.stats.score() {
         Layout {
@@ -1324,7 +1326,8 @@ pub fn update_after_move(graph: &Graph, prev: &Layout, moved: &[usize]) -> Layou
     crate::router::reroute(graph, &nodes, &mut routes, moved);
     let groups = group_rects(graph, &nodes);
     let labels = place_labels(graph, &nodes, &routes);
-    let stats = measure(graph, &nodes, &routes);
+    let mut stats = measure(graph, &nodes, &routes);
+    stats.label_overlaps = label_overlaps(graph, &nodes, &routes, &labels);
     Layout {
         nodes,
         routes,
@@ -1438,6 +1441,7 @@ mod tests {
             parent: None,
             header: 3,
             min_w: 10,
+            frame: None,
         });
         let a = g.add_node(10, 4);
         let b = g.add_node(10, 4);
@@ -1552,6 +1556,7 @@ mod tests {
             parent: None,
             header: 3,
             min_w: 10,
+            frame: None,
         });
         let column: Vec<usize> = (0..4).map(|_| g.add_node(20, 6)).collect();
         for &c in &column {
@@ -1646,6 +1651,7 @@ mod tests {
             parent: None,
             header: 3,
             min_w: 10,
+            frame: None,
         });
         let p = g.add_node(12, 5);
         let a = g.add_node(12, 5);

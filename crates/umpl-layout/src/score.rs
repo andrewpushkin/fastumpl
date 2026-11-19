@@ -19,6 +19,9 @@ pub struct Stats {
     /// The drawing was too big to route: lines are drafts that do not go
     /// around boxes.
     pub draft: bool,
+    /// Labels drawn over something: a box, another label, a line through
+    /// their text, a package's border or its title.
+    pub label_overlaps: usize,
 }
 
 impl Stats {
@@ -184,6 +187,7 @@ pub fn measure(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]) -> Stats {
         shared_lanes: shared_lanes(graph, routes),
         area,
         draft: false,
+        label_overlaps: 0,
     }
 }
 

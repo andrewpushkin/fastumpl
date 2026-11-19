@@ -147,6 +147,10 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
             body: map_decls(&p.body),
             color: p.color.clone(),
             comments: p.comments.clone(),
+            // The frame, like positions, is not in the text.
+            frame: p
+                .frame
+                .or_else(|| cur.packages.get(&id).and_then(|c| c.frame)),
         };
         if cur.packages.get(&id) != Some(&new) {
             ops.push(Op::Package(id, Some(new)));

@@ -596,6 +596,11 @@ impl Parser {
                     el.pos = Some(p.pos);
                     el.size = p.size;
                 }
+                // A package's frame: `billing at x, y size w, h`.
+                Some(Endpoint::Package(id)) if p.size.is_some() => {
+                    let pkg = self.doc.packages.get_mut(id).unwrap();
+                    pkg.frame = p.size.map(|s| (p.pos, s));
+                }
                 _ => self.problem(
                     p.line,
                     1,

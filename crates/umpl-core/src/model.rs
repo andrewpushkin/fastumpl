@@ -428,6 +428,10 @@ pub struct Package {
     /// the frame.
     pub color: Option<String>,
     pub comments: Vec<String>,
+    /// The area the user gave the package's frame (top-left corner and
+    /// size, in grid units): the frame covers at least this and always its
+    /// content. Like positions, it is layout.
+    pub frame: Option<(Pos, (i32, i32))>,
 }
 
 impl Package {
@@ -437,6 +441,7 @@ impl Package {
             body: Vec::new(),
             color: None,
             comments: Vec::new(),
+            frame: None,
         }
     }
 }

@@ -112,7 +112,10 @@ fn corpus() -> Vec<(String, Document)> {
 #[test]
 fn layout_quality_does_not_regress() {
     let scores_path = root().join("tests/corpus/scores.txt");
-    let recorded: BTreeMap<String, (usize, f64)> = std::fs::read_to_string(&scores_path)
+    // Name, crossings, score, and labels drawn over something (a box,
+    // a label, a line, a package's border or title).
+    type Recorded = (usize, f64, Option<usize>);
+    let recorded: BTreeMap<String, Recorded> = std::fs::read_to_string(&scores_path)
         .unwrap_or_default()
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
@@ -120,12 +123,17 @@ fn layout_quality_does_not_regress() {
             let p: Vec<&str> = l.split_whitespace().collect();
             (
                 p[0].to_string(),
-                (p[1].parse().unwrap(), p[2].parse().unwrap()),
+                (
+                    p[1].parse().unwrap(),
+                    p[2].parse().unwrap(),
+                    p.get(3).and_then(|v| v.parse().ok()),
+                ),
             )
         })
         .collect();
     let update = std::env::var_os("UPDATE_SCORES").is_some();
-    let mut lines = vec!["# name crossings score (lower is better)".to_string()];
+    let mut lines =
+        vec!["# name crossings score labels-over-something (lower is better)".to_string()];
     let mut failures = Vec::new();
     // Each diagram laid out for the fewest crossings (the default), and
     // to fill the view (recorded as `name+fill`).
@@ -150,12 +158,22 @@ fn layout_quality_does_not_regress() {
             "{name}: {} crossings, score {score}, width : height {shape:.2}",
             s.crossings
         );
-        lines.push(format!("{name} {} {score:.1}", s.crossings));
-        if let Some(&(c, sc)) = recorded.get(&name) {
+        lines.push(format!(
+            "{name} {} {score:.1} {}",
+            s.crossings, s.label_overlaps
+        ));
+        if let Some(&(c, sc, lo)) = recorded.get(&name) {
             if s.crossings > c || score > sc + 0.05 {
                 failures.push(format!(
                     "{name}: {} crossings (was {c}), score {score} (was {sc})",
                     s.crossings
+                ));
+            }
+            if lo.is_some_and(|lo| s.label_overlaps > lo) {
+                failures.push(format!(
+                    "{name}: {} labels drawn over something (was {})",
+                    s.label_overlaps,
+                    lo.unwrap()
                 ));
             }
         } else if !update {

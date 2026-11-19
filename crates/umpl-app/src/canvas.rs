@@ -38,6 +38,9 @@ pub enum Hit {
     Element(ElementId),
     Relation(RelationId),
     Package(PackageId),
+    /// A corner of a selected package's frame, to resize it (numbered as
+    /// for [`Hit::Corner`]).
+    PackageCorner(PackageId, u8),
     Empty,
 }
 
@@ -45,6 +48,8 @@ pub enum Drag {
     Move {
         start: (f32, f32),
         origin: Vec<(ElementId, Pos)>,
+        /// Frames the user gave packages that move along, where they were.
+        frames: Vec<(PackageId, Pos, (i32, i32))>,
         last: (i32, i32),
     },
     Rubber {
@@ -64,6 +69,16 @@ pub enum Drag {
         start: (f32, f32),
         rect: (i32, i32, i32, i32),
         min: (i32, i32),
+        last: (i32, i32),
+    },
+    /// Dragging a corner of package `id`'s frame: the frame and the area
+    /// around its content when the drag began (grid units: x, y, w, h).
+    ResizePackage {
+        id: PackageId,
+        corner: u8,
+        start: (f32, f32),
+        rect: (i32, i32, i32, i32),
+        content: (i32, i32, i32, i32),
         last: (i32, i32),
     },
 }
@@ -156,6 +171,19 @@ fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
 pub fn handles(r: RectF) -> [(f32, f32); 4] {
     let (cx, cy) = r.center();
     [(cx, r.y), (r.right(), cy), (cx, r.bottom()), (r.x, cy)]
+}
+
+/// Is package `q` the package `p` or inside it?
+fn package_within(doc: &umpl_core::Document, q: PackageId, p: PackageId) -> bool {
+    let mut cur = Some(q);
+    for _ in 0..=doc.packages.len() {
+        match cur {
+            Some(c) if c == p => return true,
+            Some(c) => cur = doc.container_of(&umpl_core::Decl::Package(c)),
+            None => return false,
+        }
+    }
+    false
 }
 
 /// Corners where a selected box can be resized: top left, top right,
@@ -382,6 +410,18 @@ impl App {
                 }
             }
         }
+        if with_handles {
+            for (id, r) in geo.packages.iter().rev() {
+                if !self.sel.packages.contains(id) {
+                    continue;
+                }
+                for (k, c) in corners(*r).iter().enumerate() {
+                    if ((c.0 - world.0).powi(2) + (c.1 - world.1).powi(2)).sqrt() * z < 7.0 {
+                        return Hit::PackageCorner(*id, k as u8);
+                    }
+                }
+            }
+        }
         if let Some((id, _)) = geo.elements.iter().rev().find(|(_, r)| r.contains(world)) {
             return Hit::Element(*id);
         }
@@ -394,11 +434,11 @@ impl App {
                 return Hit::Relation(*id);
             }
         }
-        // Packages are picked by their name tab or border, innermost first.
+        // A package is picked anywhere in its frame not taken by a box or
+        // a line, innermost first, as in drawing tools: a drag there moves
+        // it.
         for (id, r) in geo.packages.iter().rev() {
-            let tab = RectF::new(r.x, r.y, r.w.min(160.0), 24.0);
-            let near_border = r.expand(tol).contains(world) && !r.expand(-tol).contains(world);
-            if tab.contains(world) || near_border {
+            if r.expand(tol).contains(world) {
                 return Hit::Package(*id);
             }
         }
@@ -424,7 +464,7 @@ impl App {
                     };
                 }
             }
-            Hit::Package(id) => {
+            Hit::Package(id) | Hit::PackageCorner(id, _) => {
                 if shift {
                     toggle(&mut self.sel.packages, id);
                 } else {
@@ -620,8 +660,13 @@ impl App {
         // Cursor.
         match (&self.canvas.drag, hit_now, self.tool) {
             (Some(Drag::Move { .. }), _, _) => ctx.set_cursor_icon(CursorIcon::Grabbing),
-            (Some(Drag::Resize { corner: c, .. }), _, _) => ctx.set_cursor_icon(resize_cursor(*c)),
-            (None, Hit::Corner(_, c), _) => ctx.set_cursor_icon(resize_cursor(c)),
+            (Some(Drag::Resize { corner: c, .. }), _, _)
+            | (Some(Drag::ResizePackage { corner: c, .. }), _, _) => {
+                ctx.set_cursor_icon(resize_cursor(*c))
+            }
+            (None, Hit::Corner(_, c) | Hit::PackageCorner(_, c), _) => {
+                ctx.set_cursor_icon(resize_cursor(c))
+            }
             (Some(Drag::Connect { .. }), _, _) | (None, Hit::Handle(_), _) => {
                 ctx.set_cursor_icon(CursorIcon::Crosshair)
             }
@@ -670,10 +715,16 @@ impl App {
             }
         }
         if self.tool == Tool::Select && self.canvas.edit.is_none() {
-            for (id, r) in &geo.elements {
-                if !self.sel.elements.contains(id) {
-                    continue;
-                }
+            let selected_boxes = geo
+                .elements
+                .iter()
+                .filter(|(id, _)| self.sel.elements.contains(id));
+            let selected_packages = geo
+                .packages
+                .iter()
+                .filter(|(id, _)| self.sel.packages.contains(id))
+                .map(|(_, r)| r);
+            for r in selected_boxes.map(|(_, r)| r).chain(selected_packages) {
                 for c in corners(*r) {
                     let p = self.camera.to_screen(c);
                     painter.rect(
@@ -714,7 +765,7 @@ impl App {
                 }
             }
             Some(Drag::Move { .. }) => self.paint_guides(&painter, &geo, accent),
-            Some(Drag::Resize { .. }) | None => {}
+            Some(Drag::Resize { .. }) | Some(Drag::ResizePackage { .. }) | None => {}
         }
 
         self.paint_found(&painter);
@@ -852,7 +903,11 @@ impl App {
                 (Tool::Select, Hit::Element(id)) if !self.sel.elements.contains(&id) => {
                     self.select_hit(hit, shift)
                 }
-                (Tool::Select, Hit::Package(_)) => self.select_hit(hit, false),
+                (Tool::Select, Hit::Package(p) | Hit::PackageCorner(p, _))
+                    if !self.sel.packages.contains(&p) =>
+                {
+                    self.select_hit(hit, false)
+                }
                 _ => {}
             }
             let s = self.session.as_ref().unwrap();
@@ -891,20 +946,50 @@ impl App {
                     Some(Drag::Move {
                         start: world,
                         origin,
+                        frames: Vec::new(),
                         last: (0, 0),
                     })
                 }
+                (Tool::Select, Hit::PackageCorner(p, corner)) => {
+                    let d = &self.view.diagram;
+                    d.mapping
+                        .packages
+                        .iter()
+                        .position(|q| *q == p)
+                        .and_then(|g| {
+                            let r = *d.layout.groups.get(g)?;
+                            // The frame around the content alone.
+                            let mut bare = d.graph.clone();
+                            bare.groups[g].frame = None;
+                            let c = umpl_layout::group_rects(&bare, &d.layout.nodes)[g];
+                            Some(Drag::ResizePackage {
+                                id: p,
+                                corner,
+                                start: world,
+                                rect: (r.x, r.y, r.w, r.h),
+                                content: (c.x, c.y, c.w, c.h),
+                                last: (0, 0),
+                            })
+                        })
+                }
                 (Tool::Select, Hit::Package(p)) => {
-                    let origin = s
-                        .editor
-                        .doc
+                    let doc = &s.editor.doc;
+                    let origin = doc
                         .elements_in(p)
                         .into_iter()
-                        .filter_map(|e| Some((e, s.editor.doc.elements.get(&e)?.pos?)))
+                        .filter_map(|e| Some((e, doc.elements.get(&e)?.pos?)))
+                        .collect();
+                    // Its frame and those of packages inside it move too.
+                    let frames = doc
+                        .packages
+                        .iter()
+                        .filter(|(q, _)| package_within(doc, **q, p))
+                        .filter_map(|(q, pk)| pk.frame.map(|(pos, size)| (*q, pos, size)))
                         .collect();
                     Some(Drag::Move {
                         start: world,
                         origin,
+                        frames,
                         last: (0, 0),
                     })
                 }
@@ -926,6 +1011,7 @@ impl App {
                 Some(Drag::Move {
                     start,
                     origin,
+                    frames,
                     last,
                 }) => {
                     let d = (
@@ -940,6 +1026,36 @@ impl App {
                             .collect();
                         if let Some(s) = &mut self.session {
                             s.editor.move_elements(&moves, Some("drag"));
+                            for (p, pos, size) in frames.iter() {
+                                let moved = (Pos::new(pos.x + d.0, pos.y + d.1), *size);
+                                s.editor.set_package_frame(*p, Some(moved), Some("drag"));
+                            }
+                            self.view.sync(&mut s.editor);
+                        }
+                    }
+                }
+                Some(Drag::ResizePackage {
+                    id,
+                    corner,
+                    start,
+                    rect,
+                    content,
+                    last,
+                }) => {
+                    let d = (
+                        ((world.0 - start.0) / GRID).round() as i32,
+                        ((world.1 - start.1) / GRID).round() as i32,
+                    );
+                    if d != *last {
+                        *last = d;
+                        let (x, y, w, h) = resized(*rect, *corner, d, (4, 4));
+                        // No bigger than around the content: no frame kept.
+                        let (cx, cy, cw, ch) = *content;
+                        let within = x >= cx && y >= cy && x + w <= cx + cw && y + h <= cy + ch;
+                        let frame = (!within).then_some((Pos::new(x, y), (w, h)));
+                        let id = *id;
+                        if let Some(s) = &mut self.session {
+                            s.editor.set_package_frame(id, frame, Some("resize"));
                             self.view.sync(&mut s.editor);
                         }
                     }
@@ -1000,7 +1116,7 @@ impl App {
 
         if resp.drag_stopped_by(PointerButton::Primary) {
             match self.canvas.drag.take() {
-                Some(Drag::Resize { last, .. }) => {
+                Some(Drag::Resize { last, .. }) | Some(Drag::ResizePackage { last, .. }) => {
                     if let Some(s) = &mut self.session {
                         s.editor.seal();
                         self.view.sync(&mut s.editor);
@@ -1170,7 +1286,7 @@ impl App {
                     self.sel = Selection::only_element(id);
                     self.start_edit(id);
                 }
-                Hit::Empty if self.tool == Tool::Select => {
+                Hit::Empty | Hit::Package(_) if self.tool == Tool::Select => {
                     let pkg = self.package_at(geo, world);
                     self.create_at(ElementKind::Class, world, pkg);
                 }

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::kittest::{NodeT as _, Queryable};
 use egui_kittest::Harness;
-use umpl_core::{ElementId, ElementKind, Pos, RelationKind};
+use umpl_core::{ElementId, ElementKind, PackageId, Pos, RelationKind};
 use umpl_draw::{RectF, GRID};
 
 use crate::app::{App, Pending};
@@ -235,6 +235,129 @@ fn dragging_a_corner_resizes_the_box_and_undo_restores() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(2);
     assert_eq!(el(&h).size, None);
+}
+
+/// A package with two boxes in it, apart so its frame has room inside.
+fn app_with_package() -> (Harness<'static, App>, PackageId, ElementId, ElementId) {
+    let mut h = new_app();
+    let (p, a, b) = {
+        let s = h.state_mut().session.as_mut().unwrap();
+        let p = s.editor.add_package("billing", None);
+        let a = s
+            .editor
+            .add_element(ElementKind::Class, "A", Some(p), Some(Pos::new(0, 0)));
+        let b = s
+            .editor
+            .add_element(ElementKind::Class, "B", Some(p), Some(Pos::new(0, 30)));
+        (p, a, b)
+    };
+    h.run_steps(3);
+    (h, p, a, b)
+}
+
+fn group_rect(h: &Harness<'static, App>, p: PackageId) -> RectF {
+    let d = &h.state().view.diagram;
+    let g = d.mapping.packages.iter().position(|q| *q == p).unwrap();
+    let r = d.layout.groups[g];
+    RectF::new(
+        r.x as f32 * GRID,
+        r.y as f32 * GRID,
+        r.w as f32 * GRID,
+        r.h as f32 * GRID,
+    )
+}
+
+/// Dragging empty space inside a package moves the package: its boxes
+/// move together, as one undo step.
+#[test]
+fn dragging_inside_a_package_moves_it() {
+    let (mut h, p, a, b) = app_with_package();
+    let ra = rect_of(&h, a);
+    let rb = rect_of(&h, b);
+    // Between the two boxes: inside the frame, on no box or line.
+    let inside = screen(&h, (ra.center().0, (ra.bottom() + rb.y) / 2.0));
+    let zoom = h.state().camera.zoom;
+    drag(
+        &mut h,
+        inside,
+        inside + Vec2::new(10.0 * GRID * zoom, 4.0 * GRID * zoom),
+    );
+    let pos = |h: &Harness<'static, App>, id| doc_of(h).elements[&id].pos.unwrap();
+    assert_eq!(pos(&h, a), Pos::new(10, 4));
+    assert_eq!(pos(&h, b), Pos::new(10, 34));
+    assert_eq!(h.state().sel.packages, vec![p]);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(pos(&h, a), Pos::new(0, 0));
+}
+
+/// A selected package's frame resizes by a corner; the area is kept in the
+/// file's layout block, moves with the package, and Tidy lets it go.
+#[test]
+fn dragging_a_package_corner_resizes_its_frame() {
+    let (mut h, p, _, _) = app_with_package();
+    h.state_mut().sel = crate::view::Selection {
+        packages: vec![p],
+        ..Default::default()
+    };
+    h.run_steps(2);
+    let r = group_rect(&h, p);
+    let zoom = h.state().camera.zoom;
+    let corner = screen(&h, (r.right(), r.bottom()));
+    drag(
+        &mut h,
+        corner,
+        corner + Vec2::new(12.0 * GRID * zoom, 8.0 * GRID * zoom),
+    );
+    let r2 = group_rect(&h, p);
+    assert!((r2.w - r.w - 12.0 * GRID).abs() < 0.5, "{r:?} {r2:?}");
+    assert!((r2.h - r.h - 8.0 * GRID).abs() < 0.5, "{r:?} {r2:?}");
+    let frame = doc_of(&h).packages[&p].frame.expect("a frame kept");
+    let text = umpl_text::print(doc_of(&h));
+    let line = format!(
+        "at {}, {} size {}, {}",
+        frame.0.x, frame.0.y, frame.1 .0, frame.1 .1
+    );
+    assert!(
+        text.lines()
+            .any(|l| l.trim_start().starts_with("billing ") && l.ends_with(&line)),
+        "{text}"
+    );
+    assert_eq!(
+        umpl_text::parse(&text)
+            .doc
+            .packages
+            .values()
+            .next()
+            .unwrap()
+            .frame,
+        Some(frame)
+    );
+    // Moving the package moves its frame.
+    let inside = screen(&h, (r2.right() - 2.0 * GRID, r2.bottom() - 2.0 * GRID));
+    drag(&mut h, inside, inside + Vec2::new(5.0 * GRID * zoom, 0.0));
+    let moved = doc_of(&h).packages[&p].frame.unwrap();
+    assert_eq!(moved.0, Pos::new(frame.0.x + 5, frame.0.y));
+    // Undo, step by step.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(doc_of(&h).packages[&p].frame, Some(frame));
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(doc_of(&h).packages[&p].frame, None);
+    // Tidy lays out anew: the frame goes back around its content.
+    let ctx = h.ctx.clone();
+    h.state_mut().run(&ctx, Cmd::Redo);
+    h.run_steps(2);
+    assert!(doc_of(&h).packages[&p].frame.is_some());
+    h.state_mut().run(&ctx, Cmd::Tidy);
+    let start = Instant::now();
+    while h.state().tidy.is_some() && start.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(20));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert_eq!(doc_of(&h).packages[&p].frame, None);
 }
 
 #[test]

@@ -16,6 +16,11 @@ pub fn print(doc: &Document) -> String {
         .iter()
         .filter_map(|(id, el)| el.pos.map(|p| (doc.full_name(*id), p, el.size)))
         .collect();
+    // A package's frame the user resized: `billing at x, y size w, h`.
+    positions.extend(doc.packages.iter().filter_map(|(id, p)| {
+        p.frame
+            .map(|(pos, size)| (doc.full_package_name(*id), pos, Some(size)))
+    }));
     positions.sort_by(|a, b| a.0.cmp(&b.0));
     if !positions.is_empty() {
         if !out.is_empty() {

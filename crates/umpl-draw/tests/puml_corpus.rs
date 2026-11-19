@@ -162,6 +162,8 @@ struct Layout {
     ms: u128,
     crossings: usize,
     overlaps: usize,
+    /// Labels drawn over a box, a label, a line or a package frame.
+    label_overlaps: usize,
     width: f32,
     height: f32,
 }
@@ -190,6 +192,7 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
                 ms: start.elapsed().as_millis(),
                 crossings: 0,
                 overlaps: 0,
+                label_overlaps: 0,
                 width: scene.bounds.w,
                 height: scene.bounds.h,
             };
@@ -212,6 +215,7 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
                 ms,
                 crossings: d.layout.stats.crossings,
                 overlaps: d.layout.stats.overlaps,
+                label_overlaps: d.layout.stats.label_overlaps,
                 width: b.w as f32 * umpl_draw::GRID,
                 height: b.h as f32 * umpl_draw::GRID,
             }
@@ -342,6 +346,8 @@ fn opens_the_corpus() {
     let mut failures = Vec::new();
     let mut shapes: Vec<(f32, PathBuf)> = Vec::new();
     let mut crossings = 0usize;
+    let mut label_overlaps = 0usize;
+    let mut with_label_overlaps: Vec<(usize, std::path::PathBuf)> = Vec::new();
     let mut slow: Vec<(u128, PathBuf, usize)> = Vec::new();
     let mut table = vec![
         "path\tkind\telements\trelations\tproblems\tnot_understood\tlayout_ms\tcrossings\twidth\theight"
@@ -434,6 +440,10 @@ fn opens_the_corpus() {
             }
             shapes.push((l.width / l.height.max(1.0), o.path.clone()));
             crossings += l.crossings;
+            label_overlaps += l.label_overlaps;
+            if l.label_overlaps > 0 {
+                with_label_overlaps.push((l.label_overlaps, o.path.clone()));
+            }
             slow.push((l.ms, o.path.clone(), o.elements));
         }
     }
@@ -525,6 +535,14 @@ fn opens_the_corpus() {
             100.0 * fill[fill.len() / 10],
             fill.len()
         );
+        with_label_overlaps.sort();
+        println!(
+            "labels drawn over something: {label_overlaps} in {} drawings",
+            with_label_overlaps.len()
+        );
+        for (n, p) in with_label_overlaps.iter().rev().take(5) {
+            println!("  {n:5}  {}", p.display());
+        }
         for (r, p) in shapes.iter().rev().take(5) {
             println!("  {r:6.2}  {}", p.display());
         }

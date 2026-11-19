@@ -9,7 +9,7 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 - **Lines follow you.** Drag a class and its lines re-route as you move.
 - **Type, don't click.** Double-click a class and type its members: `+total(): Money`.
 - **Looks like a drawing tool.** Component, deployment and use case boxes show an icon for their kind, the name and the lines under it (a database is a cylinder); each group gets its own colour; the title sits above the diagram. The window is quiet and dark or light with the system, with the tools floating on the canvas and a Text | Both | Canvas switch in the top bar.
-- **Size and colour.** Drag a corner of a selected box to make it bigger than its text needs (it never gets smaller). Right-click a box or package for its colour: a palette, transparent, or the usual colour back, and to fit a resized box to its text again.
+- **Size and colour.** Drag a corner of a selected box to make it bigger than its text needs (it never gets smaller). A package (group) moves when you drag anywhere inside it that is not a box or a line, and its frame resizes by the corners once it is selected; the frame always keeps its content inside. Right-click a box or package for its colour: a palette, transparent, or the usual colour back, and to fit a resized box to its text again.
 - **Text and drawing side by side.** The text panel shows the diagram as `.umpl` text. Edit either one and the other follows as you work: type a class or a relation and it appears, laid out; drag, rename or delete on the canvas and the text updates. Click a box and its lines in the text light up; put the cursor in a line and its box is selected. Choose Text, Both or Canvas in the middle of the top bar (Ctrl+B shows or hides the text); it starts with the canvas alone, and the choice is kept for the next run.
 - **Find.** Ctrl+F finds classes, members, relations and packages; matches are outlined in the drawing and marked in the text, and Enter steps through them.
 - **Plain text files.** Diagrams are `.umpl` text files that diff well. The model sits at the top and positions at the bottom.
@@ -140,6 +140,8 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | Double-click a box | Edit it in place |
 | Drag from a dot on a box edge | Connect (pick the relation kind) |
 | Drag a corner of a selected box | Resize it |
+| Drag inside a package, off its boxes | Move the package with everything in it |
+| Drag a corner of a selected package | Resize its frame |
 | Right-click a box or package | Colour, fit size to text, delete (on empty space: Tidy, Fit) |
 | V C A I E N P R | Tools: select, class, abstract, interface, enum, note, package, relation (also the icons on the left) |
 | Ctrl+T | Tidy |
