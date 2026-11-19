@@ -241,10 +241,9 @@ impl Parser {
         if !c.eat_word("package") {
             return false;
         }
-        let Some(name) = c.ident() else { return false };
-        if name.contains('.') {
+        let Some(name) = c.segment() else {
             return false;
-        }
+        };
         if !c.eat("{") {
             return false;
         }
@@ -253,7 +252,7 @@ impl Parser {
             return false;
         }
         let container = self.container();
-        let name = self.free_name(n, name, container);
+        let name = self.free_name(n, &name, container);
         let id = self.doc.new_package_id();
         let mut pkg = Package::new(name);
         pkg.comments = std::mem::take(&mut self.comments);
@@ -292,7 +291,7 @@ impl Parser {
     fn layout_line(&mut self, n: usize, t: &str) {
         let mut c = Cursor::new(t);
         let parsed = (|| {
-            let name = c.ident()?;
+            let name = c.path()?;
             if !c.eat_word("at") {
                 return None;
             }
@@ -301,7 +300,7 @@ impl Parser {
                 return None;
             }
             let y = c.int()?;
-            c.at_end().then(|| (name.to_string(), Pos::new(x, y)))
+            c.at_end().then_some((name, Pos::new(x, y)))
         })();
         match parsed {
             Some((name, pos)) => self.positions.push(PendingPos { name, pos, line: n }),
@@ -335,13 +334,24 @@ impl Parser {
             ElementKind::Interface
         } else if c.eat_word("enum") {
             ElementKind::Enum
+        } else if c.eat_word("diamond") {
+            ElementKind::Diamond
         } else {
             return false;
         };
-        let Some(name) = c.ident() else { return false };
-        if name.contains('.') {
+        let Some(name) = c.segment() else {
             return false;
-        }
+        };
+        let type_params = c.type_params();
+        // `class PO as "Purchase order"`: what the box shows.
+        let label = if c.eat_word("as") {
+            match c.string() {
+                Some(l) => Some(l),
+                None => return false,
+            }
+        } else {
+            None
+        };
         let stereotype = c.stereotype();
         let rest = c.rest().trim();
         let (open, inline) = if rest.is_empty() {
@@ -355,9 +365,11 @@ impl Parser {
         };
 
         let container = self.container();
-        let name = self.free_name(n, name, container);
+        let name = self.free_name(n, &name, container);
         let id = self.doc.new_element_id();
         let mut el = Element::new(kind, name);
+        el.type_params = type_params;
+        el.label = label;
         el.stereotype = stereotype;
         el.comments = std::mem::take(&mut self.comments);
         let is_enum = kind == ElementKind::Enum;
@@ -385,16 +397,15 @@ impl Parser {
         if !c.eat_word("note") {
             return false;
         }
-        let Some(name) = c.ident() else { return false };
-        if name.contains('.') {
+        let Some(name) = c.segment() else {
             return false;
-        }
+        };
         let Some(text) = c.string() else { return false };
         if !c.at_end() {
             return false;
         }
         let container = self.container();
-        let name = self.free_name(n, name, container);
+        let name = self.free_name(n, &name, container);
         let id = self.doc.new_element_id();
         let mut el = Element::new(ElementKind::Note, name);
         el.members = text.split('\n').map(Member::plain).collect();
@@ -407,13 +418,22 @@ impl Parser {
 
     fn try_relation(&mut self, n: usize, t: &str) -> bool {
         let mut c = Cursor::new(t);
-        let Some(a) = c.ident() else { return false };
+        let Some(a) = c.path() else { return false };
         let la = c.string();
         let Some((kind, reversed)) = c.arrow() else {
             return false;
         };
-        let lb = c.string();
-        let Some(b) = c.ident() else { return false };
+        // `--> "*" B` or `--> "Quoted name"`: a label only if a name follows.
+        let at = c.pos;
+        let (lb, b) = match c.path() {
+            Some(b) if c.at_end() || c.rest().trim_start().starts_with(':') => (None, b),
+            _ => {
+                c.pos = at;
+                let lb = c.string();
+                let Some(b) = c.path() else { return false };
+                (lb, b)
+            }
+        };
         let name = if c.eat(":") {
             Some(c.rest().trim().to_string()).filter(|s| !s.is_empty())
         } else if c.at_end() {
@@ -421,7 +441,7 @@ impl Parser {
         } else {
             return false;
         };
-        let (mut from, mut to) = ((a.to_string(), la), (b.to_string(), lb));
+        let (mut from, mut to) = ((a, la), (b, lb));
         if reversed {
             std::mem::swap(&mut from, &mut to);
         }
@@ -456,12 +476,19 @@ impl Parser {
             }
         }
 
-        let mut names: HashMap<String, ElementId> = self
+        // Full names of packages, then of elements (which win).
+        let mut names: HashMap<String, Endpoint> = self
             .doc
-            .elements
+            .packages
             .keys()
-            .map(|id| (self.doc.full_name(*id), *id))
+            .map(|id| (self.doc.full_package_name(*id), Endpoint::Package(*id)))
             .collect();
+        names.extend(
+            self.doc
+                .elements
+                .keys()
+                .map(|id| (self.doc.full_name(*id), Endpoint::Element(*id))),
+        );
 
         for rel in std::mem::take(&mut self.relations) {
             let prefix = rel.container.map(|p| self.doc.full_package_name(p));
@@ -474,11 +501,11 @@ impl Parser {
                     let relation = Relation {
                         kind: rel.kind,
                         from: End {
-                            element: f,
+                            target: f,
                             label: rel.from.1,
                         },
                         to: End {
-                            element: t,
+                            target: t,
                             label: rel.to.1,
                         },
                         name: rel.name,
@@ -515,8 +542,10 @@ impl Parser {
 
         for p in std::mem::take(&mut self.positions) {
             match names.get(&p.name) {
-                Some(id) => self.doc.elements.get_mut(id).unwrap().pos = Some(p.pos),
-                None => self.problem(
+                Some(Endpoint::Element(id)) => {
+                    self.doc.elements.get_mut(id).unwrap().pos = Some(p.pos)
+                }
+                _ => self.problem(
                     p.line,
                     1,
                     format!("position for unknown element `{}` ignored", p.name),
@@ -534,33 +563,33 @@ impl Parser {
         }
     }
 
-    /// Finds an element by name, relative to the relation's package first.
-    /// An unknown plain name creates a class at the top level, as PlantUML
-    /// does; an unknown dotted name is an error.
+    /// Finds an element (or else a package) by name, relative to the
+    /// relation's package first. An unknown single name creates a class at
+    /// the top level, as PlantUML does; an unknown dotted name is an error.
     fn resolve(
         &mut self,
-        names: &mut HashMap<String, ElementId>,
+        names: &mut HashMap<String, Endpoint>,
         prefix: Option<&str>,
         name: &str,
-    ) -> Option<ElementId> {
+    ) -> Option<Endpoint> {
         if let Some(prefix) = prefix {
-            if let Some(id) = names.get(&format!("{prefix}.{name}")) {
-                return Some(*id);
+            if let Some(t) = names.get(&format!("{prefix}.{name}")) {
+                return Some(*t);
             }
         }
-        if let Some(id) = names.get(name) {
-            return Some(*id);
+        if let Some(t) = names.get(name) {
+            return Some(*t);
         }
-        if name.contains('.') {
-            return None;
-        }
+        // One name, as written (unquoted).
+        let mut c = Cursor::new(name);
+        let single = c.segment().filter(|_| c.at_end())?;
         let id = self.doc.new_element_id();
         self.doc
             .elements
-            .insert(id, Element::new(ElementKind::Class, name));
+            .insert(id, Element::new(ElementKind::Class, single));
         self.doc.root.push(Decl::Element(id));
-        names.insert(name.to_string(), id);
-        Some(id)
+        names.insert(name.to_string(), Endpoint::Element(id));
+        Some(Endpoint::Element(id))
     }
 }
 
@@ -654,7 +683,7 @@ layout {
             .values()
             .find(|r| r.kind == RelationKind::Composition)
             .unwrap();
-        assert_eq!(comp.from.element, d.find("Order").unwrap());
+        assert_eq!(comp.from.element().unwrap(), d.find("Order").unwrap());
         assert_eq!(comp.from.label.as_deref(), Some("1"));
         assert_eq!(comp.to.label.as_deref(), Some("1..*"));
         assert_eq!(comp.name.as_deref(), Some("contains"));
@@ -668,9 +697,21 @@ layout {
         let (a, b) = (d.find("A").unwrap(), d.find("B").unwrap());
         let rels: Vec<_> = d.relations.values().collect();
         assert_eq!(rels[0].kind, RelationKind::Generalization);
-        assert_eq!((rels[0].from.element, rels[0].to.element), (b, a));
+        assert_eq!(
+            (
+                rels[0].from.element().unwrap(),
+                rels[0].to.element().unwrap()
+            ),
+            (b, a)
+        );
         assert_eq!(rels[1].kind, RelationKind::Composition);
-        assert_eq!((rels[1].from.element, rels[1].to.element), (b, a));
+        assert_eq!(
+            (
+                rels[1].from.element().unwrap(),
+                rels[1].to.element().unwrap()
+            ),
+            (b, a)
+        );
     }
 
     #[test]
@@ -747,6 +788,39 @@ layout {
     }
 
     #[test]
+    fn lines_join_packages_and_names_may_be_quoted() {
+        let src = "package shop {\n  class \"Order line\"<T>\n}\npackage \"web app\" {}\n\"web app\" ..> shop\nshop.\"Order line\" --> \"web app\" : shown in\n\"New one\" -- shop\n";
+        let p = parse(src);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        let d = &p.doc;
+        let line = d.find("shop.\"Order line\"").unwrap();
+        assert_eq!(d.elements[&line].name, "Order line");
+        assert_eq!(d.elements[&line].type_params.as_deref(), Some("T"));
+        let shop = d.find_package("shop").unwrap();
+        let web = d.find_package("\"web app\"").unwrap();
+        let rels = d.relations_in_order();
+        let r = |i: usize| &d.relations[&rels[i]];
+        assert_eq!(
+            (r(0).from.target, r(0).to.target),
+            (Endpoint::Package(web), Endpoint::Package(shop))
+        );
+        assert_eq!(r(1).to.target, Endpoint::Package(web));
+        // An unknown quoted name is a new class, named as written.
+        assert_eq!(d.elements[&r(2).from.element().unwrap()].name, "New one");
+        // Printing gives the same text back.
+        assert_eq!(
+            crate::print(d),
+            src.replace("package \"web app\" {}\n", "\npackage \"web app\" {}\n")
+                .replace("\"web app\" ..>", "\n\"web app\" ..>")
+                .replace("\n\"New one\" -- shop\n", "\n\nclass \"New one\"\n")
+                .replace(
+                    "\"web app\" : shown in\n\n",
+                    "\"web app\" : shown in\n\"New one\" -- shop\n\n"
+                )
+        );
+    }
+
+    #[test]
     fn spans_name_the_lines_of_each_declaration() {
         let src = "diagram \"S\"\n\npackage p {\n  class A {\n    +x: int\n  }\n  note N \"n\"\n}\nclass B\nA --> B\nweird line\nC --> D.E\nenum E {\n  R\n";
         let p = parse(src);
@@ -779,6 +853,6 @@ layout {
     fn self_relation_parses() {
         let p = parse("class Node\nNode --> Node : next\n");
         let r = p.doc.relations.values().next().unwrap();
-        assert_eq!(r.from.element, r.to.element);
+        assert_eq!(r.from.element().unwrap(), r.to.element().unwrap());
     }
 }

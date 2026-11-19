@@ -4,7 +4,8 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
-use egui_kittest::{kittest::Queryable, Harness};
+use egui_kittest::kittest::{NodeT as _, Queryable};
+use egui_kittest::Harness;
 use umpl_core::{ElementId, ElementKind, Pos, RelationKind};
 use umpl_draw::{RectF, GRID};
 
@@ -125,7 +126,7 @@ fn invalid_name_keeps_editor_open() {
     let mut h = new_app();
     let at = h.state().canvas.rect.center();
     double_click(&mut h, at);
-    h.state_mut().canvas.edit.as_mut().unwrap().name = "1 bad".into();
+    h.state_mut().canvas.edit.as_mut().unwrap().name = "a\tb".into();
     h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
     h.run_steps(2);
     let edit = h.state().canvas.edit.as_ref().expect("editor stays open");
@@ -157,7 +158,10 @@ fn dragging_from_edge_dot_connects_boxes() {
         .next()
         .expect("relation created");
     assert_eq!(rel.kind, RelationKind::Association);
-    assert_eq!((rel.from.element, rel.to.element), (a, b));
+    assert_eq!(
+        (rel.from.element().unwrap(), rel.to.element().unwrap()),
+        (a, b)
+    );
     assert!(h.state().view.diagram.layout.routes[0].points.len() >= 2);
 }
 
@@ -330,7 +334,7 @@ fn opening_plantuml_imports_an_unsaved_untitled_diagram() {
     let dir = std::env::temp_dir().join(format!("fastumpl-import-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("model.puml");
-    let src = "@startuml\nclass Order\nOrder *-- Line\nhide empty members\n@enduml\n";
+    let src = "@startuml\nclass Order\nOrder *-- Line\nhide empty members\n!include missing.iuml\n@enduml\n";
     std::fs::write(&path, src).unwrap();
 
     let mut h = new_app();
@@ -1080,6 +1084,41 @@ fn a_big_diagram_opens_at_once_and_is_laid_out_in_the_background() {
     let fill = (shown.width() / canvas.width()).max(shown.height() / canvas.height());
     assert!(fill > 0.9, "fills {fill:.2} of the canvas");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_file_with_several_diagrams_asks_which_to_open() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-pick-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("many.puml");
+    std::fs::write(
+        &path,
+        "@startuml model\nclass A\n@enduml\n@startuml\nAlice -> Bob : hi\n@enduml\n@startuml\nclass B\nnewpage\nclass C\n@enduml\n",
+    )
+    .unwrap();
+    let mut h = new_app();
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
+    h.run_steps(3);
+    let list = match &h.state().dialog {
+        Some(crate::app::Dialog::PickDiagram(_, list)) => list.clone(),
+        _ => panic!("no choice of diagram"),
+    };
+    assert_eq!(list.len(), 4);
+    // The sequence diagram is listed but cannot be opened.
+    let seq = h.get_by_label_contains("sequence diagram (not read)");
+    assert!(seq.accesskit_node().is_disabled());
+    h.get_by_label_contains("Diagram 4").click();
+    h.run_steps(3);
+    assert!(h.state().dialog.is_none());
+    let names: Vec<String> = doc_of(&h)
+        .elements
+        .values()
+        .map(|e| e.name.clone())
+        .collect();
+    assert_eq!(names, ["C"]);
+    assert!(h.state().session.as_ref().unwrap().problems.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

@@ -15,6 +15,19 @@ use crate::commands::Tool;
 use crate::paint::{c32, paint_scene};
 use crate::view::Selection;
 
+/// The kinds a new line between boxes can have, in the order the "Connect
+/// as" menu numbers them (keys 1 to 8). Note links are drawn from notes.
+const CONNECT_KINDS: [RelationKind; 8] = [
+    RelationKind::Generalization,
+    RelationKind::Realization,
+    RelationKind::Association,
+    RelationKind::Directed,
+    RelationKind::Aggregation,
+    RelationKind::Composition,
+    RelationKind::Dependency,
+    RelationKind::Nesting,
+];
+
 /// What is under the pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Hit {
@@ -358,6 +371,7 @@ impl App {
             ElementKind::Enum => "Enum",
             ElementKind::Abstract => "Abstract",
             ElementKind::Class => "Class",
+            ElementKind::Diamond => "Diamond",
         };
         let id = s.editor.add_element(kind, base, pkg, Some(pos));
         if kind == ElementKind::Note {
@@ -400,7 +414,7 @@ impl App {
         let name = edit.name.trim().to_string();
         if name != el.name {
             if !umpl_core::valid_name(&name) {
-                edit.error = Some("Use letters, digits and _ (not starting with a digit)".into());
+                edit.error = Some("A name cannot be empty or hold tabs".into());
                 return false;
             }
             let pkg = s.editor.doc.element_package(edit.id);
@@ -1064,11 +1078,7 @@ impl App {
                         })
                         .weak(),
                     );
-                    for (n, kind) in RelationKind::ALL
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, k)| **k != RelationKind::NoteLink)
-                    {
+                    for (n, kind) in CONNECT_KINDS.iter().enumerate() {
                         let text = format!("{}  {}   {}", n + 1, kind.arrow(), kind.label());
                         if ui
                             .add(
@@ -1090,10 +1100,11 @@ impl App {
             Key::Num5,
             Key::Num6,
             Key::Num7,
+            Key::Num8,
         ];
-        for (n, k) in keys.iter().enumerate() {
+        for (k, kind) in keys.iter().zip(CONNECT_KINDS) {
             if ctx.input(|i| i.key_pressed(*k)) {
-                chosen = Some(RelationKind::ALL[n]);
+                chosen = Some(kind);
             }
         }
         if let Some(kind) = chosen {

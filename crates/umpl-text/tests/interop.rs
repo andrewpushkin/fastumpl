@@ -72,7 +72,7 @@ fn mermaid_export_names_every_class_and_relation() {
             .relations
             .values()
             .filter(|r| {
-                ![r.from.element, r.to.element]
+                ![r.from.element().unwrap(), r.to.element().unwrap()]
                     .iter()
                     .any(|e| doc.elements[e].kind == ElementKind::Note)
             })
@@ -107,7 +107,7 @@ fn umple_shape(doc: &Document) -> (Vec<String>, usize) {
     let mut kinds: Vec<String> = doc
         .elements
         .values()
-        .filter(|e| e.kind != ElementKind::Note)
+        .filter(|e| !matches!(e.kind, ElementKind::Note | ElementKind::Diamond))
         .map(|e| format!("{:?}", e.kind))
         .collect();
     kinds.sort();
@@ -124,8 +124,8 @@ fn umple_shape(doc: &Document) -> (Vec<String>, usize) {
             matches!(
                 r.kind,
                 RelationKind::Generalization | RelationKind::Realization
-            ) && is_type(&r.from.element)
-                && is_type(&r.to.element)
+            ) && is_type(&r.from.element().unwrap())
+                && is_type(&r.to.element().unwrap())
         })
         .count();
     (kinds, isa)
@@ -141,7 +141,7 @@ fn assert_umple_export_reads_back(name: &str, doc: &Document) {
     let members = |d: &Document| -> usize {
         d.elements
             .values()
-            .filter(|e| e.kind != ElementKind::Note)
+            .filter(|e| !matches!(e.kind, ElementKind::Note | ElementKind::Diamond))
             .map(|e| e.members.len())
             .sum()
     };

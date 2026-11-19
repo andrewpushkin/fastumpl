@@ -18,6 +18,8 @@ pub const PAD_Y: f32 = 6.0;
 pub const BADGE_ROOM: f32 = 22.0;
 pub const NOTE_PAD: f32 = 10.0;
 pub const MIN_W_UNITS: i32 = 10;
+/// Width and height of an association diamond, in grid units.
+pub const DIAMOND_UNITS: i32 = 3;
 
 pub fn text_width(text: &str, size: f32) -> f32 {
     text.chars().count() as f32 * ADVANCE * size
@@ -56,6 +58,9 @@ impl BoxContent {
     /// Size in grid units.
     pub fn size(&self) -> (i32, i32) {
         let units = |px: f32| (px / GRID).ceil() as i32;
+        if self.kind == ElementKind::Diamond {
+            return (DIAMOND_UNITS, DIAMOND_UNITS);
+        }
         if self.kind == ElementKind::Note {
             let lines = self.compartments.first().map_or(&[][..], |c| &c[..]);
             let w = lines
@@ -116,7 +121,7 @@ pub fn box_content(el: &Element) -> BoxContent {
     BoxContent {
         kind: el.kind,
         stereotype: el.stereotype.clone(),
-        name: el.name.clone(),
+        name: el.title(),
         italic_name: el.kind == ElementKind::Abstract,
         compartments: compartments
             .into_iter()

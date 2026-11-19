@@ -22,6 +22,7 @@ pub fn export(doc: &Document) -> String {
         associations: HashMap::new(),
         dependencies: HashMap::new(),
         linked_notes: HashSet::new(),
+        between_packages: Vec::new(),
         out: String::new(),
     };
     w.sort_relations();
@@ -45,6 +46,12 @@ pub fn export(doc: &Document) -> String {
             w.out.push_str(&format!("namespace {};\n", path.join(".")));
             w.section(Some(pkg));
         }
+    }
+    if !w.between_packages.is_empty() {
+        w.block();
+        w.out.push_str("// Lines between packages:\n");
+        let lines = std::mem::take(&mut w.between_packages);
+        w.comments(&lines, "");
     }
     if !doc.trailing_comments.is_empty() {
         w.block();
@@ -94,6 +101,8 @@ struct Writer<'a> {
     associations: HashMap<ElementId, Vec<String>>,
     dependencies: HashMap<ElementId, Vec<String>>,
     linked_notes: HashSet<ElementId>,
+    /// Relations to packages, which Umple has no way to draw.
+    between_packages: Vec<String>,
     out: String,
 }
 
@@ -128,7 +137,11 @@ impl Writer<'_> {
     fn sort_relations(&mut self) {
         for rid in self.doc.relations_in_order() {
             let r = &self.doc.relations[&rid];
-            let (f, t) = (r.from.element, r.to.element);
+            let (Some(f), Some(t)) = (r.from.element(), r.to.element()) else {
+                let line = describe(self.doc, r);
+                self.between_packages.push(line);
+                continue;
+            };
             let (fk, tk) = (self.kind(f), self.kind(t));
             match r.kind {
                 RelationKind::NoteLink => {
@@ -187,10 +200,14 @@ impl Writer<'_> {
         };
         let (from_mult, from_role) = split_label(r.from.label.as_deref(), whole);
         let (to_mult, to_role) = split_label(r.to.label.as_deref(), "*");
-        let (own, other, other_id) = if swapped {
-            ((to_mult, to_role), (from_mult, from_role), r.from.element)
+        let (own, other, other_end) = if swapped {
+            ((to_mult, to_role), (from_mult, from_role), r.from.target)
         } else {
-            ((from_mult, from_role), (to_mult, to_role), r.to.element)
+            ((from_mult, from_role), (to_mult, to_role), r.to.target)
+        };
+        let other_id = match other_end {
+            Endpoint::Element(e) => e,
+            Endpoint::Package(_) => unreachable!("relations to packages are comments"),
         };
         let arrow = match (r.kind, swapped) {
             (RelationKind::Directed, false) => "->",
@@ -235,6 +252,15 @@ impl Writer<'_> {
             }
             return;
         }
+        // Umple draws no association diamonds; the lines to one are comments.
+        if el.kind == ElementKind::Diamond {
+            self.block();
+            let mut lines = el.comments.clone();
+            lines.push(format!("association diamond {}", el.name));
+            lines.extend(self.above.remove(&id).unwrap_or_default());
+            self.comments(&lines, "");
+            return;
+        }
         self.block();
         self.comments(&el.comments, "");
         let above = self.above.remove(&id).unwrap_or_default();
@@ -255,7 +281,18 @@ impl Writer<'_> {
                 self.out.push_str(&format!("// «{s}»\n"));
             }
         }
-        let name = self.name(id).to_string();
+        let mut name = self.name(id).to_string();
+        // Umple writes type parameters as names (`class Box<T>`); bounds
+        // such as `T extends Entity` go in a comment.
+        if let Some(p) = &el.type_params {
+            let simple = p.split(',').all(|n| is_name(n.trim()));
+            if simple {
+                let names: Vec<&str> = p.split(',').map(str::trim).collect();
+                name = format!("{name}<{}>", names.join(", "));
+            } else {
+                self.out.push_str(&format!("// type parameters <{p}>\n"));
+            }
+        }
         if el.kind == ElementKind::Enum {
             let literals: Vec<String> = el.members.iter().map(|m| clean(&m.text)).collect();
             self.out
@@ -309,13 +346,17 @@ fn note_lines(note: &Element) -> Vec<String> {
 /// A relation Umple cannot express, as `.umpl` text for a comment.
 fn describe(doc: &Document, r: &Relation) -> String {
     let end = |l: &Option<String>| l.as_ref().map(|l| format!(" \"{l}\"")).unwrap_or_default();
+    let name = |t: Endpoint| match t {
+        Endpoint::Element(e) => doc.elements[&e].name.clone(),
+        Endpoint::Package(_) => doc.endpoint_name(t),
+    };
     let mut s = format!(
         "{}{} {}{} {}",
-        doc.elements[&r.from.element].name,
+        name(r.from.target),
         end(&r.from.label),
         r.kind.arrow(),
         end(&r.to.label),
-        doc.elements[&r.to.element].name
+        name(r.to.target)
     );
     if let Some(n) = &r.name {
         s.push_str(&format!(" : {n}"));
@@ -686,11 +727,11 @@ class returns_Item {}
         out.extend(doc.relations.values().map(|r| {
             format!(
                 "{} {:?} {:?} {:?} {} {:?}",
-                doc.full_name(r.from.element),
+                doc.endpoint_name(r.from.target),
                 r.from.label,
                 r.kind,
                 r.to.label,
-                doc.full_name(r.to.element),
+                doc.endpoint_name(r.to.target),
                 r.comments
             )
         }));

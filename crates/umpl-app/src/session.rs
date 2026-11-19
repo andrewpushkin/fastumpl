@@ -54,14 +54,23 @@ impl Session {
         Ok(s)
     }
 
-    /// Reads a PlantUML or Umple file into a new, unsaved diagram without
+    /// Reads diagram `n` (from 0; see [`umpl_text::plantuml::diagrams`]) of
+    /// a PlantUML file, or an Umple file, into a new, unsaved diagram without
     /// a file, so Save asks for a `.umpl` name and never overwrites the
     /// source. PlantUML `!include`s of files next to it are read too. A
     /// PlantUML diagram of a kind fastumpl does not read (sequence,
     /// activity, …) is an error.
-    pub fn import(path: &Path, format: Format, aspect: f64) -> Result<Session, String> {
-        let parsed =
-            read_path(format, path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+    pub fn import_nth(
+        path: &Path,
+        format: Format,
+        n: usize,
+        aspect: f64,
+    ) -> Result<Session, String> {
+        let read = match format {
+            Format::PlantUml => umpl_text::plantuml::import_path_nth(path, n),
+            _ => read_path(format, path),
+        };
+        let parsed = read.map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
         if format == Format::PlantUml && parsed.doc.elements.is_empty() {
             if let Some(p) = parsed
                 .problems

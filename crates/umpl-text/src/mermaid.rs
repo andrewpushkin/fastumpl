@@ -102,6 +102,12 @@ fn class_ids(doc: &Document) -> HashMap<ElementId, (String, Option<String>)> {
         let label = (candidate != *name).then(|| name.clone());
         ids.insert(id, (candidate, label));
     }
+    // What the box shows, if it differs from its name.
+    for (id, (_, label)) in ids.iter_mut() {
+        if let Some(l) = &doc.elements[id].label {
+            *label = Some(l.clone());
+        }
+    }
     ids
 }
 
@@ -137,6 +143,9 @@ impl Writer<'_> {
         self.comments(&el.comments, indent);
         let (mid, label) = self.ids[&id].clone();
         let mut head = format!("{indent}class {mid}");
+        if let Some(p) = &el.type_params {
+            head.push_str(&format!("~{}~", generics(p)));
+        }
         if let Some(l) = label {
             head.push_str(&format!("[\"{}\"]", text(&l)));
         }
@@ -178,25 +187,44 @@ impl Writer<'_> {
         let Some(r) = self.doc.relations.get(&id) else {
             return;
         };
+        // Mermaid draws no lines to namespaces: those stay as a comment.
+        let (Some(from), Some(to)) = (r.from.element(), r.to.element()) else {
+            self.out.push_str(&format!(
+                "    %% {} {} {} (between packages)\n",
+                self.doc.endpoint_name(r.from.target),
+                r.kind.arrow(),
+                self.doc.endpoint_name(r.to.target)
+            ));
+            return;
+        };
         // Notes are written as `note for`.
-        if self.is_note(r.from.element) || self.is_note(r.to.element) {
+        if self.is_note(from) || self.is_note(to) {
             return;
         }
         self.comments(&r.comments, "    ");
-        let mut line = format!("    {}", self.id(r.from.element));
+        let mut line = format!("    {}", self.id(from));
         if let Some(l) = &r.from.label {
             line.push_str(&format!(" \"{}\"", text(l)));
         }
         line.push(' ');
-        line.push_str(r.kind.arrow());
+        // Mermaid has no nesting line: a plain one, labelled below.
+        line.push_str(match r.kind {
+            RelationKind::Nesting => "--",
+            k => k.arrow(),
+        });
         if let Some(l) = &r.to.label {
             line.push_str(&format!(" \"{}\"", text(l)));
         }
         line.push(' ');
-        line.push_str(self.id(r.to.element));
-        if let Some(n) = &r.name {
+        line.push_str(self.id(to));
+        let name = match (&r.name, r.kind) {
+            (Some(n), _) => Some(n.replace('\n', " ")),
+            (None, RelationKind::Nesting) => Some("nested".to_string()),
+            _ => None,
+        };
+        if let Some(n) = name {
             line.push_str(" : ");
-            line.push_str(&n.replace('\n', " "));
+            line.push_str(&n);
         }
         line.push('\n');
         self.out.push_str(&line);
@@ -215,10 +243,10 @@ impl Writer<'_> {
             .into_iter()
             .filter_map(|r| {
                 let r = &self.doc.relations[&r];
-                let other = if r.from.element == id {
-                    r.to.element
-                } else if r.to.element == id {
-                    r.from.element
+                let other = if r.from.element() == Some(id) {
+                    r.to.element()?
+                } else if r.to.element() == Some(id) {
+                    r.from.element()?
                 } else {
                     return None;
                 };

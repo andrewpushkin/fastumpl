@@ -51,22 +51,59 @@ impl<'a> Cursor<'a> {
         false
     }
 
-    /// A name: letters, digits, `_`, and `.` between parts.
-    pub fn ident(&mut self) -> Option<&'a str> {
+    /// One name: a plain name, or any text in double quotes.
+    pub fn segment(&mut self) -> Option<String> {
         self.skip_ws();
         let r = self.rest();
+        if r.starts_with('"') {
+            let save = self.pos;
+            let s = self.string()?;
+            if s.is_empty() {
+                self.pos = save;
+                return None;
+            }
+            return Some(s);
+        }
         let first = r.chars().next()?;
         if !(first.is_alphabetic() || first == '_') {
             return None;
         }
         let len = r
             .char_indices()
-            .find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '.'))
+            .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
             .map(|(i, _)| i)
             .unwrap_or(r.len());
-        let name = r[..len].trim_end_matches('.');
-        self.pos += name.len();
-        Some(name)
+        self.pos += len;
+        Some(r[..len].to_string())
+    }
+
+    /// A dotted path of names, `billing."Order line"`, in the form
+    /// [`umpl_core::Document::full_name`] gives: plain names unquoted.
+    pub fn path(&mut self) -> Option<String> {
+        let save = self.pos;
+        let mut parts = vec![self.segment()?];
+        loop {
+            let r = self.rest();
+            let joins = r.strip_prefix('.').is_some_and(|after| {
+                after.starts_with('"') || after.starts_with(|c: char| c.is_alphabetic() || c == '_')
+            });
+            if !joins {
+                break;
+            }
+            self.pos += 1;
+            match self.segment() {
+                Some(p) => parts.push(p),
+                None => {
+                    self.pos = save;
+                    return None;
+                }
+            }
+        }
+        let parts: Vec<String> = parts
+            .iter()
+            .map(|p| umpl_core::name_in_path(p).into_owned())
+            .collect();
+        Some(parts.join("."))
     }
 
     /// A double-quoted string with `\"`, `\\` and `\n` escapes.
@@ -113,7 +150,7 @@ impl<'a> Cursor<'a> {
     pub fn arrow(&mut self) -> Option<(RelationKind, bool)> {
         use RelationKind::*;
         // Longest first, so `--|>` wins over `--`.
-        const ARROWS: [(&str, RelationKind, bool); 14] = [
+        const ARROWS: [(&str, RelationKind, bool); 16] = [
             ("--|>", Generalization, false),
             ("<|--", Generalization, true),
             ("..|>", Realization, false),
@@ -126,6 +163,8 @@ impl<'a> Cursor<'a> {
             ("--*", Composition, true),
             ("o--", Aggregation, false),
             ("--o", Aggregation, true),
+            ("+--", Nesting, false),
+            ("--+", Nesting, true),
             ("--", Association, false),
             ("..", NoteLink, false),
         ];
@@ -148,6 +187,34 @@ impl<'a> Cursor<'a> {
                 }
                 self.pos += text.len();
                 return Some((kind, rev));
+            }
+        }
+        None
+    }
+
+    /// Type parameters after a name: `<T>`, `<K, V>`, `<T extends Map<K, V>>`
+    /// (the text between the outer angle brackets). Not a `<<stereotype>>`.
+    pub fn type_params(&mut self) -> Option<String> {
+        let r = self.rest();
+        if !r.starts_with('<') || r.starts_with("<<") {
+            return None;
+        }
+        let mut depth = 0;
+        for (i, c) in r.char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let inner = r[1..i].trim();
+                        if inner.is_empty() {
+                            return None;
+                        }
+                        self.pos += i + 1;
+                        return Some(inner.to_string());
+                    }
+                }
+                _ => {}
             }
         }
         None
@@ -185,11 +252,6 @@ pub fn quote(s: &str) -> String {
     out
 }
 
-/// Is `s` a valid `.umpl` name, possibly dotted?
-pub fn is_name_path(s: &str) -> bool {
-    !s.is_empty() && s.split('.').all(is_name)
-}
-
 pub fn is_name(s: &str) -> bool {
     let mut chars = s.chars();
     chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
@@ -221,22 +283,37 @@ mod tests {
     #[test]
     fn scans_relation_parts() {
         let mut c = Cursor::new(r#"Order "1" *-- "1..*" OrderLine : contains"#);
-        assert_eq!(c.ident(), Some("Order"));
+        assert_eq!(c.path().as_deref(), Some("Order"));
         assert_eq!(c.string().as_deref(), Some("1"));
         assert_eq!(c.arrow(), Some((RelationKind::Composition, false)));
         assert_eq!(c.string().as_deref(), Some("1..*"));
-        assert_eq!(c.ident(), Some("OrderLine"));
+        assert_eq!(c.path().as_deref(), Some("OrderLine"));
         assert!(c.eat(":"));
+    }
+
+    #[test]
+    fn paths_of_plain_and_quoted_names() {
+        let mut c = Cursor::new(r#"billing."Order line" --> "Plain".x.y"#);
+        assert_eq!(c.path().as_deref(), Some(r#"billing."Order line""#));
+        c.arrow();
+        // A quoted plain name is the plain name.
+        assert_eq!(c.path().as_deref(), Some("Plain.x.y"));
+        let mut c = Cursor::new(r#""a.b" end."#);
+        assert_eq!(c.segment().as_deref(), Some("a.b"));
+        assert_eq!(c.path().as_deref(), Some("end"));
+        assert_eq!(c.rest(), ".");
+        assert_eq!(Cursor::new("\"\" x").segment(), None);
+        assert_eq!(Cursor::new("\" \" x").segment().as_deref(), Some(" "));
     }
 
     #[test]
     fn aggregation_arrow_does_not_eat_names() {
         let mut c = Cursor::new("A -- order");
-        c.ident();
+        c.path();
         assert_eq!(c.arrow(), Some((RelationKind::Association, false)));
-        assert_eq!(c.ident(), Some("order"));
+        assert_eq!(c.path().as_deref(), Some("order"));
         let mut c = Cursor::new("A --o B");
-        c.ident();
+        c.path();
         assert_eq!(c.arrow(), Some((RelationKind::Aggregation, true)));
     }
 

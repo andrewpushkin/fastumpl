@@ -49,6 +49,8 @@ pub enum Dialog {
     Problems,
     Shortcuts,
     About,
+    /// A PlantUML file with several diagrams: which one to open.
+    PickDiagram(PathBuf, Vec<umpl_text::plantuml::DiagramInfo>),
 }
 
 pub struct App {
@@ -239,9 +241,25 @@ impl App {
         }
     }
 
-    /// Opens a PlantUML or Umple file as a new, unsaved diagram.
+    /// Opens a PlantUML or Umple file as a new, unsaved diagram. A PlantUML
+    /// file with several diagrams asks which one first.
     fn import_path(&mut self, path: &Path, format: Format, aspect: f64) {
-        match Session::import(path, format, aspect) {
+        if format == Format::PlantUml {
+            let src = std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned());
+            let list = src
+                .map(|s| umpl_text::plantuml::diagrams(&s))
+                .unwrap_or_default();
+            if list.len() > 1 {
+                self.dialog = Some(Dialog::PickDiagram(path.to_path_buf(), list));
+                return;
+            }
+        }
+        self.import_nth(path, format, 0, aspect);
+    }
+
+    /// Opens diagram `n` of a PlantUML file (or the Umple file).
+    pub fn import_nth(&mut self, path: &Path, format: Format, n: usize, aspect: f64) {
+        match Session::import_nth(path, format, n, aspect) {
             Ok(s) => {
                 let problems = s.problems.len();
                 self.install_session(s);

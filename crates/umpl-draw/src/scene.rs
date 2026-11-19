@@ -141,6 +141,8 @@ const GAP: f32 = 4.0;
 const TRIANGLE: f32 = 12.0;
 const DIAMOND: f32 = 16.0;
 const ARROW: f32 = 10.0;
+/// Diameter of the circled plus at the outer end of a nesting line.
+const NEST: f32 = 12.0;
 const TAB_H: f32 = 20.0;
 
 fn px(p: (i32, i32)) -> (f32, f32) {
@@ -151,6 +153,49 @@ fn unit(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len = (dx * dx + dy * dy).sqrt().max(1e-6);
     (dx / len, dy / len)
+}
+
+/// The part of `pts` up to where it first enters `r`; all of it if it never
+/// does, or starts inside.
+fn until_inside(pts: &[(f32, f32)], r: &RectF) -> Vec<(f32, f32)> {
+    let inside = |p: (f32, f32)| p.0 > r.x && p.0 < r.right() && p.1 > r.y && p.1 < r.y + r.h;
+    if pts.first().is_none_or(|p| inside(*p)) {
+        return pts.to_vec();
+    }
+    let mut out = vec![pts[0]];
+    for w in pts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        // Where segment a→b first meets the rectangle (Liang–Barsky).
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let mut t0: f32 = 0.0;
+        let mut t1: f32 = 1.0;
+        let mut meets = true;
+        for (p, q) in [
+            (-dx, a.0 - r.x),
+            (dx, r.right() - a.0),
+            (-dy, a.1 - r.y),
+            (dy, r.y + r.h - a.1),
+        ] {
+            if p == 0.0 {
+                if q < 0.0 {
+                    meets = false;
+                }
+            } else {
+                let t = q / p;
+                if p < 0.0 {
+                    t0 = t0.max(t);
+                } else {
+                    t1 = t1.min(t);
+                }
+            }
+        }
+        if meets && t0 <= t1 && (t0 > 0.0 || inside(b)) {
+            out.push((a.0 + dx * t0, a.1 + dy * t0));
+            return out;
+        }
+        out.push(b);
+    }
+    out
 }
 
 fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
@@ -236,7 +281,7 @@ fn kind_letter(k: ElementKind) -> &'static str {
         ElementKind::Abstract => "A",
         ElementKind::Interface => "I",
         ElementKind::Enum => "E",
-        ElementKind::Note => "",
+        ElementKind::Note | ElementKind::Diamond => "",
     }
 }
 
@@ -317,7 +362,23 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
         if route.points.len() < 2 {
             continue;
         }
-        let full: Vec<(f32, f32)> = route.points.iter().map(|p| px(*p)).collect();
+        let mut full: Vec<(f32, f32)> = route.points.iter().map(|p| px(*p)).collect();
+        // A line to a package ends at its frame.
+        let frame = |t: Endpoint| match t {
+            Endpoint::Package(p) => s.packages.iter().find(|(q, _)| *q == p).map(|(_, r)| *r),
+            Endpoint::Element(_) => None,
+        };
+        if let Some(r) = frame(rel.to.target) {
+            full = until_inside(&full, &r);
+        }
+        if let Some(r) = frame(rel.from.target) {
+            full.reverse();
+            full = until_inside(&full, &r);
+            full.reverse();
+        }
+        if full.len() < 2 {
+            continue;
+        }
         s.relations.push((*rid, full.clone()));
         let selected = opts.selected_relations.contains(rid);
         let color = if selected { theme.accent } else { theme.line };
@@ -335,6 +396,9 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             RelationKind::Composition | RelationKind::Aggregation
         ) {
             shorten_start(&mut pts, DIAMOND);
+        }
+        if rel.kind == RelationKind::Nesting {
+            shorten_start(&mut pts, NEST);
         }
         for piece in cut_gaps(&pts, &gaps[e]) {
             s.shapes.push(Shape::Path {
@@ -408,6 +472,36 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             });
         }
 
+        if rel.kind == RelationKind::Nesting {
+            // A circle with a plus in it, touching the outer class.
+            let f = full[0];
+            let v = unit(full[1], f);
+            let r = NEST / 2.0;
+            let c = (f.0 - v.0 * r, f.1 - v.1 * r);
+            let ring: Vec<(f32, f32)> = (0..24)
+                .map(|k| {
+                    let a = k as f32 * std::f32::consts::TAU / 24.0;
+                    (c.0 + r * a.cos(), c.1 + r * a.sin())
+                })
+                .collect();
+            markers.push(Shape::Path {
+                points: ring,
+                stroke: Some((color, width)),
+                fill: Some(theme.box_fill),
+                closed: true,
+                dashed: false,
+            });
+            for (dx, dy) in [(r, 0.0), (0.0, r)] {
+                markers.push(Shape::Path {
+                    points: vec![(c.0 - dx, c.1 - dy), (c.0 + dx, c.1 + dy)],
+                    stroke: Some((color, width)),
+                    fill: None,
+                    closed: false,
+                    dashed: false,
+                });
+            }
+        }
+
         // Labels.
         let texts = [
             rel.from.label.as_ref(),
@@ -470,6 +564,17 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
 }
 
 fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hide_members: bool) {
+    if c.kind == ElementKind::Diamond {
+        let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        shapes.push(Shape::Path {
+            points: vec![(cx, r.y), (r.right(), cy), (cx, r.bottom()), (r.x, cy)],
+            stroke: Some((theme.box_stroke, BOX_W)),
+            fill: Some(theme.box_fill),
+            closed: true,
+            dashed: false,
+        });
+        return;
+    }
     if c.kind == ElementKind::Note {
         let fold = 10.0;
         shapes.push(Shape::Path {
@@ -587,6 +692,45 @@ mod tests {
         let p = umpl_text::parse(include_str!("../../../examples/shop.umpl"));
         let d = Diagram::arrange(&p.doc);
         (p.doc, d)
+    }
+
+    #[test]
+    fn lines_to_packages_end_at_the_frame() {
+        let r = RectF::new(10.0, 10.0, 20.0, 20.0);
+        // Into the frame from the left, then on to a box inside.
+        let pts = [(0.0, 15.0), (20.0, 15.0), (20.0, 25.0)];
+        assert_eq!(until_inside(&pts, &r), [(0.0, 15.0), (10.0, 15.0)]);
+        // From above, after a bend outside.
+        let pts = [(0.0, 0.0), (15.0, 0.0), (15.0, 20.0)];
+        assert_eq!(
+            until_inside(&pts, &r),
+            [(0.0, 0.0), (15.0, 0.0), (15.0, 10.0)]
+        );
+        // Never in, or starting inside: unchanged.
+        let pts = [(0.0, 0.0), (40.0, 0.0)];
+        assert_eq!(until_inside(&pts, &r), pts);
+        let pts = [(15.0, 15.0), (40.0, 15.0)];
+        assert_eq!(until_inside(&pts, &r), pts);
+
+        let p = umpl_text::parse("package shop {\n  class Order\n  class Line\n}\npackage web {}\nclass Client\nClient --> shop\nweb ..> shop\n");
+        let d = Diagram::tidy(&p.doc, &umpl_layout::Options::default());
+        let s = build_scene(&p.doc, &d, &Theme::light(), &SceneOptions::default());
+        let shop = s
+            .packages
+            .iter()
+            .find(|(q, _)| p.doc.packages[q].name == "shop")
+            .unwrap()
+            .1;
+        assert_eq!(s.relations.len(), 2);
+        for (_, pts) in &s.relations {
+            // Each line stops on the frame of shop, not inside it.
+            let end = *pts.last().unwrap();
+            let on_frame = (end.0 - shop.x).abs() < 0.5
+                || (end.0 - shop.right()).abs() < 0.5
+                || (end.1 - shop.y).abs() < 0.5
+                || (end.1 - shop.bottom()).abs() < 0.5;
+            assert!(on_frame, "{end:?} not on {shop:?}");
+        }
     }
 
     #[test]

@@ -91,6 +91,36 @@ impl App {
                         }
                     }
                 }
+                Dialog::PickDiagram(path, list) => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.heading("Open which diagram?");
+                    ui.label(format!("{name} holds {} diagrams; PlantUML draws each on its own.", list.len()));
+                    ui.add_space(8.0);
+                    let mut chosen = None;
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for (k, d) in list.iter().enumerate() {
+                            let title = d.name.clone().unwrap_or_else(|| format!("Diagram {}", k + 1));
+                            let readable = d.kind.readable();
+                            let text = if readable {
+                                format!("{title}  ·  line {}", d.line)
+                            } else {
+                                format!("{title}  ·  {} (not read)", d.kind.name())
+                            };
+                            if ui.add_enabled(readable, egui::Button::new(text)).clicked() {
+                                chosen = Some(k);
+                            }
+                        }
+                    });
+                    ui.add_space(8.0);
+                    if let Some(k) = chosen {
+                        keep = false;
+                        let aspect = self.view_aspect(ctx);
+                        self.import_nth(path, umpl_text::Format::PlantUml, k, aspect);
+                    }
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                        keep = false;
+                    }
+                }
                 Dialog::Message(title, text) => {
                     ui.heading(title);
                     ui.label(text);

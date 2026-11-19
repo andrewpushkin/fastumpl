@@ -28,8 +28,8 @@ fn relation_keys(doc: &Document) -> Vec<(RelationId, Key)> {
         .filter_map(|id| {
             let r = doc.relations.get(&id)?;
             let ends = (
-                doc.full_name(r.from.element),
-                doc.full_name(r.to.element),
+                doc.endpoint_name(r.from.target),
+                doc.endpoint_name(r.to.target),
                 r.kind,
             );
             let n = seen.entry(ends.clone()).or_default();

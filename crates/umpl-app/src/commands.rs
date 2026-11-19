@@ -41,6 +41,8 @@ impl Tool {
             Tool::Element(ElementKind::Interface) => Key::I,
             Tool::Element(ElementKind::Enum) => Key::E,
             Tool::Element(ElementKind::Note) => Key::N,
+            // Not on the toolbar: diamonds come from imports.
+            Tool::Element(ElementKind::Diamond) => Key::D,
             Tool::Package => Key::P,
             Tool::Relation => Key::R,
         }

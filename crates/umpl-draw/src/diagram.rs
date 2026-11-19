@@ -44,7 +44,11 @@ pub const PACKAGE_HEADER: i32 = 3;
 fn edge_kind(k: RelationKind) -> EdgeKind {
     match k {
         RelationKind::Generalization | RelationKind::Realization => EdgeKind::Hierarchy,
-        RelationKind::Composition | RelationKind::Aggregation => EdgeKind::Whole,
+        // The outer class sits above its inner classes, as a whole above
+        // its parts.
+        RelationKind::Composition | RelationKind::Aggregation | RelationKind::Nesting => {
+            EdgeKind::Whole
+        }
         RelationKind::Association | RelationKind::Directed => EdgeKind::Assoc,
         RelationKind::Dependency => EdgeKind::Dep,
         RelationKind::NoteLink => EdgeKind::Note,
@@ -106,9 +110,24 @@ pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
         }
     }
 
+    // A line to a package is laid out to a box in it, its first one (or
+    // the placeholder of an empty package), and drawn to its frame.
+    let mut first_in: HashMap<PackageId, usize> = HashMap::new();
+    for (n, node) in g.nodes.iter().enumerate() {
+        let mut group = node.group;
+        while let Some(gi) = group {
+            first_in.entry(packages[gi]).or_insert(n);
+            group = g.groups[gi].parent;
+        }
+    }
+    let node_of = m.node_of.clone();
+    let node_at = |t: Endpoint| match t {
+        Endpoint::Element(e) => node_of.get(&e).copied(),
+        Endpoint::Package(p) => first_in.get(&p).copied(),
+    };
     for id in doc.relations_in_order() {
         let r = &doc.relations[&id];
-        let (Some(a), Some(b)) = (m.node_of(r.from.element), m.node_of(r.to.element)) else {
+        let (Some(a), Some(b)) = (node_at(r.from.target), node_at(r.to.target)) else {
             continue;
         };
         let mut e = Edge::new(a, b, edge_kind(r.kind));

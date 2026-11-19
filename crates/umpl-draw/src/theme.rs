@@ -125,7 +125,7 @@ impl Theme {
 
     pub fn mark(&self, kind: ElementKind) -> Color {
         match kind {
-            ElementKind::Class | ElementKind::Note => self.mark_class,
+            ElementKind::Class | ElementKind::Note | ElementKind::Diamond => self.mark_class,
             ElementKind::Abstract => self.mark_abstract,
             ElementKind::Interface => self.mark_interface,
             ElementKind::Enum => self.mark_enum,

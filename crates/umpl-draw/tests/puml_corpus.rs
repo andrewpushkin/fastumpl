@@ -22,9 +22,19 @@
 //! - the shape of the laid-out drawings (width : height), and the slowest.
 //!
 //! A table of every file goes to target/puml-corpus-report.tsv.
+//!
+//! With target/puml-check.tsv from `scripts/dev.sh scripts/puml-check.sh`
+//! (PlantUML's own verdict on every file) the report also says how many of
+//! the files PlantUML reads without error open here with no problem; the
+//! problem kinds count those files only (files PlantUML rejects are broken
+//! in their own source). It also lists files where PlantUML sees another
+//! kind of diagram, or another number of classes and notes.
 //! `PUML_CORPUS_SHOW=<text>` lists every problem containing `<text>`;
 //! `PUML_CORPUS_LAYOUT=0` skips layout (import only), and
 //! `PUML_CORPUS_LAYOUT=<n>` lays out every n-th file only (all are imported).
+//! `PUML_CORPUS_NAMES=<file>` writes the name and kind of every element
+//! read, `path<TAB>kind<TAB>name`, to compare with what PlantUML read
+//! (`scripts/PumlCheck.java --dump`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -85,6 +95,53 @@ fn category(message: &str) -> String {
     out
 }
 
+/// PlantUML's verdict on the first diagram of a file (scripts/PumlCheck.java).
+struct Verdict {
+    /// PlantUML's class name for the diagram: `ClassDiagram`, …
+    kind: String,
+    ok: bool,
+    /// Classes and notes, from PlantUML's "(N entities)".
+    entities: Option<usize>,
+    message: String,
+}
+
+/// target/puml-check.tsv, by path relative to the workspace root (or
+/// absolute, for files outside it).
+fn verdicts(root: &Path) -> BTreeMap<String, Verdict> {
+    let mut out = BTreeMap::new();
+    let Ok(text) = std::fs::read(root.join("target/puml-check.tsv")) else {
+        return out;
+    };
+    for line in String::from_utf8_lossy(&text).lines() {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() < 6 || !(f[1] == "1" || f[1] == "0") || out.contains_key(f[0]) {
+            continue;
+        }
+        let entities = f[5]
+            .strip_prefix('(')
+            .and_then(|d| d.split(' ').next())
+            .and_then(|n| n.parse().ok());
+        out.insert(
+            f[0].to_string(),
+            Verdict {
+                kind: f[2].to_string(),
+                ok: f[3] == "ok",
+                entities: entities.filter(|_| f[3] == "ok"),
+                message: f[5].to_string(),
+            },
+        );
+    }
+    out
+}
+
+/// The key of `path` in [`verdicts`].
+fn key(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// What became of one file.
 struct Outcome {
     path: PathBuf,
@@ -92,6 +149,8 @@ struct Outcome {
     elements: usize,
     relations: usize,
     problems: Vec<(usize, String)>,
+    /// Kind and name of every element.
+    names: Vec<(String, String)>,
     not_understood: usize,
     layout: Option<Layout>,
     panic: Option<String>,
@@ -112,6 +171,7 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
         elements: 0,
         relations: 0,
         problems: Vec::new(),
+        names: Vec::new(),
         not_understood: 0,
         layout: None,
         panic: None,
@@ -138,6 +198,12 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
         Ok((parsed, kind, layout)) => {
             out.kind = kind.name().to_string();
             out.elements = parsed.doc.elements.len();
+            out.names = parsed
+                .doc
+                .elements
+                .values()
+                .map(|e| (format!("{:?}", e.kind), e.shown().replace('\n', "\\n")))
+                .collect();
             out.relations = parsed.doc.relations.len();
             out.not_understood = parsed
                 .problems
@@ -220,6 +286,10 @@ fn opens_the_corpus() {
     outcomes.sort_by(|a, b| a.0.path.cmp(&b.0.path));
 
     // ----- report ----------------------------------------------------------
+    let checked = verdicts(&root);
+    let (mut valid, mut valid_clean) = (0, 0);
+    let mut other_kind: Vec<String> = Vec::new();
+    let mut other_count: Vec<(i64, String)> = Vec::new();
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     let mut categories: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut examples: BTreeMap<String, String> = BTreeMap::new();
@@ -269,6 +339,28 @@ fn opens_the_corpus() {
         if o.problems.is_empty() {
             clean += 1;
         }
+        let verdict = checked.get(&key(&root, &o.path));
+        if let Some(v) = verdict.filter(|v| v.ok) {
+            valid += 1;
+            if o.problems.is_empty() {
+                valid_clean += 1;
+            }
+            if !matches!(v.kind.as_str(), "ClassDiagram" | "DescriptionDiagram") {
+                other_kind.push(format!("{} {} ({p})", v.kind, v.message));
+            }
+            if let Some(n) = v.entities {
+                if n != o.elements {
+                    other_count.push((o.elements as i64 - n as i64, p.to_string()));
+                }
+            }
+        }
+        // With PlantUML's verdicts, problems are counted in valid files only.
+        if !checked.is_empty() && !verdict.is_some_and(|v| v.ok) {
+            if o.not_understood > 0 {
+                unclear += 1;
+            }
+            continue;
+        }
         if o.not_understood > 0 {
             unclear += 1;
         }
@@ -296,6 +388,15 @@ fn opens_the_corpus() {
         }
     }
 
+    if let Ok(file) = std::env::var("PUML_CORPUS_NAMES") {
+        let mut lines = Vec::new();
+        for (o, _) in &outcomes {
+            for (kind, name) in &o.names {
+                lines.push(format!("{}\t{kind}\t{name}", key(&root, &o.path)));
+            }
+        }
+        let _ = std::fs::write(root.join(file), lines.join("\n") + "\n");
+    }
     let report = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/puml-corpus-report.tsv");
     let _ = std::fs::write(&report, table.join("\n") + "\n");
 
@@ -307,7 +408,39 @@ fn opens_the_corpus() {
         "\n{read} diagrams read: {clean} without any problem, {unclear} with lines not understood; \
          {elements} elements, {relations} relations"
     );
-    println!("\nproblems (count, files, kind):");
+    if !checked.is_empty() {
+        println!(
+            "PlantUML reads {valid} of them without error; {valid_clean} of those ({:.1} %) \
+             open here without any problem",
+            100.0 * valid_clean as f64 / valid.max(1) as f64
+        );
+        println!(
+            "PlantUML sees another kind of diagram in {} of them:",
+            other_kind.len()
+        );
+        for k in other_kind.iter().take(8) {
+            println!("  {k}");
+        }
+        other_count.sort();
+        println!(
+            "and another number of classes and notes in {} (here minus PlantUML's):",
+            other_count.len()
+        );
+        let n = other_count.len();
+        for (d, p) in other_count
+            .iter()
+            .take(5)
+            .chain(other_count.iter().skip(n.saturating_sub(5).max(5)))
+        {
+            println!("  {d:+6}  {p}");
+        }
+    }
+    let scope = if checked.is_empty() {
+        ""
+    } else {
+        " in files PlantUML reads without error"
+    };
+    println!("\nproblems{scope} (count, files, kind):");
     let mut by_count: Vec<_> = categories.into_iter().collect();
     by_count.sort_by(|a, b| b.1 .1.cmp(&a.1 .1).then(b.1 .0.cmp(&a.1 .0)));
     for (c, (n, f)) in &by_count {

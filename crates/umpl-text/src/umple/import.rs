@@ -612,6 +612,9 @@ impl<'a> Importer<'a> {
         if let Some(s) = stereotype {
             self.add_stereotype(id, s);
         }
+        if !params.is_empty() {
+            self.doc.elements.get_mut(&id).unwrap().type_params = Some(params.join(", "));
+        }
         let outer = std::mem::replace(&mut self.type_params, params);
         self.body(id, body);
         self.type_params = outer;
@@ -1249,11 +1252,11 @@ impl<'a> Importer<'a> {
             let relation = Relation {
                 kind,
                 from: End {
-                    element: from,
+                    target: Endpoint::Element(from),
                     label: p.from.1,
                 },
                 to: End {
-                    element: to,
+                    target: Endpoint::Element(to),
                     label: p.to.1,
                 },
                 name: None,

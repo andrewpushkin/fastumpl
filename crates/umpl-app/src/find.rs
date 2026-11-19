@@ -1,7 +1,7 @@
 //! Find (Ctrl+F): a bar under the menu that searches the diagram.
 //!
 //! Matches are items of the document whose text holds the query, ignoring
-//! case: a class by its name, stereotype or any member; a relation by its
+//! case: a class by its name, type parameters, stereotype or any member; a relation by its
 //! name or end labels; a package by its name. Every match is outlined on
 //! the canvas and every occurrence in the text panel is tinted. Enter and
 //! Shift+Enter (or F3 and Shift+F3) step through the matches: each in turn
@@ -61,7 +61,7 @@ pub fn find_matches(doc: &Document, query: &str) -> Vec<Item> {
     let mut out = Vec::new();
     for id in doc.elements_in_order() {
         let el = &doc.elements[&id];
-        let hit = contains(&el.name, &q)
+        let hit = contains(&el.title(), &q)
             || el.stereotype.as_deref().is_some_and(|s| contains(s, &q))
             || el.members.iter().any(|m| contains(&m.to_line(), &q));
         if hit {

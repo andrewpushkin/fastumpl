@@ -99,17 +99,21 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
     }
 
     // ----- relations: by (ends, kind), then in order -----------------------
+    let map_end = |t: Endpoint| match t {
+        Endpoint::Element(e) => Endpoint::Element(el_map[&e]),
+        Endpoint::Package(p) => Endpoint::Package(pkg_map[&p]),
+    };
     let cur_rels = cur.relations_in_order();
     let tgt_rels = target.relations_in_order();
     let mut pick = Picker::new(cur_rels.len(), tgt_rels.len());
     pick.by_key(
         &keys(&cur_rels, |r| {
             let r = &cur.relations[r];
-            (r.from.element, r.to.element, r.kind)
+            (r.from.target, r.to.target, r.kind)
         }),
         &keys(&tgt_rels, |r| {
             let r = &target.relations[r];
-            (el_map[&r.from.element], el_map[&r.to.element], r.kind)
+            (map_end(r.from.target), map_end(r.to.target), r.kind)
         }),
     );
     pick.in_order();
@@ -158,8 +162,8 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
     for (t, r) in &target.relations {
         let id = rel_map[t];
         let mut new = r.clone();
-        new.from.element = el_map[&r.from.element];
-        new.to.element = el_map[&r.to.element];
+        new.from.target = map_end(r.from.target);
+        new.to.target = map_end(r.to.target);
         if cur.relations.get(&id) != Some(&new) {
             ops.push(Op::Relation(id, Some(new)));
         }
@@ -330,7 +334,7 @@ mod tests {
         );
         assert_eq!(ed.doc.find("Bee"), Some(b));
         assert_eq!(ed.doc.elements[&b].pos, b_pos);
-        assert_eq!(ed.doc.relations[&rel].to.element, b);
+        assert_eq!(ed.doc.relations[&rel].to.element(), Some(b));
         ed.undo();
         assert_eq!(ed.doc, before);
     }

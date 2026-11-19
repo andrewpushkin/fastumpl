@@ -121,15 +121,15 @@ Text measurement is the one place where layout needs help from outside: box size
 
 A document holds:
 
-- Elements, each with a kind, a name, an optional stereotype, an ordered member list, and the package it belongs to.
-- Relations, each with a kind, two ends (element, role name, multiplicity, navigability), and an optional name.
+- Elements, each with a kind (class, abstract class, interface, enum, note, or the diamond of an association class), a name, optionally a label (the text the box shows when it differs from the name), type parameters and a stereotype, an ordered member list, and the package it belongs to.
+- Relations, each with a kind, two ends (an element or a package; role name, multiplicity, navigability), and an optional name.
 - Packages, forming a tree.
 - Notes, each with text and the element it is attached to.
 - A position for each element (top-left corner, in whole grid units). A position may be missing.
 
 Box sizes and line routes are never stored. They are always computed, which is why the same file always gives the same picture.
 
-Names are unique inside a package, and the full name (`billing.Invoice`) identifies an element in the file. Renaming an element updates every relation and position that refers to it.
+Names are unique inside a package, and the full name (`billing.Invoice`) identifies an element in the file. A name may be any text: one that is not a plain word is quoted in paths (`billing."Order line"`). Renaming an element updates every relation and position that refers to it. Labels let several boxes show the same text (PlantUML's `class "Order" as O1` and `class "Order" as O2` are two classes): the names stay unique, the labels need not.
 
 ### 5.2 File format
 
@@ -174,7 +174,8 @@ layout {
 
 Rules:
 
-- Relation arrows: `--|>` generalization, `..|>` realization, `--` association, `-->` directed association, `o--` aggregation, `*--` composition, `..>` dependency.
+- Relation arrows: `--|>` generalization, `..|>` realization, `--` association, `-->` directed association, `o--` aggregation, `*--` composition, `..>` dependency, `+--` nesting (an inner class), `..` a note's or association class's dashed line. Either end may name a package.
+- Declarations: `class "Order line"<T> as "Line of an order" <<entity>> { … }`: a quoted name, type parameters, a label after `as`, a stereotype. `diamond A` is the point an association class hangs from.
 - The `layout` block is optional and comes last. Its lines are sorted by name. Meaning stays at the top of the file and geometry at the bottom, so a diff shows clearly whether a change was to the model or only to the picture.
 - An element with no line in the `layout` block gets placed automatically when the file opens. A file with no `layout` block at all gets a full Tidy. This makes hand-written files work.
 - Comments start with `#` and are kept. A comment belongs to the declaration that follows it and moves with it.

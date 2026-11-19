@@ -80,6 +80,8 @@ pub struct Pre<'r> {
     reported: HashSet<String>,
     pub problems: Vec<Problem>,
     pub out: Vec<Line>,
+    /// Libraries included that fastumpl knows without reading them.
+    pub libraries: Vec<String>,
 }
 
 /// Preprocesses `lines` (line number and text) of the main file in `dir`.
@@ -87,7 +89,7 @@ pub fn preprocess(
     lines: &[(usize, &str)],
     dir: Option<&Path>,
     read: Reader,
-) -> (Vec<Line>, Vec<Problem>) {
+) -> (Vec<Line>, Vec<Problem>, Vec<String>) {
     let mut p = Pre {
         read,
         macros: HashMap::new(),
@@ -98,6 +100,7 @@ pub fn preprocess(
         reported: HashSet::new(),
         problems: Vec::new(),
         out: Vec::new(),
+        libraries: Vec::new(),
     };
     let src = Source {
         lines: lines.to_vec(),
@@ -109,7 +112,36 @@ pub fn preprocess(
         let line = lines.last().map_or(1, |l| l.0);
         p.problem(line, None, "missing `!endif` at end of file".into());
     }
-    (p.out, p.problems)
+    (p.out, p.problems, p.libraries)
+}
+
+/// The library an include names, if it is one fastumpl knows without
+/// reading it: PlantUML's standard library (`<C4/C4_Container>`, shipped
+/// inside PlantUML) and copies of its libraries on the web. Their
+/// procedures draw boxes, lines and frames, which the importer reads from
+/// the calls; only icons and styles are left out.
+pub fn known_library(target: &str) -> Option<String> {
+    if let Some(inner) = target.strip_prefix('<') {
+        let name = inner.trim_end_matches('>').split('/').next().unwrap_or("");
+        return (!name.is_empty()).then(|| name.to_string());
+    }
+    let lower = target.to_ascii_lowercase();
+    if !lower.contains("://") {
+        return None;
+    }
+    const KNOWN: [(&str, &str); 7] = [
+        ("c4-plantuml", "C4"),
+        ("azure-plantuml", "azure"),
+        ("aws-icons-for-plantuml", "awslib"),
+        ("plantuml-icon-font-sprites", "tupadr3"),
+        ("archimate-plantuml", "archimate"),
+        ("opensecurityarchitecture", "osa"),
+        ("plantuml-stdlib", "stdlib"),
+    ];
+    KNOWN
+        .iter()
+        .find(|(part, _)| lower.contains(part))
+        .map(|(_, lib)| lib.to_string())
 }
 
 /// Is `c` part of a macro or variable name?
@@ -123,7 +155,13 @@ fn directive(t: &str) -> Option<(String, &str)> {
     let end = rest
         .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
         .unwrap_or(rest.len());
-    Some((rest[..end].to_ascii_lowercase(), rest[end..].trim()))
+    // Directives are any case (`!IfDef`); variables keep theirs (`!$VIEW`).
+    let word = if rest.starts_with('$') {
+        rest[..end].to_string()
+    } else {
+        rest[..end].to_ascii_lowercase()
+    };
+    Some((word, rest[end..].trim()))
 }
 
 /// Splits `a, "b, c", f(d, e)` at top-level commas.
@@ -476,16 +514,14 @@ impl Pre<'_> {
         // Windows paths work on every system: `..\lib\a.iuml`.
         let target = unquote(&target).trim().replace('\\', "/");
         let skipped = |what: &str| format!("{what} `{target}` is not read; line skipped");
+        if let Some(lib) = known_library(&target) {
+            if !self.libraries.contains(&lib) {
+                self.libraries.push(lib);
+            }
+            return;
+        }
         if word == "includeurl" || target.contains("://") {
             return self.problem_once(target.clone(), line, from, skipped("include from the web"));
-        }
-        if target.starts_with('<') {
-            return self.problem_once(
-                target.clone(),
-                line,
-                from,
-                skipped("standard library include"),
-            );
         }
         if word == "import" {
             return self.problem_once(target.clone(), line, from, skipped("`!import` of"));
@@ -528,6 +564,7 @@ impl Pre<'_> {
             );
         };
         self.included.insert(key);
+        let text = super::one_line_end(&text).into_owned();
         let all: Vec<(usize, &str)> = text.lines().enumerate().map(|(k, l)| (k + 1, l)).collect();
         let lines = if word == "includesub" {
             let Some(part) = part else {
@@ -942,7 +979,7 @@ mod tests {
             .collect();
         let read = |p: &Path| files.get(p).cloned();
         let lines: Vec<(usize, &str)> = src.lines().enumerate().map(|(k, l)| (k + 1, l)).collect();
-        let (out, problems) = preprocess(&lines, Some(Path::new("/d")), &read);
+        let (out, problems, _) = preprocess(&lines, Some(Path::new("/d")), &read);
         (out.into_iter().map(|l| l.text).collect(), problems)
     }
 
@@ -973,22 +1010,39 @@ mod tests {
                 "class Main"
             ]
         );
+        // The standard library is known without reading it; a web include
+        // of an unknown file is not.
         let m: Vec<&str> = problems.iter().map(|p| p.message.as_str()).collect();
-        assert_eq!(m.len(), 3, "{m:?}");
+        assert_eq!(m.len(), 2, "{m:?}");
         assert!(m[0].contains("cannot read") && problems[0].line == 5);
-        assert!(m[1].contains("standard library"));
-        assert!(m[2].contains("from the web"));
+        assert!(m[1].contains("from the web"));
+        assert_eq!(known_library("<C4/C4_Container>").as_deref(), Some("C4"));
+        assert_eq!(
+            known_library("https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml")
+                .as_deref(),
+            Some("C4")
+        );
+        assert_eq!(known_library("https://example.org/theme.puml"), None);
+        assert_eq!(known_library("lib/common.iuml"), None);
     }
 
     #[test]
     fn included_lines_know_where_they_came_from() {
         let read = |_: &Path| Some("class A\n???\n".to_string());
         let lines = [(1, "' x"), (2, "!include a.iuml")];
-        let (out, _) = preprocess(&lines, Some(Path::new("/d")), &read);
+        let (out, _, _) = preprocess(&lines, Some(Path::new("/d")), &read);
         assert_eq!(out[0].from, None);
         assert_eq!(out[2].text, "???");
         assert_eq!(out[2].line, 2);
         assert_eq!(out[2].from, Some(("a.iuml".to_string(), 2)));
+    }
+
+    #[test]
+    fn variables_keep_their_case() {
+        let src = "!$VIEW = \"all\"\n!if ($VIEW == \"all\" || $VIEW == \"core\")\nclass A\n!endif\n!if ($VIEW != \"all\")\nclass B\n!endif\n!$view = \"core\"\n!IF ($VIEW == \"all\")\nclass C\n!ENDIF\n";
+        let (out, problems) = run(src, &[]);
+        assert_eq!(problems, vec![]);
+        assert_eq!(out, ["class A", "class C"]);
     }
 
     #[test]

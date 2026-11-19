@@ -24,6 +24,34 @@ impl Pos {
     }
 }
 
+/// Is `s` a plain name: a letter or `_`, then letters, digits and `_`? Plain
+/// names are written as they are in a file; others are quoted.
+pub fn is_plain_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// `name` as one part of a dotted path in a file: as it is if plain,
+/// otherwise in double quotes with `"`, `\` and line breaks escaped.
+pub fn name_in_path(name: &str) -> std::borrow::Cow<'_, str> {
+    if is_plain_name(name) {
+        return name.into();
+    }
+    let mut out = String::with_capacity(name.len() + 2);
+    out.push('"');
+    for c in name.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out.into()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ElementKind {
     Class,
@@ -31,15 +59,19 @@ pub enum ElementKind {
     Interface,
     Enum,
     Note,
+    /// The diamond of an association between more than two classes, or
+    /// where an association class meets its association. No name is shown.
+    Diamond,
 }
 
 impl ElementKind {
-    pub const ALL: [ElementKind; 5] = [
+    pub const ALL: [ElementKind; 6] = [
         ElementKind::Class,
         ElementKind::Abstract,
         ElementKind::Interface,
         ElementKind::Enum,
         ElementKind::Note,
+        ElementKind::Diamond,
     ];
 
     /// The keyword(s) that introduce this element in a `.umpl` file.
@@ -50,6 +82,7 @@ impl ElementKind {
             ElementKind::Interface => "interface",
             ElementKind::Enum => "enum",
             ElementKind::Note => "note",
+            ElementKind::Diamond => "diamond",
         }
     }
 
@@ -60,6 +93,7 @@ impl ElementKind {
             ElementKind::Interface => "Interface",
             ElementKind::Enum => "Enum",
             ElementKind::Note => "Note",
+            ElementKind::Diamond => "Association diamond",
         }
     }
 }
@@ -175,8 +209,15 @@ impl Member {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Element {
+    /// What the file and lines refer to it by; unique in its package.
     pub name: String,
+    /// What the box shows instead of the name, if it differs: PlantUML's
+    /// `class "Purchase order" as PO`. Several elements may show the same.
+    pub label: Option<String>,
     pub kind: ElementKind,
+    /// Type parameters of a generic class, as written between `<` and `>`:
+    /// `T`, `K, V`, `T extends Entity`.
+    pub type_params: Option<String>,
     pub stereotype: Option<String>,
     /// Attributes and operations (classes), literals (enums) or text lines
     /// (notes).
@@ -189,12 +230,29 @@ impl Element {
     pub fn new(kind: ElementKind, name: impl Into<String>) -> Element {
         Element {
             name: name.into(),
+            label: None,
             kind,
+            type_params: None,
             stereotype: None,
             members: Vec::new(),
             pos: None,
             comments: Vec::new(),
         }
+    }
+
+    /// What the box shows: the label (else the name), with any type
+    /// parameters: `Repository<T>`.
+    pub fn title(&self) -> String {
+        let shown = self.shown();
+        match &self.type_params {
+            Some(p) => format!("{shown}<{p}>"),
+            None => shown.to_string(),
+        }
+    }
+
+    /// The label, or else the name.
+    pub fn shown(&self) -> &str {
+        self.label.as_deref().unwrap_or(&self.name)
     }
 
     pub fn attributes(&self) -> impl Iterator<Item = &Member> {
@@ -221,12 +279,15 @@ pub enum RelationKind {
     Composition,
     /// `from` depends on `to`.
     Dependency,
-    /// Dashed line between a note and what it describes.
+    /// Dashed line between a note and what it describes, or between an
+    /// association class and its association's diamond.
     NoteLink,
+    /// `to` is declared inside `from` (an inner class).
+    Nesting,
 }
 
 impl RelationKind {
-    pub const ALL: [RelationKind; 8] = [
+    pub const ALL: [RelationKind; 9] = [
         RelationKind::Generalization,
         RelationKind::Realization,
         RelationKind::Association,
@@ -235,6 +296,7 @@ impl RelationKind {
         RelationKind::Composition,
         RelationKind::Dependency,
         RelationKind::NoteLink,
+        RelationKind::Nesting,
     ];
 
     /// The forward arrow written in a `.umpl` file.
@@ -248,6 +310,7 @@ impl RelationKind {
             RelationKind::Composition => "*--",
             RelationKind::Dependency => "..>",
             RelationKind::NoteLink => "..",
+            RelationKind::Nesting => "+--",
         }
     }
 
@@ -268,22 +331,43 @@ impl RelationKind {
             RelationKind::Composition => "Composition",
             RelationKind::Dependency => "Dependency",
             RelationKind::NoteLink => "Note link",
+            RelationKind::Nesting => "Nesting",
         }
     }
 }
 
+/// What one end of a relation is attached to: an element, or a package
+/// (package diagrams draw lines between packages).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Endpoint {
+    Element(ElementId),
+    Package(PackageId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct End {
-    pub element: ElementId,
+    pub target: Endpoint,
     /// `"mult role"`: multiplicity, role name, or both.
     pub label: Option<String>,
 }
 
 impl End {
     pub fn new(element: ElementId) -> End {
+        End::at(Endpoint::Element(element))
+    }
+
+    pub fn at(target: Endpoint) -> End {
         End {
-            element,
+            target,
             label: None,
+        }
+    }
+
+    /// The element this end is attached to, if it is not a package.
+    pub fn element(&self) -> Option<ElementId> {
+        match self.target {
+            Endpoint::Element(e) => Some(e),
+            Endpoint::Package(_) => None,
         }
     }
 }
@@ -309,7 +393,11 @@ impl Relation {
     }
 
     pub fn touches(&self, id: ElementId) -> bool {
-        self.from.element == id || self.to.element == id
+        self.touches_endpoint(Endpoint::Element(id))
+    }
+
+    pub fn touches_endpoint(&self, target: Endpoint) -> bool {
+        self.from.target == target || self.to.target == target
     }
 }
 
@@ -408,23 +496,50 @@ impl Document {
         path
     }
 
-    /// `pkg.sub.Name`, the name that identifies an element in a file.
+    /// `pkg.sub.Name`, the name that identifies an element in a file: the
+    /// names of its packages and its own, joined by `.`, each quoted if it
+    /// is not a plain name (`billing."Order line"`).
     pub fn full_name(&self, id: ElementId) -> String {
         let Some(el) = self.elements.get(&id) else {
             return String::new();
         };
         match self.element_package(id) {
-            Some(p) => {
-                let mut path = self.package_path(p);
-                path.push(el.name.clone());
-                path.join(".")
-            }
-            None => el.name.clone(),
+            Some(p) => format!("{}.{}", self.full_package_name(p), name_in_path(&el.name)),
+            None => name_in_path(&el.name).into_owned(),
         }
     }
 
+    /// Like [`Document::full_name`], for a package.
     pub fn full_package_name(&self, id: PackageId) -> String {
-        self.package_path(id).join(".")
+        let path: Vec<String> = self
+            .package_path(id)
+            .iter()
+            .map(|n| name_in_path(n).into_owned())
+            .collect();
+        path.join(".")
+    }
+
+    /// The full name of an element or package.
+    pub fn endpoint_name(&self, target: Endpoint) -> String {
+        match target {
+            Endpoint::Element(e) => self.full_name(e),
+            Endpoint::Package(p) => self.full_package_name(p),
+        }
+    }
+
+    /// The package with this full name.
+    pub fn find_package(&self, full_name: &str) -> Option<PackageId> {
+        self.packages
+            .keys()
+            .copied()
+            .find(|id| self.full_package_name(*id) == full_name)
+    }
+
+    /// The element with this full name, or else the package.
+    pub fn find_endpoint(&self, full_name: &str) -> Option<Endpoint> {
+        self.find(full_name)
+            .map(Endpoint::Element)
+            .or_else(|| self.find_package(full_name).map(Endpoint::Package))
     }
 
     pub fn find(&self, full_name: &str) -> Option<ElementId> {

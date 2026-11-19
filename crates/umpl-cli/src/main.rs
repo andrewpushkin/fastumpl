@@ -29,6 +29,9 @@ Usage:
   umpl stats <file> [--tidy]       crossings, bends and score
   umpl --version
 
+A PlantUML file may hold several diagrams (and pages split by newpage);
+--diagram N reads the N-th, counting from 1 (default: the first).
+
 Input files are .umpl, PlantUML (.puml, .plantuml, .pu, .iuml, .wsd) or
 Umple (.ump; the class model, without state machines or code). Elements
 without a stored position are placed automatically; --tidy lays out the
@@ -74,6 +77,8 @@ struct Args {
     check: bool,
     scale: f32,
     to: Option<Format>,
+    /// `--diagram N`: which diagram of a PlantUML file, from 0.
+    diagram: Option<usize>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -93,6 +98,15 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 a.to = Some(Format::from_name(name).ok_or(format!(
                     "unknown format `{name}` (umpl, plantuml, mermaid, markdown, umple)"
                 ))?)
+            }
+            "--diagram" => {
+                a.diagram = Some(
+                    it.next()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .filter(|n| *n >= 1)
+                        .ok_or("--diagram needs a number from 1")?
+                        - 1,
+                )
             }
             "--scale" => {
                 a.scale = it
@@ -120,8 +134,31 @@ fn input_format(path: &Path) -> Format {
     }
 }
 
-fn read(path: &Path) -> Result<Parsed, String> {
-    read_path(input_format(path), path).map_err(|e| format!("{}: {e}", path.display()))
+/// Reads a file; of a PlantUML file with several diagrams, diagram `n` (the
+/// first if `None`, with a note that there are more).
+fn read(path: &Path, n: Option<usize>) -> Result<Parsed, String> {
+    let err = |e: std::io::Error| format!("{}: {e}", path.display());
+    let format = input_format(path);
+    if format != Format::PlantUml {
+        return read_path(format, path).map_err(err);
+    }
+    let src = std::fs::read(path).map_err(err)?;
+    let count = umpl_text::plantuml::diagrams(&String::from_utf8_lossy(&src)).len();
+    match n {
+        Some(n) if n >= count => {
+            return Err(format!(
+                "{}: has {count} diagram(s), not {}",
+                path.display(),
+                n + 1
+            ))
+        }
+        None if count > 1 => eprintln!(
+            "{}: holds {count} diagrams; reading the first (choose with --diagram N)",
+            path.display()
+        ),
+        _ => {}
+    }
+    umpl_text::plantuml::import_path_nth(path, n.unwrap_or(0)).map_err(err)
 }
 
 /// `fmt` and `tidy` rewrite their input as `.umpl`, which would destroy a
@@ -157,7 +194,7 @@ fn render(args: &[String]) -> Result<bool, String> {
         return Err("render takes one input file".into());
     };
     let out = a.out.clone().ok_or("render needs -o <file>")?;
-    let parsed = read(input)?;
+    let parsed = read(input, a.diagram)?;
     report(input, &parsed);
     let diagram = arrange(&parsed, a.tidy);
     let theme = if a.dark {
@@ -194,7 +231,7 @@ fn convert(args: &[String]) -> Result<bool, String> {
         ))?,
         (None, None) => return Err("convert needs -o <file> or --to <format>".into()),
     };
-    let parsed = read(input)?;
+    let parsed = read(input, a.diagram)?;
     report(input, &parsed);
     let mut doc = parsed.doc;
     if a.tidy {
@@ -217,7 +254,7 @@ fn tidy(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     for path in &a.files {
         refuse_foreign(path, "tidy")?;
-        let parsed = read(path)?;
+        let parsed = read(path, a.diagram)?;
         report(path, &parsed);
         let diagram = Diagram::tidy(&parsed.doc, &Options::default());
         let mut ed = Editor::new(parsed.doc);
@@ -258,7 +295,7 @@ fn check(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     let mut ok = true;
     for path in &a.files {
-        let parsed = read(path)?;
+        let parsed = read(path, a.diagram)?;
         report(path, &parsed);
         ok &= parsed.problems.is_empty();
     }
@@ -268,7 +305,7 @@ fn check(args: &[String]) -> Result<bool, String> {
 fn stats(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     for path in &a.files {
-        let parsed = read(path)?;
+        let parsed = read(path, a.diagram)?;
         let start = Instant::now();
         let d = arrange(&parsed, a.tidy);
         let s = d.layout.stats;

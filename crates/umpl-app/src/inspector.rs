@@ -23,6 +23,7 @@ pub struct InspectorState {
     target: Option<Target>,
     revision: u64,
     name: String,
+    type_params: String,
     stereotype: String,
     members: String,
     from_label: String,
@@ -66,6 +67,7 @@ impl App {
             Target::Element(id) => {
                 if let Some(el) = doc.elements.get(&id) {
                     st.name = el.name.clone();
+                    st.type_params = el.type_params.clone().unwrap_or_default();
                     st.stereotype = el.stereotype.clone().unwrap_or_default();
                     st.members = members_text(el);
                 }
@@ -142,6 +144,20 @@ impl App {
 
         if el.kind != ElementKind::Note {
             ui.add_space(4.0);
+            ui.label("Type parameters");
+            let r = ui.add(
+                TextEdit::singleline(&mut self.inspector.type_params)
+                    .hint_text("e.g. K, V")
+                    .desired_width(f32::INFINITY),
+            );
+            let params = opt(self.inspector.type_params.trim_matches(['<', '>', ' ']));
+            if r.lost_focus() && params != el.type_params {
+                let mut new = el.clone();
+                new.type_params = params;
+                s.editor.set_element(id, new);
+            }
+
+            ui.add_space(4.0);
             ui.label("Stereotype");
             let r = ui.add(
                 TextEdit::singleline(&mut self.inspector.stereotype)
@@ -216,8 +232,8 @@ impl App {
         };
         ui.heading("Relation");
         ui.add_space(4.0);
-        let from = s.editor.doc.full_name(rel.from.element);
-        let to = s.editor.doc.full_name(rel.to.element);
+        let from = s.editor.doc.endpoint_name(rel.from.target);
+        let to = s.editor.doc.endpoint_name(rel.to.target);
         ui.label(RichText::new(format!("{from}  {}  {to}", rel.kind.arrow())).monospace());
         ui.add_space(6.0);
 

@@ -7,7 +7,7 @@ const SHOP: &str = include_str!("../../../examples/shop.umpl");
 
 const PUML: &str = "@startuml
 title Imported
-skinparam monochrome true
+!include missing.iuml
 class Order {
   +total() : Money
 }
@@ -65,14 +65,44 @@ fn converts_umpl_to_mermaid_and_plantuml() {
 }
 
 #[test]
+fn reads_the_chosen_diagram_of_a_plantuml_file() {
+    let dir = workdir("diagrams");
+    std::fs::write(
+        dir.join("two.puml"),
+        "@startuml\nclass First\n@enduml\n@startuml\nclass Second\n@enduml\n",
+    )
+    .unwrap();
+    let r = umpl(&dir, &["convert", "two.puml", "--to", "umpl"]);
+    assert!(r.status.success());
+    assert_eq!(text(&r.stdout), "class First\n");
+    assert!(
+        text(&r.stderr).contains("holds 2 diagrams"),
+        "{}",
+        text(&r.stderr)
+    );
+    let r = umpl(
+        &dir,
+        &["convert", "two.puml", "--to", "umpl", "--diagram", "2"],
+    );
+    assert_eq!(text(&r.stdout), "class Second\n");
+    assert!(text(&r.stderr).is_empty(), "{}", text(&r.stderr));
+    let r = umpl(&dir, &["check", "two.puml", "--diagram", "3"]);
+    assert!(!r.status.success());
+}
+
+#[test]
 fn imports_plantuml() {
     let dir = workdir("import");
     std::fs::write(dir.join("model.puml"), PUML).unwrap();
 
     let r = umpl(&dir, &["convert", "model.puml", "-o", "model.umpl"]);
     assert!(r.status.success(), "{}", text(&r.stderr));
-    // The skipped skinparam is reported with its line.
-    assert!(text(&r.stderr).contains("model.puml:3:1: PlantUML `skinparam`"));
+    // The include that could not be read is reported with its line.
+    assert!(
+        text(&r.stderr).contains("model.puml:3:1: cannot read included file"),
+        "{}",
+        text(&r.stderr)
+    );
     let umpl_text = std::fs::read_to_string(dir.join("model.umpl")).unwrap();
     assert!(
         umpl_text.starts_with("diagram \"Imported\"\n"),

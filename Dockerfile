@@ -125,6 +125,21 @@ RUN mkdir -p /opt/puml-samples \
         || exit 1; \
     done \
     && chown -R ${USER_UID}:${USER_GID} /opt/puml-samples
+
+# PlantUML itself (and a JDK for it), as the reference the PlantUML import
+# is checked against: scripts/puml-check.sh asks it which corpus files have
+# errors of their own. Not part of fastumpl or its packages.
+ARG PLANTUML=1.2026.9
+ARG PLANTUML_SHA256=aa4a1d06f8911c4b842beff4828dd955be431692b631a312d04c0e9fab9581de
+RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/plantuml \
+    && curl -fsSL -o /opt/plantuml/plantuml.jar \
+        "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML}/plantuml-${PLANTUML}.jar" \
+    && echo "${PLANTUML_SHA256}  /opt/plantuml/plantuml.jar" | sha256sum -c - \
+    && printf '#!/bin/sh\nexec java -Djava.awt.headless=true -jar /opt/plantuml/plantuml.jar "$@"\n' \
+        > /usr/local/bin/plantuml \
+    && chmod +x /usr/local/bin/plantuml
 USER ${USERNAME}
 
 WORKDIR /work

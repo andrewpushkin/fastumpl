@@ -275,9 +275,11 @@ impl Editor {
             .relations
             .iter()
             .filter(|(id, r)| {
-                relations.contains(id)
-                    || els.contains(&r.from.element)
-                    || els.contains(&r.to.element)
+                let gone = |t: Endpoint| match t {
+                    Endpoint::Element(e) => els.contains(&e),
+                    Endpoint::Package(p) => pkgs.contains(&p),
+                };
+                relations.contains(id) || gone(r.from.target) || gone(r.to.target)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -322,7 +324,13 @@ impl Editor {
         let rels: Vec<&Relation> = relations
             .iter()
             .filter_map(|r| self.doc.relations.get(r))
-            .filter(|r| !elements.contains(&r.from.element) && !elements.contains(&r.to.element))
+            .filter(|r| {
+                let with = |t: Endpoint| match t {
+                    Endpoint::Element(e) => elements.contains(&e),
+                    Endpoint::Package(p) => packages.contains(&p),
+                };
+                !with(r.from.target) && !with(r.to.target)
+            })
             .collect();
         match (&els[..], &pkgs[..], &rels[..]) {
             ([e], [], []) => format!("Delete {}", e.name),
@@ -350,7 +358,7 @@ impl Editor {
             return Err("name cannot be empty".into());
         }
         if !valid_name(name) {
-            return Err("names may use letters, digits and _ only".into());
+            return Err("names cannot hold tabs or other control characters".into());
         }
         let pkg = self.doc.element_package(id);
         if !self.doc.name_is_free(name, pkg) {
@@ -372,7 +380,7 @@ impl Editor {
             return Ok(());
         }
         if !valid_name(name) {
-            return Err("names may use letters, digits and _ only".into());
+            return Err("names cannot be empty or hold control characters".into());
         }
         let parent = self.doc.container_of(&Decl::Package(id));
         if !self.doc.name_is_free(name, parent) {
@@ -466,14 +474,12 @@ impl Editor {
     }
 }
 
-/// Names are identifiers: letters, digits and `_`, not starting with a digit.
+/// Is `name` usable as an element or package name? Any text but empty or
+/// with control characters: names that are not plain identifiers are
+/// quoted in a file (see [`crate::name_in_path`]). Line breaks only come
+/// from imports.
 pub fn valid_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_alphabetic() || c == '_' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_alphanumeric() || c == '_')
+    !name.trim().is_empty() && !name.chars().any(|c| c.is_control() && c != '\n')
 }
 
 #[cfg(test)]
@@ -485,6 +491,22 @@ mod tests {
         let a = ed.add_element(ElementKind::Class, "A", None, None);
         let b = ed.add_element(ElementKind::Class, "B", None, None);
         (ed, a, b)
+    }
+
+    #[test]
+    fn deleting_a_package_deletes_lines_to_it() {
+        let (mut ed, a, _) = editor_with_two();
+        let p = ed.add_package("shop", None);
+        let mut r = Relation::new(RelationKind::Dependency, a, a);
+        r.to = End::at(Endpoint::Package(p));
+        let id = ed.doc.new_relation_id();
+        ed.doc.relations.insert(id, r);
+        ed.doc.root.push(Decl::Relation(id));
+        assert_eq!(ed.doc.endpoint_name(Endpoint::Package(p)), "shop");
+        assert_eq!(ed.doc.find_endpoint("shop"), Some(Endpoint::Package(p)));
+        ed.delete(&[], &[p]);
+        assert!(ed.doc.relations.is_empty());
+        assert!(!ed.doc.root.contains(&Decl::Relation(id)));
     }
 
     #[test]
@@ -649,9 +671,13 @@ mod tests {
     fn rename_rejects_duplicates_and_bad_names() {
         let (mut ed, a, _) = editor_with_two();
         assert!(ed.rename(a, "B").is_err());
-        assert!(ed.rename(a, "1x").is_err());
+        assert!(ed.rename(a, "  ").is_err());
+        assert!(ed.rename(a, "a\tb").is_err());
         assert!(ed.rename(a, "Order").is_ok());
         assert_eq!(ed.doc.elements[&a].name, "Order");
+        // Any other text is a name too; files quote it.
+        assert!(ed.rename(a, "Order line").is_ok());
+        assert_eq!(ed.doc.full_name(a), "\"Order line\"");
     }
 
     #[test]

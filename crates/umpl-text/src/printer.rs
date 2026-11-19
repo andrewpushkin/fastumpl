@@ -116,10 +116,10 @@ impl Writer<'_> {
         self.comments(&p.comments, &indent);
         if p.body.is_empty() {
             self.out
-                .push_str(&format!("{indent}package {} {{}}\n", p.name));
+                .push_str(&format!("{indent}package {} {{}}\n", name_in_path(&p.name)));
         } else {
             self.out
-                .push_str(&format!("{indent}package {} {{\n", p.name));
+                .push_str(&format!("{indent}package {} {{\n", name_in_path(&p.name)));
             self.decls(&p.body, depth + 1, false);
             self.out.push_str(&format!("{indent}}}\n"));
         }
@@ -135,7 +135,7 @@ impl Writer<'_> {
             let text: Vec<&str> = el.members.iter().map(|m| m.text.as_str()).collect();
             out.push_str(&format!(
                 "{indent}note {} {}\n",
-                el.name,
+                name_in_path(&el.name),
                 quote(&text.join("\n"))
             ));
             return;
@@ -143,7 +143,13 @@ impl Writer<'_> {
         out.push_str(indent);
         out.push_str(el.kind.keyword());
         out.push(' ');
-        out.push_str(&el.name);
+        out.push_str(&name_in_path(&el.name));
+        if let Some(p) = &el.type_params {
+            out.push_str(&format!("<{p}>"));
+        }
+        if let Some(l) = &el.label {
+            out.push_str(&format!(" as {}", quote(l)));
+        }
         if let Some(s) = &el.stereotype {
             out.push_str(&format!(" <<{s}>>"));
         }
@@ -172,7 +178,7 @@ impl Writer<'_> {
         };
         self.comments(&r.comments, indent);
         let mut line = String::from(indent);
-        line.push_str(&self.doc.full_name(r.from.element));
+        line.push_str(&self.doc.endpoint_name(r.from.target));
         if let Some(l) = &r.from.label {
             line.push(' ');
             line.push_str(&quote(l));
@@ -184,7 +190,7 @@ impl Writer<'_> {
             line.push_str(&quote(l));
         }
         line.push(' ');
-        line.push_str(&self.doc.full_name(r.to.element));
+        line.push_str(&self.doc.endpoint_name(r.to.target));
         if let Some(n) = &r.name {
             line.push_str(" : ");
             line.push_str(n);
