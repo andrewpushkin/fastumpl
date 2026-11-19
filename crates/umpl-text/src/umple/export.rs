@@ -187,7 +187,7 @@ impl Writer<'_> {
     fn association_lines(&self, r: &Relation, swapped: bool) -> Vec<String> {
         let mut lines: Vec<String> = r.comments.iter().map(|c| format!("// {c}")).collect();
         if let Some(n) = &r.name {
-            lines.push(format!("// {n}"));
+            lines.push(format!("// {}", n.replace('\n', " ")));
         }
         if r.kind == RelationKind::Aggregation {
             lines.push("// aggregation".into());
@@ -359,7 +359,7 @@ fn describe(doc: &Document, r: &Relation) -> String {
         name(r.to.target)
     );
     if let Some(n) = &r.name {
-        s.push_str(&format!(" : {n}"));
+        s.push_str(&format!(" : {}", n.replace('\n', " ")));
     }
     s
 }

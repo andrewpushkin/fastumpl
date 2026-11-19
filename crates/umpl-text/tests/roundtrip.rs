@@ -114,3 +114,19 @@ fn reversed_and_spaced_input_is_normalised() {
     let out = print(&parse("class A\nclass B\n  A   <|--   B\n").doc);
     assert!(out.contains("B --|> A\n"), "{out}");
 }
+
+/// A diagram laid out left to right, and a label over two lines, are
+/// written down and read back.
+#[test]
+fn direction_and_label_lines_round_trip() {
+    let src = "diagram \"Flow\"\ndirection left to right\n\nclass A\nclass B\nA --> B : first line\\nsecond line\n";
+    let doc = parse(src).doc;
+    assert!(doc.left_to_right);
+    let r = doc.relations.values().next().unwrap();
+    assert_eq!(r.name.as_deref(), Some("first line\nsecond line"));
+    let out = print(&doc);
+    assert!(out.contains("direction left to right\n"), "{out}");
+    assert!(out.contains(": first line\\nsecond line\n"), "{out}");
+    assert_stable(src);
+    assert!(!parse("class A\n").doc.left_to_right);
+}

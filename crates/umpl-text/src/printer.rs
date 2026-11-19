@@ -44,8 +44,11 @@ pub fn print_model(doc: &Document) -> String {
         out.push_str(&quote(t));
         out.push('\n');
     }
+    if doc.left_to_right {
+        out.push_str("direction left to right\n");
+    }
     let mut w = Writer { doc, out };
-    w.decls(&doc.root, 0, doc.title.is_some());
+    w.decls(&doc.root, 0, doc.title.is_some() || doc.left_to_right);
 
     let mut out = w.out;
     if !doc.trailing_comments.is_empty() {
@@ -209,8 +212,9 @@ impl Writer<'_> {
         line.push(' ');
         line.push_str(&self.doc.endpoint_name(r.to.target));
         if let Some(n) = &r.name {
+            // A label over several lines: `a\nb`.
             line.push_str(" : ");
-            line.push_str(n);
+            line.push_str(&n.replace('\n', "\\n"));
         }
         line.push('\n');
         self.out.push_str(&line);

@@ -110,6 +110,8 @@ pub enum Cmd {
     View(ViewMode),
     /// Lay diagrams out for the fewest crossings or to fill the window.
     LayoutGoal(Goal),
+    /// Lay this diagram out left to right, or top to bottom again.
+    LeftToRight,
     ToggleSource,
     Problems,
     Palette,
@@ -164,6 +166,7 @@ impl Cmd {
             Cmd::View(ViewMode::Canvas),
             Cmd::LayoutGoal(Goal::FewestCrossings),
             Cmd::LayoutGoal(Goal::FillView),
+            Cmd::LeftToRight,
             Cmd::Problems,
             Cmd::Settings,
             Cmd::Shortcuts,
@@ -210,6 +213,7 @@ impl Cmd {
                 "Lay out diagrams for fewest line crossings".into()
             }
             Cmd::LayoutGoal(Goal::FillView) => "Lay out diagrams to fill the window".into(),
+            Cmd::LeftToRight => "Left to right (or top to bottom)".into(),
             Cmd::ToggleSource => "Show or hide text".into(),
             Cmd::Problems => "Show problems in file".into(),
             Cmd::Palette => "Command palette".into(),

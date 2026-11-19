@@ -16,6 +16,11 @@ pub(crate) struct FlatEdge {
     pub kind: EdgeKind,
     /// Room the edge's labels need when its ends sit side by side.
     pub gap: i32,
+    /// Room the labels need along the line when its ends sit in
+    /// neighbouring layers: their height when layers are rows, as the line
+    /// then runs down; their width in a layout turned to run left to right.
+    /// (Turning swaps it with `gap`.)
+    pub along: i32,
     /// Where the line attaches along the width of its `a` and `b` item, as
     /// a fraction in `0..1`. A package item has one port per member line;
     /// a plain box attaches in the middle (0.5).
@@ -29,6 +34,7 @@ impl FlatEdge {
             b,
             kind,
             gap,
+            along: 0,
             ports: (0.5, 0.5),
         }
     }

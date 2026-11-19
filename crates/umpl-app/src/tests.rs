@@ -965,6 +965,47 @@ fn layout_goal_is_chosen_in_the_arrange_menu_and_saved() {
     );
 }
 
+/// Arrange → Left to right lays the diagram out again with parents left
+/// of their children; undo goes back step by step.
+#[test]
+fn left_to_right_is_ticked_in_the_arrange_menu() {
+    let mut h = new_app();
+    let ids: Vec<ElementId> = (0..4)
+        .map(|i| add(&mut h, &format!("C{i}"), 0, 0))
+        .collect();
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        for &kid in &ids[1..] {
+            s.editor.connect(kid, ids[0], RelationKind::Generalization);
+        }
+    }
+    h.run_steps(2);
+    h.get_by_label("Arrange").click();
+    h.run_steps(2);
+    h.get_by_label("Left to right").hover();
+    h.run_steps(1);
+    h.get_by_label("Left to right").click();
+    h.run_steps(2);
+    let start = Instant::now();
+    while h.state().tidy.is_some() && start.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_millis(20));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    let s = h.state().session.as_ref().unwrap();
+    assert!(s.editor.doc.left_to_right);
+    let x = |id: ElementId| s.editor.doc.elements[&id].pos.unwrap().x;
+    for &kid in &ids[1..] {
+        assert!(x(ids[0]) < x(kid), "{} {}", x(ids[0]), x(kid));
+    }
+    // Undo the layout, then the direction.
+    for _ in 0..2 {
+        h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+        h.run_steps(2);
+    }
+    assert!(!h.state().session.as_ref().unwrap().editor.doc.left_to_right);
+}
+
 #[test]
 fn the_text_panel_is_off_unless_turned_on() {
     assert!(!crate::app::text_shown(None));

@@ -68,6 +68,9 @@ pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub groups: Vec<Group>,
+    /// Lay out left to right (PlantUML's `left to right direction`):
+    /// layers become columns, parents sit left of their children.
+    pub left_to_right: bool,
 }
 
 impl Graph {

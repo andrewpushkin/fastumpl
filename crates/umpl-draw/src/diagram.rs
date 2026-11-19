@@ -58,7 +58,10 @@ fn edge_kind(k: RelationKind) -> EdgeKind {
 /// Builds the layout graph: one node per element (in file order), one edge
 /// per relation, one group per package.
 pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
-    let mut g = Graph::default();
+    let mut g = Graph {
+        left_to_right: doc.left_to_right,
+        ..Graph::default()
+    };
     let mut m = Mapping::default();
 
     let packages = doc.packages_in_order();

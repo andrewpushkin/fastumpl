@@ -859,6 +859,13 @@ impl App {
                     ));
                 }
             }
+            Cmd::LeftToRight => {
+                if let Some(s) = &mut self.session {
+                    let on = !s.editor.doc.left_to_right;
+                    s.editor.set_left_to_right(on);
+                    self.start_tidy();
+                }
+            }
             Cmd::ToggleSource => self.toggle_source(ctx),
             Cmd::View(mode) => self.set_view(ctx, mode),
             Cmd::Problems => self.dialog = Some(Dialog::Problems),
@@ -1248,6 +1255,25 @@ impl App {
                             ui.close();
                             self.run(ui.ctx(), cmd);
                         }
+                    }
+                    ui.separator();
+                    let on = self
+                        .session
+                        .as_ref()
+                        .is_some_and(|s| s.editor.doc.left_to_right);
+                    let mut lr = on;
+                    let r = ui
+                        .add_enabled(
+                            self.session.is_some(),
+                            egui::Checkbox::new(&mut lr, "Left to right"),
+                        )
+                        .on_hover_text(
+                            "Lay this diagram out left to right instead of top to bottom \
+                             (PlantUML's left to right direction)",
+                        );
+                    if r.clicked() {
+                        ui.close();
+                        self.run(ui.ctx(), Cmd::LeftToRight);
                     }
                 });
                 ui.menu_button("Help", |ui| {

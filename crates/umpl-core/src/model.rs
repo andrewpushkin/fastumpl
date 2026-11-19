@@ -444,6 +444,9 @@ impl Package {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Document {
     pub title: Option<String>,
+    /// Laid out left to right (PlantUML's `left to right direction`),
+    /// not top to bottom.
+    pub left_to_right: bool,
     pub elements: BTreeMap<ElementId, Element>,
     pub relations: BTreeMap<RelationId, Relation>,
     pub packages: BTreeMap<PackageId, Package>,

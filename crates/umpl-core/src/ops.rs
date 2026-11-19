@@ -12,6 +12,7 @@ pub enum Op {
     Package(PackageId, Option<Package>),
     Root(Vec<Decl>),
     Title(Option<String>),
+    LeftToRight(bool),
     TrailingComments(Vec<String>),
 }
 
@@ -23,6 +24,7 @@ pub enum Slot {
     Package(PackageId),
     Root,
     Title,
+    LeftToRight,
     TrailingComments,
 }
 
@@ -34,6 +36,7 @@ impl Op {
             Op::Package(id, _) => Slot::Package(*id),
             Op::Root(_) => Slot::Root,
             Op::Title(_) => Slot::Title,
+            Op::LeftToRight(_) => Slot::LeftToRight,
             Op::TrailingComments(_) => Slot::TrailingComments,
         }
     }
@@ -69,6 +72,9 @@ impl Document {
             }
             Op::Root(value) => Op::Root(std::mem::replace(&mut self.root, value)),
             Op::Title(value) => Op::Title(std::mem::replace(&mut self.title, value)),
+            Op::LeftToRight(value) => {
+                Op::LeftToRight(std::mem::replace(&mut self.left_to_right, value))
+            }
             Op::TrailingComments(value) => {
                 Op::TrailingComments(std::mem::replace(&mut self.trailing_comments, value))
             }
@@ -89,15 +95,18 @@ mod tests {
             Op::Element(id, Some(Element::new(ElementKind::Class, "A"))),
             Op::Root(vec![Decl::Element(id)]),
             Op::Title(Some("T".into())),
+            Op::LeftToRight(true),
         ];
         let inverses: Vec<Op> = ops.into_iter().map(|o| doc.apply(o)).collect();
         assert_eq!(doc.elements.len(), 1);
         assert_eq!(doc.title.as_deref(), Some("T"));
+        assert!(doc.left_to_right);
         for inv in inverses.into_iter().rev() {
             doc.apply(inv);
         }
         assert_eq!(doc.elements, before.elements);
         assert_eq!(doc.root, before.root);
         assert_eq!(doc.title, before.title);
+        assert!(!doc.left_to_right);
     }
 }

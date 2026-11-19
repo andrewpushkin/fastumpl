@@ -184,7 +184,9 @@ fn compact_vertically(lay: &Layered, left: &[i32], widths: &[i32], heights: &[i3
         for &i in layer {
             let mut yy = 0;
             for u in lay.neighbors_up(i) {
-                yy = yy.max(y[u] + heights[u] + gap);
+                // Labels on the line between them need room along it.
+                let g = gap.max(lay.along.get(&(u, i)).copied().unwrap_or(0));
+                yy = yy.max(y[u] + heights[u] + g);
             }
             let (l, r) = (left[i] - 1, left[i] + widths[i] + 1);
             // Lines (dummies) do not push boxes down, and are not pushed.

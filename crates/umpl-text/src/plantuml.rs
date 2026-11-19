@@ -33,7 +33,10 @@ pub fn export(doc: &Document) -> String {
         w.out
             .push_str(&format!("title {}\n", t.replace('\n', "\\n")));
     }
-    w.decls(&doc.root, 0, doc.title.is_some());
+    if doc.left_to_right {
+        w.out.push_str("left to right direction\n");
+    }
+    w.decls(&doc.root, 0, doc.title.is_some() || doc.left_to_right);
     if !doc.trailing_comments.is_empty() {
         w.out.push('\n');
         for c in &doc.trailing_comments {
@@ -205,7 +208,7 @@ impl Exporter<'_> {
         }
         line.push_str(&format!(" {}", name(r.to.target)));
         if let Some(n) = &r.name {
-            line.push_str(&format!(" : {n}"));
+            line.push_str(&format!(" : {}", n.replace('\n', "\\n")));
         }
         line.push('\n');
         self.out.push_str(&line);
@@ -1696,6 +1699,11 @@ impl Importer {
         }
         // `left to right direction`, `top to bottom direction`.
         if lower.ends_with(" direction") && lower.split_whitespace().count() == 4 {
+            match lower.split_whitespace().next() {
+                Some("left") => self.doc.left_to_right = true,
+                Some("top") => self.doc.left_to_right = false,
+                _ => {}
+            }
             return true;
         }
         let first = t
@@ -2526,7 +2534,9 @@ impl Importer {
             let label = label
                 .trim_start_matches(['<', '>'])
                 .trim_end_matches(['<', '>']);
-            Some(label.trim().replace("\\n", " ")).filter(|s| !s.is_empty())
+            // `a\nb`: a label over two lines, as PlantUML draws it.
+            let lines: Vec<&str> = label.split("\\n").map(str::trim).collect();
+            Some(lines.join("\n").trim().to_string()).filter(|s| !s.is_empty())
         } else if c.at_end() {
             None
         } else {
@@ -4187,6 +4197,26 @@ class Second
         assert!(names(2).is_empty());
         assert_eq!(names(3), ["C"]);
         assert_eq!(diagrams("class X\n").len(), 1);
+    }
+
+    /// `left to right direction` lays the diagram out left to right, and
+    /// `\n` in a relation's label breaks it into lines, as in PlantUML;
+    /// both are written back.
+    #[test]
+    fn direction_and_label_lines_are_kept() {
+        let src = "left to right direction\ncomponent A\ncomponent B\nA --> B : one\\n two\n";
+        let p = import(src);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        assert!(p.doc.left_to_right);
+        assert_eq!(rel(&p.doc, "A", "B").name.as_deref(), Some("one\ntwo"));
+        let out = export(&p.doc);
+        assert!(out.contains("left to right direction\n"), "{out}");
+        assert!(out.contains(" : one\\ntwo\n"), "{out}");
+        assert!(
+            !import("top to bottom direction\nclass A\n")
+                .doc
+                .left_to_right
+        );
     }
 
     #[test]

@@ -77,6 +77,8 @@ pub(crate) struct Target {
     /// Parts without inheritance may run left to right where that is
     /// closer to the view's shape (some candidates when filling the view).
     pub turn: bool,
+    /// Every part runs left to right ([`Graph::left_to_right`]).
+    pub left_to_right: bool,
 }
 
 #[cfg(test)]
@@ -88,6 +90,7 @@ impl Target {
             fill: true,
             whole: false,
             turn: false,
+            left_to_right: false,
         }
     }
 }
@@ -137,24 +140,31 @@ fn scope_items(graph: &Graph, scope: Option<usize>) -> Vec<Item> {
     items
 }
 
-/// Centre x of every item, from `prev` positions or else the nodes' own
-/// positions, if all have one.
+/// Centre x of every item (y when the layout runs left to right), from
+/// `prev` positions or else the nodes' own positions, if all have one.
 fn hints(graph: &Graph, items: &[Item], prev: Option<&[(i32, i32)]>) -> Option<Vec<f64>> {
-    let pos = |n: usize| prev.map_or(graph.nodes[n].pos, |p| Some(p[n]));
+    let centre = |n: usize| {
+        let p = prev.map_or(graph.nodes[n].pos, |p| Some(p[n]))?;
+        let node = &graph.nodes[n];
+        Some(match graph.left_to_right {
+            false => p.0 as f64 + node.w as f64 / 2.0,
+            true => p.1 as f64 + node.h as f64 / 2.0,
+        })
+    };
     items
         .iter()
         .map(|it| match *it {
-            Item::Node(n) => pos(n).map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0),
+            Item::Node(n) => centre(n),
             Item::Group(g) => {
-                let xs: Vec<f64> = (0..graph.nodes.len())
+                let cs: Vec<f64> = (0..graph.nodes.len())
                     .filter(|&n| {
                         graph.nodes[n]
                             .group
                             .is_some_and(|ng| graph.group_within(ng, g))
                     })
-                    .filter_map(|n| pos(n).map(|p| p.0 as f64 + graph.nodes[n].w as f64 / 2.0))
+                    .filter_map(centre)
                     .collect();
-                (!xs.is_empty()).then(|| xs.iter().sum::<f64>() / xs.len() as f64)
+                (!cs.is_empty()).then(|| cs.iter().sum::<f64>() / cs.len() as f64)
             }
         })
         .collect()
@@ -208,6 +218,56 @@ fn layered(
         bounds = Some(bounds.map_or(r, |b| b.union(&r)));
     }
     (pos, bounds.unwrap_or_default())
+}
+
+/// [`layered`], running left to right: the part is laid out with every
+/// box turned on its side (width and height swapped, lines leaving the
+/// package on the left instead of the top, room for labels across the
+/// line instead of along it), for a view of the turned shape, and turned
+/// back. Layers become columns; `hint` orders items by their y.
+fn turned(
+    sizes: &[(i32, i32)],
+    edges: &[FlatEdge],
+    ghosts: &[Ghost],
+    hint: Option<&[f64]>,
+    start: Start,
+    ci: usize,
+    target: Target,
+) -> (Vec<(i32, i32)>, Rect) {
+    let t_sizes: Vec<(i32, i32)> = sizes.iter().map(|&(w, h)| (h, w)).collect();
+    let t_edges: Vec<FlatEdge> = edges
+        .iter()
+        .map(|e| FlatEdge {
+            ports: (0.5, 0.5),
+            gap: e.along,
+            along: e.gap,
+            ..*e
+        })
+        .collect();
+    let t_ghosts: Vec<Ghost> = ghosts
+        .iter()
+        .map(|g| Ghost {
+            side: match g.side {
+                GhostSide::Top => GhostSide::Left,
+                GhostSide::Bottom => GhostSide::Right,
+                GhostSide::Left => GhostSide::Top,
+                GhostSide::Right => GhostSide::Bottom,
+            },
+            key: g.cross_key,
+            cross_key: g.key,
+            port: 0.5,
+            ..*g
+        })
+        .collect();
+    let t_target = Target {
+        aspect: 1.0 / target.aspect,
+        ..target
+    };
+    let (pos, b) = layered(&t_sizes, &t_edges, &t_ghosts, hint, start, ci, t_target);
+    (
+        pos.iter().map(|&(x, y)| (y, x)).collect(),
+        Rect::new(b.y, b.x, b.h, b.w),
+    )
 }
 
 /// Lays out one scope; returns item top-left corners, normalised to (0, 0).
@@ -264,52 +324,44 @@ fn layout_scope(
             })
             .collect();
         let sub_hint: Option<Vec<f64>> = hint.map(|h| comp.iter().map(|&i| h[i]).collect());
-        let (mut pos, mut bounds) = layered(
-            &sub_sizes,
-            &sub_edges,
-            &sub_ghosts,
-            sub_hint.as_deref(),
-            start,
-            ci,
-            target,
-        );
-        // To fill the view, a part without inheritance (which keeps
-        // parents above children) may also run left to right: a chain of
-        // boxes becomes a row instead of a tall column. The direction
-        // closer to the view's shape wins.
-        let free = !sub_edges.iter().any(|e| e.kind == EdgeKind::Hierarchy);
-        if target.turn && free && comp.len() > 2 {
-            let shape = |b: &Rect| b.w.max(1) as f64 / b.h.max(1) as f64;
-            let t_sizes: Vec<(i32, i32)> = sub_sizes.iter().map(|&(w, h)| (h, w)).collect();
-            let t_edges: Vec<FlatEdge> = sub_edges
-                .iter()
-                .map(|e| FlatEdge {
-                    ports: (0.5, 0.5),
-                    ..*e
-                })
-                .collect();
-            let t_ghosts: Vec<Ghost> = sub_ghosts
-                .iter()
-                .map(|g| Ghost {
-                    side: match g.side {
-                        GhostSide::Top => GhostSide::Left,
-                        GhostSide::Bottom => GhostSide::Right,
-                        GhostSide::Left => GhostSide::Top,
-                        GhostSide::Right => GhostSide::Bottom,
-                    },
-                    port: 0.5,
-                    ..*g
-                })
-                .collect();
-            let (t_pos, t_bounds) = layered(&t_sizes, &t_edges, &t_ghosts, None, start, ci, target);
-            let t_bounds = Rect::new(t_bounds.y, t_bounds.x, t_bounds.h, t_bounds.w);
-            if misfit(shape(&t_bounds), target.aspect) + 0.05
-                < misfit(shape(&bounds), target.aspect)
-            {
-                pos = t_pos.iter().map(|&(x, y)| (y, x)).collect();
-                bounds = t_bounds;
+        let (pos, bounds) = if target.left_to_right {
+            turned(
+                &sub_sizes,
+                &sub_edges,
+                &sub_ghosts,
+                sub_hint.as_deref(),
+                start,
+                ci,
+                target,
+            )
+        } else {
+            let (mut pos, mut bounds) = layered(
+                &sub_sizes,
+                &sub_edges,
+                &sub_ghosts,
+                sub_hint.as_deref(),
+                start,
+                ci,
+                target,
+            );
+            // To fill the view, a part without inheritance (which keeps
+            // parents above children) may also run left to right: a chain
+            // of boxes becomes a row instead of a tall column. The
+            // direction closer to the view's shape wins.
+            let free = !sub_edges.iter().any(|e| e.kind == EdgeKind::Hierarchy);
+            if target.turn && free && comp.len() > 2 {
+                let shape = |b: &Rect| b.w.max(1) as f64 / b.h.max(1) as f64;
+                let (t_pos, t_bounds) =
+                    turned(&sub_sizes, &sub_edges, &sub_ghosts, None, start, ci, target);
+                if misfit(shape(&t_bounds), target.aspect) + 0.05
+                    < misfit(shape(&bounds), target.aspect)
+                {
+                    pos = t_pos;
+                    bounds = t_bounds;
+                }
             }
-        }
+            (pos, bounds)
+        };
         placed.push((comp.clone(), pos, bounds));
     }
 
@@ -522,6 +574,7 @@ fn place_all(
                     // Labels laid end to end along the line, with a little air.
                     let gap = e.labels.iter().flatten().map(|l| l.0 + 2).sum::<i32>() + 2;
                     let mut fe = FlatEdge::new(index(a).unwrap(), index(b).unwrap(), e.kind, gap);
+                    fe.along = e.labels.iter().flatten().map(|l| l.1).sum::<i32>() + 2;
                     fe.ports = (
                         port_of(a, e.from, &member_x, &group_size),
                         port_of(b, e.to, &member_x, &group_size),
@@ -545,6 +598,7 @@ fn place_all(
                         item: index(a).unwrap(),
                         side: side_towards(&rects[g], c),
                         key: c.0,
+                        cross_key: c.1,
                         port: port_of(a, inner, &member_x, &group_size),
                     });
                 }
@@ -631,7 +685,119 @@ fn place_rounds(graph: &Graph, start: Start, target: Target) -> Vec<(i32, i32)> 
             nodes = place_all(graph, Start::Hint, target, Some(&nodes));
         }
     }
+    snap_notes(graph, &mut nodes);
     nodes
+}
+
+/// Gap (along both axes together) up to which a note counts as beside what
+/// it describes.
+const NOTE_NEAR: i32 = 2 * LAYER_GAP;
+
+/// Moves each note that ended up away from what it describes to the
+/// nearest free spot beside it: on the right, the left, below or above, in
+/// that order of preference (`note right of` is the usual PlantUML side),
+/// level with it or slid along that side. Layering only pulls a note
+/// towards its box's layer, and a box inside a package is one item to the
+/// outside, so a note on it can land below the whole package.
+///
+/// A note is a node with one line, a note link. A spot is free when it
+/// keeps the usual gap to every other box and to every package frame the
+/// note is not in, and lies inside the note's own package (or the drawing)
+/// as it is, so the drawing's shape does not change.
+fn snap_notes(graph: &Graph, nodes: &mut [(i32, i32)]) {
+    let n = graph.nodes.len();
+    let mut degree = vec![0usize; n];
+    for e in &graph.edges {
+        degree[e.from] += 1;
+        degree[e.to] += 1;
+    }
+    let rect = |nodes: &[(i32, i32)], i: usize| {
+        Rect::new(nodes[i].0, nodes[i].1, graph.nodes[i].w, graph.nodes[i].h)
+    };
+    for e in &graph.edges {
+        if e.kind != EdgeKind::Note || e.from == e.to {
+            continue;
+        }
+        let (note, of) = if degree[e.from] == 1 {
+            (e.from, e.to)
+        } else if degree[e.to] == 1 {
+            (e.to, e.from)
+        } else {
+            continue;
+        };
+        let (nr, tr) = (rect(nodes, note), rect(nodes, of));
+        let dx = (tr.x - nr.right()).max(nr.x - tr.right()).max(0);
+        let dy = (tr.y - nr.bottom()).max(nr.y - tr.bottom()).max(0);
+        if dx + dy <= NOTE_NEAR {
+            continue;
+        }
+        let groups = group_rects(graph, nodes);
+        let own = graph.group_chain(graph.nodes[note].group);
+        // The note goes outside the frames around its box that it is not in.
+        let outer = graph
+            .group_chain(graph.nodes[of].group)
+            .into_iter()
+            .filter(|g| !own.contains(g))
+            .fold(tr, |r, g| r.union(&groups[g]));
+        let room = match graph.nodes[note].group {
+            Some(g) => {
+                let r = groups[g];
+                let top = GROUP_PAD + graph.groups[g].header;
+                Rect::new(
+                    r.x + GROUP_PAD,
+                    r.y + top,
+                    r.w - 2 * GROUP_PAD,
+                    r.h - top - GROUP_PAD,
+                )
+            }
+            None => (0..n)
+                .map(|i| rect(nodes, i))
+                .chain(groups.iter().copied())
+                .reduce(|a, b| a.union(&b))
+                .unwrap_or(tr),
+        };
+        let (w, h) = (nr.w, nr.h);
+        let gap = NODE_GAP;
+        let (right, left) = (outer.right() + gap, outer.x - gap - w);
+        let (below, above) = (outer.bottom() + gap, outer.y - gap - h);
+        // Spots beside the box, each with a cost: level with it on the
+        // right, then slid up or down along that side by the distance slid;
+        // the same on the left, below and above, each side 4 more. So a
+        // spot slid a little on the right beats one level on the left.
+        let mut spots: Vec<(i32, (i32, i32))> = Vec::new();
+        let level = [tr.y, tr.y + (tr.h - h) / 2, tr.bottom() - h];
+        let (reach_y, reach_x) = (3 * h + tr.h, 2 * w + tr.w);
+        for (side, x) in [(0, right), (1, left)] {
+            spots.extend(level.map(|y| (4 * side, (x, y))));
+            for d in (2..=reach_y).step_by(2) {
+                spots.extend([tr.y - d, tr.y + d].map(|y| (4 * side + d, (x, y))));
+            }
+        }
+        for (side, y) in [(2, below), (3, above)] {
+            spots.extend([tr.x, tr.right() - w].map(|x| (4 * side, (x, y))));
+            for d in (2..=reach_x).step_by(2) {
+                spots.extend([tr.x - d, tr.x + d].map(|x| (4 * side + d, (x, y))));
+            }
+        }
+        spots.sort_by_key(|s| s.0);
+        let free = |r: &Rect| {
+            r.x >= room.x
+                && r.y >= room.y
+                && r.right() <= room.right()
+                && r.bottom() <= room.bottom()
+                && !(0..n).any(|i| i != note && rect(nodes, i).too_close(r, gap))
+                && !groups
+                    .iter()
+                    .enumerate()
+                    .any(|(g, gr)| !own.contains(&g) && gr.too_close(r, gap))
+        };
+        if let Some(&(_, (x, y))) = spots
+            .iter()
+            .find(|&&(_, (x, y))| free(&Rect::new(x, y, w, h)))
+        {
+            nodes[note] = (x, y);
+        }
+    }
 }
 
 /// Layer widths, as factors of the usual, that some candidates try: how
@@ -712,6 +878,7 @@ fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) ->
             fill: true,
             whole: true,
             turn: false,
+            left_to_right: graph.left_to_right,
         };
         shape_of(graph, &place_rounds(graph, Start::DepthFirst, target))
     };
@@ -721,7 +888,14 @@ fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) ->
         if misfit(r, aspect) < FITS || cancelled() {
             break;
         }
-        let next = (f * (aspect / r).sqrt()).clamp(0.2, 4.0);
+        // Wider layers make a wider drawing; when the layers are columns
+        // (left to right), a taller one.
+        let ratio = if graph.left_to_right {
+            r / aspect
+        } else {
+            aspect / r
+        };
+        let next = (f * ratio.sqrt()).clamp(0.2, 4.0);
         if (next / f).ln().abs() < 0.02 {
             break;
         }
@@ -875,6 +1049,7 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             // Every other candidate from the third may turn parts sideways;
             // the fit to the view decides.
             turn: fill && i >= 2 && i % 2 == 0,
+            left_to_right: graph.left_to_right,
         };
         Some(Layout {
             nodes: place_rounds(graph, starts[i], target),
@@ -1283,6 +1458,7 @@ mod tests {
 
     fn ghost(item: usize, side: GhostSide, key: f64) -> Ghost {
         Ghost {
+            cross_key: 0.0,
             item,
             side,
             key,
@@ -1340,6 +1516,63 @@ mod tests {
                 b.h
             );
         }
+    }
+
+    /// Left to right, a parent sits left of its children (as PlantUML's
+    /// `left to right direction`), not above them.
+    #[test]
+    fn left_to_right_puts_parents_on_the_left() {
+        let mut g = Graph {
+            left_to_right: true,
+            ..Graph::default()
+        };
+        let base = g.add_node(16, 6);
+        let kids: Vec<usize> = (0..3).map(|_| g.add_node(14, 6)).collect();
+        for &k in &kids {
+            g.add_edge(k, base, EdgeKind::Hierarchy);
+        }
+        let l = layout_all(&g, &fast());
+        for &k in &kids {
+            assert!(
+                l.nodes[base].0 + 16 <= l.nodes[k].0,
+                "{:?} {:?}",
+                l.nodes[base],
+                l.nodes[k]
+            );
+        }
+        assert_eq!(l.stats.overlaps, 0);
+    }
+
+    /// A note outside a package, on a box inside it, that the layering put
+    /// below the package, moves beside its box, outside the frame.
+    #[test]
+    fn a_far_note_moves_beside_its_box() {
+        let mut g = Graph::default();
+        g.groups.push(Group {
+            parent: None,
+            header: 3,
+            min_w: 10,
+        });
+        let column: Vec<usize> = (0..4).map(|_| g.add_node(20, 6)).collect();
+        for &c in &column {
+            g.nodes[c].group = Some(0);
+        }
+        for w in column.windows(2) {
+            g.add_edge(w[0], w[1], EdgeKind::Assoc);
+        }
+        // A box far left: the drawing is wide enough for the note there,
+        // not on the right.
+        let left = g.add_node(20, 6);
+        let note = g.add_node(30, 8);
+        g.add_edge(note, column[1], EdgeKind::Note);
+        let mut nodes = vec![(60, 0), (60, 16), (60, 32), (60, 48), (0, 50), (60, 70)];
+        snap_notes(&g, &mut nodes);
+        let frame = group_rects(&g, &nodes)[0];
+        let r = Rect::new(nodes[note].0, nodes[note].1, 30, 8);
+        assert!(r.right() + NODE_GAP <= frame.x, "{r:?} {frame:?}");
+        assert_eq!(nodes[note].1, nodes[column[1]].1);
+        assert!(!r.too_close(&Rect::new(0, 50, 20, 6), NODE_GAP), "{r:?}");
+        assert_eq!(nodes[left], (0, 50));
     }
 
     /// Many loose parts in a package make a block, not a strip.

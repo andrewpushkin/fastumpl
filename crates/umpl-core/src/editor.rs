@@ -529,6 +529,17 @@ impl Editor {
             self.transact("Change title", vec![Op::Title(title)]);
         }
     }
+
+    /// Lays the diagram out left to right, or top to bottom.
+    pub fn set_left_to_right(&mut self, on: bool) {
+        if self.doc.left_to_right != on {
+            let label = match on {
+                true => "Left to right",
+                false => "Top to bottom",
+            };
+            self.transact(label, vec![Op::LeftToRight(on)]);
+        }
+    }
 }
 
 /// Is `name` usable as an element or package name? Any text but empty or

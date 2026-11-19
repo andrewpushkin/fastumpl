@@ -20,6 +20,9 @@ pub fn export(doc: &Document) -> String {
         w.out.push_str("\n---\n");
     }
     w.out.push_str("classDiagram\n");
+    if doc.left_to_right {
+        w.out.push_str("  direction LR\n");
+    }
 
     w.decls(&doc.root, 1);
     for pkg in doc.packages_in_order() {

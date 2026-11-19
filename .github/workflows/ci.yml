@@ -20,12 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Ubuntu's archive is sometimes briefly unavailable (503): retry.
       - name: Install system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl-dev libegl-dev
+          for attempt in 1 2 3; do
+            sudo apt-get -o Acquire::Retries=5 update &&
+            sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+              libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+              libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl-dev libegl-dev &&
+            exit 0
+            echo "attempt $attempt failed; trying again in 30 s"
+            sleep 30
+          done
+          exit 1
 
       # The toolchain comes from rust-toolchain.toml.
       - name: Install toolchain

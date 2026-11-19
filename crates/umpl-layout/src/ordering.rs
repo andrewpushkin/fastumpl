@@ -32,6 +32,8 @@ pub(crate) struct Ghost {
     pub side: GhostSide,
     /// Orders stand-ins on the same side (the outer end's x).
     pub key: f64,
+    /// The outer end's y: the order when the layout is turned.
+    pub cross_key: f64,
     /// Where the line attaches along `item`'s width, in `0..1`.
     pub port: f64,
 }
@@ -75,6 +77,9 @@ pub(crate) struct Layered {
     pub same: Vec<(usize, usize)>,
     /// Minimum gap between the ends of labelled same-layer edges.
     pub same_gap: std::collections::HashMap<(usize, usize), i32>,
+    /// Minimum layer gap between the `(upper, lower)` ends of labelled
+    /// edges between neighbouring layers (see [`FlatEdge::along`]).
+    pub along: std::collections::HashMap<(usize, usize), i32>,
     up: Vec<Vec<Adj>>,
     down: Vec<Vec<Adj>>,
     same_of: Vec<Vec<usize>>,
@@ -139,6 +144,7 @@ impl Layered {
         let mut ll = LinkLists::default();
         let mut same = Vec::new();
         let mut same_gap = std::collections::HashMap::new();
+        let mut along = std::collections::HashMap::new();
         for e in edges {
             if e.a == e.b {
                 continue;
@@ -157,6 +163,10 @@ impl Layered {
             } else {
                 ((e.b, e.a), (e.ports.1, e.ports.0))
             };
+            if la.abs_diff(lb) == 1 {
+                let g = along.entry(ends).or_insert(0);
+                *g = (*g).max(e.along);
+            }
             chain(&mut layer_of, &mut ll, ends, e.kind, pts);
         }
 
@@ -227,6 +237,7 @@ impl Layered {
             link_hier: ll.hier,
             same,
             same_gap,
+            along,
             up: Vec::new(),
             down: Vec::new(),
             same_of,
@@ -326,6 +337,7 @@ impl Layered {
         self.link_hier = kept.iter().map(|&i| self.link_hier[i]).collect();
         self.same.retain(|&(a, b)| a < keep && b < keep);
         self.same_gap.retain(|&(a, b), _| a < keep && b < keep);
+        self.along.retain(|&(a, b), _| a < keep && b < keep);
         for adj in [&mut self.up, &mut self.down] {
             adj.truncate(keep);
             for v in adj.iter_mut() {
@@ -877,6 +889,7 @@ mod tests {
 
     fn ghost(item: usize, side: GhostSide, key: f64) -> Ghost {
         Ghost {
+            cross_key: 0.0,
             item,
             side,
             key,

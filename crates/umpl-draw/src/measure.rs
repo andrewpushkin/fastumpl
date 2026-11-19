@@ -257,11 +257,19 @@ pub fn look_of(el: &Element) -> Look {
     }
 }
 
-/// Size in grid units of a label showing `text`.
+/// Height of one line of a label, in pixels.
+pub const LABEL_LINE: f32 = 14.0;
+
+/// Size in grid units of a label showing `text`, one line per line of it.
 pub fn label_size(text: &str) -> (i32, i32) {
+    let lines = text.lines().count().max(1);
+    let w = text
+        .lines()
+        .map(|l| text_width(l, LABEL_SIZE))
+        .fold(0.0, f32::max);
     (
-        ((text_width(text, LABEL_SIZE) + 4.0) / GRID).ceil() as i32,
-        2,
+        ((w + 4.0) / GRID).ceil() as i32,
+        ((lines as f32 * LABEL_LINE + 2.0) / GRID).ceil() as i32,
     )
 }
 
@@ -269,6 +277,16 @@ pub fn label_size(text: &str) -> (i32, i32) {
 mod tests {
     use super::*;
     use umpl_core::Member;
+
+    /// A label over three lines is as wide as its longest line and three
+    /// lines tall; one line keeps the usual 2 grid units.
+    #[test]
+    fn labels_take_one_line_per_line_of_text() {
+        assert_eq!(label_size("a label").1, 2);
+        let (w, h) = label_size("short\nthe longest line\nmid");
+        assert_eq!(w, label_size("the longest line").0);
+        assert!((5..=6).contains(&h), "{h}");
+    }
 
     #[test]
     fn component_boxes_show_their_lines_under_the_name() {

@@ -212,6 +212,7 @@ impl Parser {
             return;
         }
         if self.try_title(t)
+            || self.try_direction(t)
             || self.try_package(n, t)
             || self.try_layout(n, t)
             || self.try_element(n, t)
@@ -235,6 +236,20 @@ impl Parser {
             }
             _ => false,
         }
+    }
+
+    /// `direction left to right` or `direction top to bottom`.
+    fn try_direction(&mut self, t: &str) -> bool {
+        let mut words = t.split_whitespace();
+        if words.next() != Some("direction") {
+            return false;
+        }
+        match words.collect::<Vec<_>>().join(" ").as_str() {
+            "left to right" => self.doc.left_to_right = true,
+            "top to bottom" => self.doc.left_to_right = false,
+            _ => return false,
+        }
+        true
     }
 
     fn try_package(&mut self, n: usize, t: &str) -> bool {
@@ -463,7 +478,8 @@ impl Parser {
             }
         };
         let name = if c.eat(":") {
-            Some(c.rest().trim().to_string()).filter(|s| !s.is_empty())
+            let lines: Vec<&str> = c.rest().split("\\n").map(str::trim).collect();
+            Some(lines.join("\n").trim().to_string()).filter(|s| !s.is_empty())
         } else if c.at_end() {
             None
         } else {

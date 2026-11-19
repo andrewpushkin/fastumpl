@@ -36,8 +36,9 @@ Input files are .umpl, PlantUML (.puml, .plantuml, .pu, .iuml, .wsd) or
 Umple (.ump; the class model, without state machines or code). Elements
 without a stored position are placed automatically; --tidy lays out the
 whole diagram from scratch, for the fewest line crossings, or with --fill
-to fill a 16:10 window (a few more crossings where need be). Mermaid,
-PlantUML and Umple output carry no positions.";
+to fill a 16:10 window (a few more crossings where need be); --aspect W:H
+gives the window another shape. Mermaid, PlantUML and Umple output carry
+no positions.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -77,6 +78,8 @@ struct Args {
     /// `--fill`: lay out to fill the view rather than for the fewest
     /// crossings.
     fill: bool,
+    /// `--aspect W:H`: the shape of the window `--fill` fills.
+    aspect: Option<f64>,
     dark: bool,
     check: bool,
     scale: f32,
@@ -112,6 +115,22 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                         .ok_or("--diagram needs a number from 1")?
                         - 1,
                 )
+            }
+            "--aspect" => {
+                let s = it.next().ok_or("--aspect needs a shape such as 16:10")?;
+                let ratio = match s.split_once(':') {
+                    Some((w, h)) => w
+                        .parse::<f64>()
+                        .ok()
+                        .zip(h.parse::<f64>().ok())
+                        .map(|(w, h)| w / h),
+                    None => s.parse::<f64>().ok(),
+                };
+                a.aspect = Some(
+                    ratio
+                        .filter(|r| (0.2..=5.0).contains(r))
+                        .ok_or("--aspect needs a shape such as 16:10, between 1:5 and 5:1")?,
+                );
             }
             "--scale" => {
                 a.scale = it
@@ -187,6 +206,7 @@ fn layout(a: &Args) -> Options {
         } else {
             Goal::FewestCrossings
         },
+        aspect: a.aspect.unwrap_or(umpl_layout::DEFAULT_ASPECT),
         ..Options::default()
     }
 }

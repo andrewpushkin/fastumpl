@@ -196,6 +196,9 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
     if cur.title != target.title {
         ops.push(Op::Title(target.title.clone()));
     }
+    if cur.left_to_right != target.left_to_right {
+        ops.push(Op::LeftToRight(target.left_to_right));
+    }
     if cur.trailing_comments != target.trailing_comments {
         ops.push(Op::TrailingComments(target.trailing_comments.clone()));
     }

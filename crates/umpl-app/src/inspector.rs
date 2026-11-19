@@ -259,8 +259,13 @@ impl App {
         let mut changed = None;
         ui.add_space(4.0);
         ui.label("Name");
+        // A label may run over several lines (Enter starts a new one).
         if ui
-            .add(TextEdit::singleline(&mut self.inspector.rel_name).desired_width(f32::INFINITY))
+            .add(
+                TextEdit::multiline(&mut self.inspector.rel_name)
+                    .desired_rows(1)
+                    .desired_width(f32::INFINITY),
+            )
             .lost_focus()
         {
             changed = Some(());

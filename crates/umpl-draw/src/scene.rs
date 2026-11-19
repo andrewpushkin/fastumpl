@@ -511,11 +511,13 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             };
             let (x, y) = px(p);
             let st = TextStyle::new(LABEL_SIZE, if k == 2 { theme.text } else { theme.muted });
-            s.shapes.push(Shape::Text {
-                pos: (x + 2.0, y + GRID),
-                text: (*text).clone(),
-                style: st,
-            });
+            for (i, line) in text.lines().enumerate() {
+                s.shapes.push(Shape::Text {
+                    pos: (x + 2.0, y + 1.0 + LABEL_LINE * (i as f32 + 0.5)),
+                    text: line.to_string(),
+                    style: st,
+                });
+            }
         }
     }
     s.shapes.extend(markers);
