@@ -29,6 +29,22 @@ pub struct Options {
     /// Width : height of the view the drawing should fill, such as the
     /// editor's canvas. Layers and loose parts are arranged to fit it.
     pub aspect: f64,
+    /// What to favour when fewer crossings and filling the view pull
+    /// apart.
+    pub goal: Goal,
+}
+
+/// What a layout favours when fewer line crossings and a drawing of the
+/// view's shape pull apart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Goal {
+    /// The fewest crossings: the drawing may come out wider or taller
+    /// than the view (loose parts still fill it).
+    #[default]
+    FewestCrossings,
+    /// A drawing of the view's shape, with no blank band beside or below
+    /// it, for a few more crossings where need be.
+    FillView,
 }
 
 /// The usual drawing shape, 16:10.
@@ -41,6 +57,7 @@ impl Default for Options {
             seed: 1,
             cancel: None,
             aspect: DEFAULT_ASPECT,
+            goal: Goal::FewestCrossings,
         }
     }
 }
@@ -54,6 +71,9 @@ pub(crate) struct Target {
     /// Loose parts fill a view of the target shape (the top level), or
     /// pack tight (inside a package, whose box should stay compact).
     pub fill: bool,
+    /// A package that is all there is at its level fills the view too
+    /// ([`Goal::FillView`]).
+    pub whole: bool,
 }
 
 #[cfg(test)]
@@ -63,6 +83,7 @@ impl Target {
             width: 1.0,
             aspect: DEFAULT_ASPECT,
             fill: true,
+            whole: false,
         }
     }
 }
@@ -471,7 +492,7 @@ fn place_all(
             (s, _) => s,
         };
         let scope_target = Target {
-            fill: fills_view(graph, scope),
+            fill: scope.is_none() || (target.whole && fills_view(graph, scope)),
             ..target
         };
         let pos = layout_scope(
@@ -553,7 +574,26 @@ fn place_rounds(graph: &Graph, start: Start, target: Target) -> Vec<(i32, i32)> 
 /// anything after it.
 const WIDTHS: [f64; 4] = [0.75, 1.35, 0.6, 1.7];
 
-/// Layer width of candidate `i`, given the width `base` at which the
+/// Layer width of a candidate when crossings come first. The hint and
+/// depth-first candidates and every other random one keep the usual width,
+/// so a tidy diagram is found again; the remaining random ones try the
+/// `WIDTHS`.
+fn width_of(start: Start, seed: u64) -> f64 {
+    match start {
+        Start::Random(s) => {
+            let k = s.wrapping_sub(seed);
+            if k % 2 == 1 {
+                1.0
+            } else {
+                WIDTHS[((k / 2 - 1) % WIDTHS.len() as u64) as usize]
+            }
+        }
+        _ => 1.0,
+    }
+}
+
+/// Layer width of candidate `i` when the drawing should fill the view,
+/// given the width `base` at which the
 /// drawing has the view's shape. The first candidate (the current layout's
 /// order, or depth first) keeps the usual width, so a tidy diagram is
 /// found again and the fewest crossings are on offer; the next takes
@@ -605,6 +645,7 @@ fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) ->
             width: f,
             aspect,
             fill: true,
+            whole: true,
         };
         shape_of(graph, &place_rounds(graph, Start::DepthFirst, target))
     };
@@ -750,8 +791,13 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             out
         };
 
-    // The layer width that gives the drawing the shape of the view.
-    let base = calibrated_width(graph, opts.aspect, &cancelled);
+    // To fill the view: the layer width that gives the drawing its shape.
+    let fill = opts.goal == Goal::FillView;
+    let base = if fill {
+        calibrated_width(graph, opts.aspect, &cancelled)
+    } else {
+        1.0
+    };
     // Placing is cheap; routing is not, and grows with the drawing.
     let placed: Vec<Option<Layout>> = in_parallel(starts.len(), threads, &|i| {
         // The first candidate always runs.
@@ -759,9 +805,14 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             return None;
         }
         let target = Target {
-            width: width_for(i, base),
+            width: if fill {
+                width_for(i, base)
+            } else {
+                width_of(starts[i], opts.seed)
+            },
             aspect: opts.aspect,
             fill: true,
+            whole: fill,
         };
         Some(Layout {
             nodes: place_rounds(graph, starts[i], target),
@@ -786,8 +837,11 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
         let least = straight.iter().flatten().copied().min().unwrap_or(0);
         let cost = |i: usize| {
             let l = placed[i].as_ref()?;
-            let shape = shape_of(graph, &l.nodes);
-            let fit = fit_cost(graph, shape, opts.aspect, least);
+            let fit = if fill {
+                fit_cost(graph, shape_of(graph, &l.nodes), opts.aspect, least)
+            } else {
+                0.0
+            };
             Some(10.0 * straight[i]? as f64 + fit)
         };
         let best = (0..placed.len())
@@ -820,7 +874,14 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
     // which only ever lowers its cost.
     let results: Vec<Layout> = results.into_iter().flatten().collect();
     let least = results.iter().map(|l| l.stats.crossings).min().unwrap_or(0);
-    let cost = |l: &Layout| l.stats.score() + fill_cost(graph, l, opts.aspect, least);
+    let cost = |l: &Layout| {
+        let fit = if fill {
+            fill_cost(graph, l, opts.aspect, least)
+        } else {
+            0.0
+        };
+        l.stats.score() + fit
+    };
     let best = results
         .into_iter()
         .enumerate()
@@ -1202,7 +1263,11 @@ mod tests {
                     g.add_edge(child, helper, EdgeKind::Assoc);
                 }
             }
-            let opts = Options { aspect, ..fast() };
+            let opts = Options {
+                aspect,
+                goal: Goal::FillView,
+                ..fast()
+            };
             let l = layout_all(&g, &opts);
             let b = l.bounds(&g);
             let shape = b.w as f64 / b.h as f64;

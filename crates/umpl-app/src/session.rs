@@ -42,13 +42,13 @@ impl Session {
     }
 
     /// Reads a file. Elements without a stored position are placed (the
-    /// whole diagram is laid out, to fill a view of width : height
-    /// `aspect`, if the file has no `layout` block); that does not count as
-    /// an unsaved change.
-    pub fn open(path: &Path, aspect: f64) -> Result<Session, String> {
+    /// whole diagram is laid out with `layout`, for the view's shape and
+    /// the chosen goal, if the file has no `layout` block); that does not
+    /// count as an unsaved change.
+    pub fn open(path: &Path, layout: &umpl_layout::Options) -> Result<Session, String> {
         let src = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-        let mut s = Session::from_text(&src, aspect);
+        let mut s = Session::from_text(&src, layout);
         s.path = Some(path.to_path_buf());
         s.disk_stamp = mtime(path);
         Ok(s)
@@ -64,7 +64,7 @@ impl Session {
         path: &Path,
         format: Format,
         n: usize,
-        aspect: f64,
+        layout: &umpl_layout::Options,
     ) -> Result<Session, String> {
         let read = match format {
             Format::PlantUml => umpl_text::plantuml::import_path_nth(path, n),
@@ -82,7 +82,7 @@ impl Session {
                 return Err(format!("{}: {m}.", path.display()));
             }
         }
-        let mut s = Session::from_parsed(parsed, aspect);
+        let mut s = Session::from_parsed(parsed, layout);
         let stem = path
             .file_stem()
             .map(|n| n.to_string_lossy().into_owned())
@@ -92,11 +92,11 @@ impl Session {
         Ok(s)
     }
 
-    pub fn from_text(src: &str, aspect: f64) -> Session {
-        Session::from_parsed(parse(src), aspect)
+    pub fn from_text(src: &str, layout: &umpl_layout::Options) -> Session {
+        Session::from_parsed(parse(src), layout)
     }
 
-    pub fn from_parsed(parsed: Parsed, aspect: f64) -> Session {
+    pub fn from_parsed(parsed: Parsed, layout: &umpl_layout::Options) -> Session {
         let mut editor = Editor::new(parsed.doc);
         // A big diagram is laid out on a background thread instead
         // (see `App::install_session`), so the window does not freeze.
@@ -107,11 +107,7 @@ impl Session {
             let diagram = if parsed.has_layout {
                 Diagram::arrange(&editor.doc)
             } else {
-                let opts = umpl_layout::Options {
-                    aspect,
-                    ..umpl_layout::Options::default()
-                };
-                Diagram::tidy(&editor.doc, &opts)
+                Diagram::tidy(&editor.doc, layout)
             };
             let ops = editor.position_changes(&diagram.positions());
             editor.apply_silently(ops);

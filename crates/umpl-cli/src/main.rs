@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use umpl_core::Editor;
 use umpl_draw::{build_scene, svg::to_svg, Diagram, SceneOptions, Theme};
-use umpl_layout::Options;
+use umpl_layout::{Goal, Options};
 use umpl_text::{parse, print, read_path, write_as, write_atomic, Format, Parsed};
 
 /// Release version (0.1.N, N = commits on main), set by the build as
@@ -20,13 +20,13 @@ const HELP: &str = "\
 umpl - render, format and check fastumpl diagrams
 
 Usage:
-  umpl render <file> -o <out.svg|out.png> [--tidy] [--dark] [--scale N]
-  umpl convert <file> -o <out.umpl|out.puml|out.mmd|out.md|out.ump> [--tidy]
+  umpl render <file> -o <out.svg|out.png> [--tidy] [--fill] [--dark] [--scale N]
+  umpl convert <file> -o <out.umpl|out.puml|out.mmd|out.md|out.ump> [--tidy] [--fill]
   umpl convert <file> --to <umpl|plantuml|mermaid|markdown|umple>   to stdout
-  umpl tidy <file.umpl>...         lay out again and save positions
+  umpl tidy [--fill] <file.umpl>...  lay out again and save positions
   umpl fmt [--check] <file.umpl>...
   umpl check <file>...             list problems; exit 1 if any
-  umpl stats <file> [--tidy]       crossings, bends and score
+  umpl stats <file> [--tidy] [--fill]  crossings, bends and score
   umpl --version
 
 A PlantUML file may hold several diagrams (and pages split by newpage);
@@ -35,8 +35,9 @@ A PlantUML file may hold several diagrams (and pages split by newpage);
 Input files are .umpl, PlantUML (.puml, .plantuml, .pu, .iuml, .wsd) or
 Umple (.ump; the class model, without state machines or code). Elements
 without a stored position are placed automatically; --tidy lays out the
-whole diagram from scratch. Mermaid, PlantUML and Umple output carry no
-positions.";
+whole diagram from scratch, for the fewest line crossings, or with --fill
+to fill a 16:10 window (a few more crossings where need be). Mermaid,
+PlantUML and Umple output carry no positions.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -73,6 +74,9 @@ struct Args {
     files: Vec<PathBuf>,
     out: Option<PathBuf>,
     tidy: bool,
+    /// `--fill`: lay out to fill the view rather than for the fewest
+    /// crossings.
+    fill: bool,
     dark: bool,
     check: bool,
     scale: f32,
@@ -91,6 +95,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         match arg.as_str() {
             "-o" | "--output" => a.out = Some(it.next().ok_or("-o needs a file")?.into()),
             "--tidy" => a.tidy = true,
+            "--fill" => a.fill = true,
             "--dark" => a.dark = true,
             "--check" => a.check = true,
             "--to" => {
@@ -174,9 +179,21 @@ fn refuse_foreign(path: &Path, command: &str) -> Result<(), String> {
     }
 }
 
-fn arrange(parsed: &Parsed, tidy: bool) -> Diagram {
-    if tidy {
-        Diagram::tidy(&parsed.doc, &Options::default())
+/// The layout options `--fill` asks for.
+fn layout(a: &Args) -> Options {
+    Options {
+        goal: if a.fill {
+            Goal::FillView
+        } else {
+            Goal::FewestCrossings
+        },
+        ..Options::default()
+    }
+}
+
+fn arrange(parsed: &Parsed, a: &Args) -> Diagram {
+    if a.tidy {
+        Diagram::tidy(&parsed.doc, &layout(a))
     } else {
         Diagram::arrange(&parsed.doc)
     }
@@ -196,7 +213,7 @@ fn render(args: &[String]) -> Result<bool, String> {
     let out = a.out.clone().ok_or("render needs -o <file>")?;
     let parsed = read(input, a.diagram)?;
     report(input, &parsed);
-    let diagram = arrange(&parsed, a.tidy);
+    let diagram = arrange(&parsed, &a);
     let theme = if a.dark {
         Theme::dark()
     } else {
@@ -235,7 +252,7 @@ fn convert(args: &[String]) -> Result<bool, String> {
     report(input, &parsed);
     let mut doc = parsed.doc;
     if a.tidy {
-        let diagram = Diagram::tidy(&doc, &Options::default());
+        let diagram = Diagram::tidy(&doc, &layout(&a));
         let mut ed = Editor::new(doc);
         ed.set_positions("Tidy", &diagram.positions());
         doc = ed.doc;
@@ -256,7 +273,7 @@ fn tidy(args: &[String]) -> Result<bool, String> {
         refuse_foreign(path, "tidy")?;
         let parsed = read(path, a.diagram)?;
         report(path, &parsed);
-        let diagram = Diagram::tidy(&parsed.doc, &Options::default());
+        let diagram = Diagram::tidy(&parsed.doc, &layout(&a));
         let mut ed = Editor::new(parsed.doc);
         ed.set_positions("Tidy", &diagram.positions());
         write_atomic(path, print(&ed.doc).as_bytes())
@@ -307,7 +324,7 @@ fn stats(args: &[String]) -> Result<bool, String> {
     for path in &a.files {
         let parsed = read(path, a.diagram)?;
         let start = Instant::now();
-        let d = arrange(&parsed, a.tidy);
+        let d = arrange(&parsed, &a);
         let s = d.layout.stats;
         let b = d.layout.bounds(&d.graph);
         println!(

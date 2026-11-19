@@ -114,8 +114,8 @@ impl App {
                     ui.add_space(8.0);
                     if let Some(k) = chosen {
                         keep = false;
-                        let aspect = self.view_aspect(ctx);
-                        self.import_nth(path, umpl_text::Format::PlantUml, k, aspect);
+                        let layout = self.layout_options(ctx);
+                        self.import_nth(path, umpl_text::Format::PlantUml, k, &layout);
                     }
                     if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
                         keep = false;

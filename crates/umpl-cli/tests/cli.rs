@@ -208,3 +208,34 @@ fn imports_and_exports_umple() {
     }
     assert_eq!(std::fs::read_to_string(dir.join("model.ump")).unwrap(), UMP);
 }
+
+#[test]
+fn fill_lays_out_to_the_window_shape() {
+    let dir = workdir("fill");
+    std::fs::write(
+        dir.join("library.umpl"),
+        include_str!("../../../examples/library.umpl"),
+    )
+    .unwrap();
+    // `size WxH` from `umpl stats`, as width : height.
+    let shape = |extra: &[&str]| {
+        let mut args = vec!["stats", "library.umpl", "--tidy"];
+        args.extend_from_slice(extra);
+        let out = text(&umpl(&dir, &args).stdout);
+        let size = out
+            .split("size ")
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap();
+        let (w, h) = size.split_once('x').unwrap();
+        w.trim().parse::<f64>().unwrap() / h.trim().parse::<f64>().unwrap()
+    };
+    let (usual, fill) = (shape(&[]), shape(&["--fill"]));
+    // The library comes out much wider than 16:10 for the fewest
+    // crossings, and close to it with --fill.
+    let off = |r: f64| (r / 1.6).ln().abs();
+    assert!(off(fill) < off(usual), "{usual:.2} {fill:.2}");
+    assert!(off(fill) < 0.15, "{fill:.2}");
+}

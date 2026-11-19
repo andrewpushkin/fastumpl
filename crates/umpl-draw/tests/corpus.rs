@@ -1,6 +1,7 @@
 //! Layout quality corpus: lays out every example and some generated class
-//! diagrams, checks the hard rules, and fails if any crossing count or
-//! score got worse than recorded in `tests/corpus/scores.txt`.
+//! diagrams, for the fewest crossings and to fill the view, checks the
+//! hard rules, and fails if any crossing count or score got worse than
+//! recorded in `tests/corpus/scores.txt`.
 //!
 //! After an intended change, re-record with:
 //!     UPDATE_SCORES=1 cargo test -p umpl-draw --test corpus
@@ -11,7 +12,7 @@ use std::time::Instant;
 
 use umpl_core::{Document, Editor, ElementKind, Member, RelationKind};
 use umpl_draw::Diagram;
-use umpl_layout::Options;
+use umpl_layout::{Goal, Options};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -126,8 +127,20 @@ fn layout_quality_does_not_regress() {
     let update = std::env::var_os("UPDATE_SCORES").is_some();
     let mut lines = vec!["# name crossings score (lower is better)".to_string()];
     let mut failures = Vec::new();
-    for (name, doc) in corpus() {
-        let d = Diagram::tidy(&doc, &Options::default());
+    // Each diagram laid out for the fewest crossings (the default), and
+    // to fill the view (recorded as `name+fill`).
+    let runs = corpus().into_iter().flat_map(|(name, doc)| {
+        [
+            (name.clone(), doc.clone(), Goal::FewestCrossings),
+            (format!("{name}+fill"), doc, Goal::FillView),
+        ]
+    });
+    for (name, doc, goal) in runs {
+        let opts = Options {
+            goal,
+            ..Options::default()
+        };
+        let d = Diagram::tidy(&doc, &opts);
         let s = d.layout.stats;
         assert_eq!(s.overlaps, 0, "{name}: boxes overlap");
         let score = (s.score() * 10.0).round() / 10.0;

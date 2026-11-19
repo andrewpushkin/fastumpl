@@ -3,6 +3,7 @@
 
 use egui::{Key, KeyboardShortcut, Modifiers};
 use umpl_core::ElementKind;
+use umpl_layout::Goal;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -83,6 +84,8 @@ pub enum Cmd {
     ZoomReset,
     Theme(ThemePref),
     ToggleGrid,
+    /// Lay diagrams out for the fewest crossings or to fill the window.
+    LayoutGoal(Goal),
     ToggleSource,
     Problems,
     Palette,
@@ -131,6 +134,8 @@ impl Cmd {
             Cmd::Theme(ThemePref::Dark),
             Cmd::ToggleGrid,
             Cmd::ToggleSource,
+            Cmd::LayoutGoal(Goal::FewestCrossings),
+            Cmd::LayoutGoal(Goal::FillView),
             Cmd::Problems,
             Cmd::Shortcuts,
             Cmd::About,
@@ -169,6 +174,10 @@ impl Cmd {
             Cmd::Theme(ThemePref::Light) => "Theme: light".into(),
             Cmd::Theme(ThemePref::Dark) => "Theme: dark".into(),
             Cmd::ToggleGrid => "Show or hide grid".into(),
+            Cmd::LayoutGoal(Goal::FewestCrossings) => {
+                "Lay out diagrams for fewest line crossings".into()
+            }
+            Cmd::LayoutGoal(Goal::FillView) => "Lay out diagrams to fill the window".into(),
             Cmd::ToggleSource => "Show or hide text".into(),
             Cmd::Problems => "Show problems in file".into(),
             Cmd::Palette => "Command palette".into(),

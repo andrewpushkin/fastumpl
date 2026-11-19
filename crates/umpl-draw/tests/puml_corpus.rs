@@ -32,6 +32,8 @@
 //! `PUML_CORPUS_SHOW=<text>` lists every problem containing `<text>`;
 //! `PUML_CORPUS_LAYOUT=0` skips layout (import only), and
 //! `PUML_CORPUS_LAYOUT=<n>` lays out every n-th file only (all are imported).
+//! `PUML_CORPUS_GOAL=fill` lays out to fill the view instead of for the
+//! fewest crossings.
 //! `PUML_CORPUS_NAMES=<file>` writes the name and kind of every element
 //! read, `path<TAB>kind<TAB>name`, to compare with what PlantUML read
 //! (`scripts/PumlCheck.java --dump`).
@@ -43,7 +45,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use umpl_draw::Diagram;
-use umpl_layout::Options;
+use umpl_layout::{Goal, Options};
 use umpl_text::plantuml;
 
 const EXTENSIONS: [&str; 5] = ["puml", "plantuml", "pu", "wsd", "iuml"];
@@ -181,7 +183,15 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
         let kind = plantuml::diagram_kind(&std::fs::read_to_string(path).unwrap_or_default());
         let layout = (with_layout && !parsed.doc.elements.is_empty()).then(|| {
             let start = Instant::now();
-            let d = Diagram::tidy(&parsed.doc, &Options::default());
+            let goal = match std::env::var("PUML_CORPUS_GOAL").as_deref() {
+                Ok("fill") => Goal::FillView,
+                _ => Goal::FewestCrossings,
+            };
+            let opts = Options {
+                goal,
+                ..Options::default()
+            };
+            let d = Diagram::tidy(&parsed.doc, &opts);
             let ms = start.elapsed().as_millis();
             let b = d.layout.bounds(&d.graph);
             Layout {

@@ -296,7 +296,7 @@ fn save_writes_file_that_reopens() {
     };
     assert!(ok.is_ok());
     assert!(!h.state().session.as_ref().unwrap().is_dirty());
-    let reopened = crate::session::Session::open(&path, umpl_layout::DEFAULT_ASPECT).unwrap();
+    let reopened = crate::session::Session::open(&path, &umpl_layout::Options::default()).unwrap();
     assert_eq!(reopened.editor.doc.elements.len(), 2);
     assert_eq!(reopened.editor.doc.relations.len(), 1);
     assert!(!reopened.is_dirty());
@@ -307,7 +307,7 @@ fn save_writes_file_that_reopens() {
 fn opening_file_without_layout_places_everything_without_dirtying() {
     let s = crate::session::Session::from_text(
         "class A\nclass B\nB --|> A\n",
-        umpl_layout::DEFAULT_ASPECT,
+        &umpl_layout::Options::default(),
     );
     assert!(s.editor.doc.elements.values().all(|e| e.pos.is_some()));
     assert!(!s.is_dirty());
@@ -318,7 +318,7 @@ fn opening_file_without_layout_places_everything_without_dirtying() {
 fn detects_file_changed_on_disk() {
     let path = std::env::temp_dir().join(format!("fastumpl-disk-{}.umpl", std::process::id()));
     std::fs::write(&path, "class A\n").unwrap();
-    let mut s = crate::session::Session::open(&path, umpl_layout::DEFAULT_ASPECT).unwrap();
+    let mut s = crate::session::Session::open(&path, &umpl_layout::Options::default()).unwrap();
     assert!(!s.changed_on_disk());
     // File systems may store modification times in whole seconds.
     std::thread::sleep(Duration::from_millis(1100));
@@ -771,6 +771,41 @@ fn the_text_panel_can_be_hidden_and_shown() {
     );
     assert!(Cmd::all().contains(&Cmd::ToggleSource));
     assert!(Cmd::ToggleSource.shortcut().is_some());
+}
+
+#[test]
+fn saved_settings_are_read_back() {
+    use crate::app::{grid_shown, layout_goal, layout_goal_setting};
+    use umpl_layout::Goal;
+    // The grid shows unless turned off; layouts favour few crossings
+    // unless the user chose to fill the window.
+    assert!(grid_shown(None) && grid_shown(Some("shown")));
+    assert!(!grid_shown(Some("hidden")));
+    assert_eq!(layout_goal(None), Goal::FewestCrossings);
+    for goal in [Goal::FewestCrossings, Goal::FillView] {
+        assert_eq!(layout_goal(Some(layout_goal_setting(goal))), goal);
+    }
+}
+
+#[test]
+fn layout_goal_is_chosen_in_the_arrange_menu_and_saved() {
+    let mut h = new_app();
+    assert_eq!(h.state().layout_goal, umpl_layout::Goal::FewestCrossings);
+    h.get_by_label("Arrange").click();
+    h.run_steps(2);
+    h.get_by_label("Filling the window").click();
+    h.run_steps(2);
+    assert_eq!(h.state().layout_goal, umpl_layout::Goal::FillView);
+    let saved = h.state().storage.load_setting("layout");
+    // Back to the default, which the other tests expect.
+    let ctx = h.ctx.clone();
+    h.state_mut()
+        .run(&ctx, Cmd::LayoutGoal(umpl_layout::Goal::FewestCrossings));
+    assert_eq!(saved.as_deref(), Some("fill"));
+    assert_eq!(
+        h.state().storage.load_setting("layout").as_deref(),
+        Some("crossings")
+    );
 }
 
 #[test]

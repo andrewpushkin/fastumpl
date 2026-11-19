@@ -11,7 +11,7 @@ use egui::{
 use umpl_core::{ElementId, Pos};
 use umpl_draw::svg::to_svg;
 use umpl_draw::{build_scene, Diagram, SceneOptions, Theme};
-use umpl_layout::Options;
+use umpl_layout::{Goal, Options};
 use umpl_text::{Format, PLANTUML_EXTENSIONS};
 
 use crate::camera::Camera;
@@ -63,6 +63,8 @@ pub struct App {
     pub tool: Tool,
     pub theme_pref: ThemePref,
     pub show_grid: bool,
+    /// Fewest line crossings (the default) or fill the window.
+    pub layout_goal: Goal,
     pub recent: Vec<PathBuf>,
     pub tidy: Option<TidyJob>,
     pub dialog: Option<Dialog>,
@@ -87,6 +89,29 @@ pub fn text_shown(setting: Option<&str>) -> bool {
     setting == Some("shown")
 }
 
+/// Whether the grid is shown, from the saved setting: shown unless the
+/// user turned it off.
+pub fn grid_shown(setting: Option<&str>) -> bool {
+    setting != Some("hidden")
+}
+
+/// What layouts favour, from the saved setting: the fewest crossings
+/// unless the user chose to fill the window.
+pub fn layout_goal(setting: Option<&str>) -> Goal {
+    match setting {
+        Some("fill") => Goal::FillView,
+        _ => Goal::FewestCrossings,
+    }
+}
+
+/// The saved form of a layout goal.
+pub fn layout_goal_setting(goal: Goal) -> &'static str {
+    match goal {
+        Goal::FillView => "fill",
+        Goal::FewestCrossings => "crossings",
+    }
+}
+
 /// File → Export, in order; `None` is a separator.
 pub const EXPORT_MENU: [(Option<Cmd>, &str); 8] = [
     (Some(Cmd::ExportSvg), "SVG…"),
@@ -109,6 +134,8 @@ impl App {
             _ => ThemePref::System,
         };
         let source_shown = text_shown(storage.load_setting("text").as_deref());
+        let show_grid = grid_shown(storage.load_setting("grid").as_deref());
+        let layout_goal = layout_goal(storage.load_setting("layout").as_deref());
         let mut app = App {
             recent: storage.load_recent(),
             storage,
@@ -119,7 +146,8 @@ impl App {
             sel: Selection::default(),
             tool: Tool::Select,
             theme_pref,
-            show_grid: true,
+            show_grid,
+            layout_goal,
             tidy: None,
             dialog: None,
             palette: None,
@@ -226,12 +254,22 @@ impl App {
         }
     }
 
-    pub fn open_path(&mut self, ctx: &Context, path: &Path) {
-        let aspect = self.view_aspect(ctx);
-        if let Some(f @ (Format::PlantUml | Format::Umple)) = Format::from_path(path) {
-            return self.import_path(path, f, aspect);
+    /// How a diagram opened now is laid out: for the canvas's shape, with
+    /// the goal chosen in Arrange.
+    pub fn layout_options(&self, ctx: &Context) -> Options {
+        Options {
+            aspect: self.view_aspect(ctx),
+            goal: self.layout_goal,
+            ..Options::default()
         }
-        match Session::open(path, aspect) {
+    }
+
+    pub fn open_path(&mut self, ctx: &Context, path: &Path) {
+        let layout = self.layout_options(ctx);
+        if let Some(f @ (Format::PlantUml | Format::Umple)) = Format::from_path(path) {
+            return self.import_path(path, f, &layout);
+        }
+        match Session::open(path, &layout) {
             Ok(s) => self.install_session(s),
             Err(e) => {
                 self.recent.retain(|p| p != path);
@@ -243,7 +281,7 @@ impl App {
 
     /// Opens a PlantUML or Umple file as a new, unsaved diagram. A PlantUML
     /// file with several diagrams asks which one first.
-    fn import_path(&mut self, path: &Path, format: Format, aspect: f64) {
+    fn import_path(&mut self, path: &Path, format: Format, layout: &Options) {
         if format == Format::PlantUml {
             let src = std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned());
             let list = src
@@ -254,12 +292,12 @@ impl App {
                 return;
             }
         }
-        self.import_nth(path, format, 0, aspect);
+        self.import_nth(path, format, 0, layout);
     }
 
     /// Opens diagram `n` of a PlantUML file (or the Umple file).
-    pub fn import_nth(&mut self, path: &Path, format: Format, n: usize, aspect: f64) {
-        match Session::import_nth(path, format, n, aspect) {
+    pub fn import_nth(&mut self, path: &Path, format: Format, n: usize, layout: &Options) {
+        match Session::import_nth(path, format, n, layout) {
             Ok(s) => {
                 let problems = s.problems.len();
                 self.install_session(s);
@@ -323,7 +361,7 @@ impl App {
                 }
             }
             Pending::OpenText(text, path) => {
-                let mut s = Session::from_text(&text, self.view_aspect(ctx));
+                let mut s = Session::from_text(&text, &self.layout_options(ctx));
                 s.path = path;
                 s.mark_dirty();
                 self.install_session(s);
@@ -605,10 +643,12 @@ impl App {
         } else {
             umpl_layout::DEFAULT_ASPECT
         };
+        let goal = self.layout_goal;
         std::thread::spawn(move || {
             let opts = Options {
                 cancel: Some(c),
                 aspect,
+                goal,
                 ..Options::default()
             };
             let _ = tx.send(Diagram::tidy(&doc, &opts));
@@ -775,7 +815,23 @@ impl App {
                 };
                 self.storage.save_setting("theme", v);
             }
-            Cmd::ToggleGrid => self.show_grid = !self.show_grid,
+            Cmd::ToggleGrid => {
+                self.show_grid = !self.show_grid;
+                let v = if self.show_grid { "shown" } else { "hidden" };
+                self.storage.save_setting("grid", v);
+            }
+            Cmd::LayoutGoal(goal) => {
+                self.layout_goal = goal;
+                self.storage
+                    .save_setting("layout", layout_goal_setting(goal));
+                if self.session.is_some() {
+                    self.status = Some((
+                        "Diagrams are laid out this way from now on; Tidy lays out this one again"
+                            .into(),
+                        Instant::now(),
+                    ));
+                }
+            }
             Cmd::ToggleSource => self.toggle_source(ctx),
             Cmd::Problems => self.dialog = Some(Dialog::Problems),
             Cmd::Palette => self.palette = Some((String::new(), 0)),
@@ -1089,6 +1145,18 @@ impl App {
                 ui.menu_button("Arrange", |ui| {
                     self.menu_item(ui, Cmd::Tidy);
                     self.menu_item(ui, Cmd::TidySelection);
+                    ui.separator();
+                    ui.label(RichText::new("Lay out diagrams for").weak());
+                    for (goal, label) in [
+                        (Goal::FewestCrossings, "Fewest line crossings"),
+                        (Goal::FillView, "Filling the window"),
+                    ] {
+                        let cmd = Cmd::LayoutGoal(goal);
+                        if ui.radio(self.layout_goal == goal, label).clicked() {
+                            ui.close();
+                            self.run(ui.ctx(), cmd);
+                        }
+                    }
                 });
                 ui.menu_button("Help", |ui| {
                     self.menu_item(ui, Cmd::Shortcuts);
