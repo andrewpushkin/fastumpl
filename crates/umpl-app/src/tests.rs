@@ -10,7 +10,7 @@ use umpl_core::{ElementId, ElementKind, PackageId, Pos, RelationKind};
 use umpl_draw::{RectF, GRID};
 
 use crate::app::{App, Pending};
-use crate::canvas::handles;
+use crate::canvas::{dots, grips, side_middles};
 use crate::commands::Cmd;
 
 static ENV: Once = Once::new();
@@ -149,7 +149,7 @@ fn dragging_from_edge_dot_connects_boxes() {
     // Hover A so its dots show, then drag from the right dot onto B.
     h.hover_at(screen(&h, ra.center()));
     h.run_steps(2);
-    let dot = screen(&h, handles(ra)[1]);
+    let dot = screen(&h, side_middles(ra)[1]);
     let target = screen(&h, rb.center());
     drag(&mut h, dot, target);
     assert!(h.state().canvas.connect.is_some(), "kind menu should open");
@@ -237,6 +237,75 @@ fn dragging_a_corner_resizes_the_box_and_undo_restores() {
     assert_eq!(el(&h).size, None);
 }
 
+/// Every square on a selected box resizes it: a corner both ways, the
+/// middle of a side that side only, the opposite side staying put.
+#[test]
+fn every_grip_of_a_selected_box_resizes_it() {
+    // Grip, the way it is dragged (grid units), and the change of the
+    // box's x, y, width and height (grid units).
+    let cases = [
+        (0, (-4, -3), (-4, -3, 4, 3)),
+        (1, (4, -3), (0, -3, 4, 3)),
+        (2, (4, 3), (0, 0, 4, 3)),
+        (3, (-4, 3), (-4, 0, 4, 3)),
+        (4, (4, -3), (0, -3, 0, 3)),
+        (5, (4, -3), (0, 0, 4, 0)),
+        (6, (4, 3), (0, 0, 0, 3)),
+        (7, (-4, 3), (-4, 0, 4, 0)),
+    ];
+    for kind in [ElementKind::Class, ElementKind::Note] {
+        for (grip, by, change) in cases {
+            let mut h = new_app();
+            let s = h.state_mut().session.as_mut().unwrap();
+            let a = s
+                .editor
+                .add_element(kind, "Account", None, Some(Pos::new(10, 10)));
+            h.state_mut().sel = crate::view::Selection::only_element(a);
+            h.run_steps(2);
+            let r = rect_of(&h, a);
+            let zoom = h.state().camera.zoom;
+            let at = grips(r, zoom)
+                .into_iter()
+                .find(|(k, _)| *k == grip)
+                .unwrap_or_else(|| panic!("{kind:?} {r:?} has no grip {grip}"))
+                .1;
+            let from = screen(&h, at);
+            let to = from + Vec2::new(by.0 as f32, by.1 as f32) * GRID * zoom;
+            drag(&mut h, from, to);
+            assert!(h.state().canvas.connect.is_none(), "{kind:?} grip {grip}");
+            let r2 = rect_of(&h, a);
+            let got = (
+                ((r2.x - r.x) / GRID).round() as i32,
+                ((r2.y - r.y) / GRID).round() as i32,
+                ((r2.w - r.w) / GRID).round() as i32,
+                ((r2.h - r.h) / GRID).round() as i32,
+            );
+            assert_eq!(got, change, "{kind:?} grip {grip}: {r:?} -> {r2:?}");
+        }
+    }
+}
+
+/// A selected box's line dots stand outside its squares, and still draw a
+/// line.
+#[test]
+fn a_selected_box_draws_lines_from_dots_outside_its_squares() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 40, 0);
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    h.run_steps(2);
+    let (ra, rb) = (rect_of(&h, a), rect_of(&h, b));
+    let zoom = h.state().camera.zoom;
+    let dot = dots(ra, true, zoom)[1];
+    assert!(dot.0 > ra.right(), "{dot:?} outside {ra:?}");
+    h.hover_at(screen(&h, ra.center()));
+    h.run_steps(2);
+    let (from, to) = (screen(&h, dot), screen(&h, rb.center()));
+    drag(&mut h, from, to);
+    assert!(h.state().canvas.connect.is_some(), "kind menu should open");
+    assert_eq!(doc(&h).elements[&a].size, None, "A is not resized");
+}
+
 /// A package with two boxes in it, apart so its frame has room inside.
 fn app_with_package() -> (Harness<'static, App>, PackageId, ElementId, ElementId) {
     let mut h = new_app();
@@ -312,6 +381,19 @@ fn dragging_a_package_corner_resizes_its_frame() {
     let r2 = group_rect(&h, p);
     assert!((r2.w - r.w - 12.0 * GRID).abs() < 0.5, "{r:?} {r2:?}");
     assert!((r2.h - r.h - 8.0 * GRID).abs() < 0.5, "{r:?} {r2:?}");
+    // The middle of a side moves that side only.
+    let side = screen(&h, side_middles(r2)[2]);
+    drag(
+        &mut h,
+        side,
+        side + Vec2::new(5.0 * GRID * zoom, 2.0 * GRID * zoom),
+    );
+    let r3 = group_rect(&h, p);
+    assert!((r3.w - r2.w).abs() < 0.5, "{r2:?} {r3:?}");
+    assert!((r3.h - r2.h - 2.0 * GRID).abs() < 0.5, "{r2:?} {r3:?}");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    let r2 = group_rect(&h, p);
     let frame = doc_of(&h).packages[&p].frame.expect("a frame kept");
     let text = umpl_text::print(doc_of(&h));
     let line = format!(

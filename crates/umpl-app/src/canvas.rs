@@ -31,16 +31,18 @@ const CONNECT_KINDS: [RelationKind; 8] = [
 /// What is under the pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Hit {
+    /// A dot to draw a new line from.
     Handle(ElementId),
-    /// A corner of a selected box, to resize it: 0 top left, 1 top right,
-    /// 2 bottom right, 3 bottom left.
-    Corner(ElementId, u8),
+    /// A square of a selected box, to resize it: corners 0 top left,
+    /// 1 top right, 2 bottom right, 3 bottom left; middles of the sides
+    /// 4 top, 5 right, 6 bottom, 7 left.
+    Grip(ElementId, u8),
     Element(ElementId),
     Relation(RelationId),
     Package(PackageId),
-    /// A corner of a selected package's frame, to resize it (numbered as
-    /// for [`Hit::Corner`]).
-    PackageCorner(PackageId, u8),
+    /// A square of a selected package's frame, to resize it (numbered as
+    /// for [`Hit::Grip`]).
+    PackageGrip(PackageId, u8),
     Empty,
 }
 
@@ -61,21 +63,21 @@ pub enum Drag {
         from: ElementId,
         current: (f32, f32),
     },
-    /// Dragging a corner of box `id`: its place and size in grid units when
+    /// Dragging a square of box `id`: its place and size in grid units when
     /// the drag began, and the least size its text needs.
     Resize {
         id: ElementId,
-        corner: u8,
+        grip: u8,
         start: (f32, f32),
         rect: (i32, i32, i32, i32),
         min: (i32, i32),
         last: (i32, i32),
     },
-    /// Dragging a corner of package `id`'s frame: the frame and the area
+    /// Dragging a square of package `id`'s frame: the frame and the area
     /// around its content when the drag began (grid units: x, y, w, h).
     ResizePackage {
         id: PackageId,
-        corner: u8,
+        grip: u8,
         start: (f32, f32),
         rect: (i32, i32, i32, i32),
         content: (i32, i32, i32, i32),
@@ -167,10 +169,47 @@ fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     ((p.0 - x).powi(2) + (p.1 - y).powi(2)).sqrt()
 }
 
-/// Edge midpoints where a new line can be dragged out of a box.
-pub fn handles(r: RectF) -> [(f32, f32); 4] {
+/// Middles of the sides of `r`: top, right, bottom, left.
+pub fn side_middles(r: RectF) -> [(f32, f32); 4] {
     let (cx, cy) = r.center();
     [(cx, r.y), (r.right(), cy), (cx, r.bottom()), (r.x, cy)]
+}
+
+/// How near (screen pixels) the pointer must be to a square to take it;
+/// also the squares' size.
+const GRIP: f32 = 7.0;
+/// How near (screen pixels) the pointer must be to a dot to take it.
+const DOT: f32 = 8.0;
+/// How far (screen pixels) a selected box's dots stand outside its sides,
+/// clear of the squares there.
+const DOT_OUT: f32 = 14.0;
+
+/// The dots a new line can be dragged out of box `r` from: the middles of
+/// its sides, or, when the box is selected and its squares take those,
+/// just outside them.
+pub fn dots(r: RectF, selected: bool, zoom: f32) -> [(f32, f32); 4] {
+    let out = if selected { DOT_OUT / zoom } else { 0.0 };
+    let [t, right, b, l] = side_middles(r);
+    [
+        (t.0, t.1 - out),
+        (right.0 + out, right.1),
+        (b.0, b.1 + out),
+        (l.0 - out, l.1),
+    ]
+}
+
+/// The squares that resize a selected box or frame `r`, numbered as for
+/// [`Hit::Grip`]: its corners, and the middles of the sides long enough
+/// on screen that their square stays clear of the corners' ones.
+pub fn grips(r: RectF, zoom: f32) -> Vec<(u8, (f32, f32))> {
+    let lengths = [r.w, r.h, r.w, r.h];
+    let ends = corners(r).into_iter().enumerate();
+    let middles = side_middles(r)
+        .into_iter()
+        .enumerate()
+        .filter(|(k, _)| lengths[*k] * zoom >= 4.0 * GRIP)
+        .map(|(k, p)| (k + 4, p));
+    ends.chain(middles).map(|(k, p)| (k as u8, p)).collect()
 }
 
 /// Is package `q` the package `p` or inside it?
@@ -186,8 +225,7 @@ fn package_within(doc: &umpl_core::Document, q: PackageId, p: PackageId) -> bool
     false
 }
 
-/// Corners where a selected box can be resized: top left, top right,
-/// bottom right, bottom left.
+/// Corners of `r`: top left, top right, bottom right, bottom left.
 pub fn corners(r: RectF) -> [(f32, f32); 4] {
     [
         (r.x, r.y),
@@ -197,12 +235,13 @@ pub fn corners(r: RectF) -> [(f32, f32); 4] {
     ]
 }
 
-/// The pointer shape over a box's `corner`.
-fn resize_cursor(corner: u8) -> CursorIcon {
-    if corner == 0 || corner == 2 {
-        CursorIcon::ResizeNwSe
-    } else {
-        CursorIcon::ResizeNeSw
+/// The pointer shape over a box's `grip`.
+fn resize_cursor(grip: u8) -> CursorIcon {
+    match grip {
+        0 | 2 => CursorIcon::ResizeNwSe,
+        1 | 3 => CursorIcon::ResizeNeSw,
+        4 | 6 => CursorIcon::ResizeVertical,
+        _ => CursorIcon::ResizeHorizontal,
     }
 }
 
@@ -230,18 +269,21 @@ pub const SWATCHES: [&str; 18] = [
 ];
 
 /// Where a box drawn at `rect` (grid units: x, y, w, h) goes when its
-/// `corner` is dragged by `d` grid units: never smaller than `min`, the
-/// opposite corner staying put.
+/// `grip` (numbered as for [`Hit::Grip`]) is dragged by `d` grid units:
+/// never smaller than `min`, the opposite corner or side staying put. The
+/// middle of a side moves that side only.
 pub fn resized(
     rect: (i32, i32, i32, i32),
-    corner: u8,
+    grip: u8,
     d: (i32, i32),
     min: (i32, i32),
 ) -> (i32, i32, i32, i32) {
     let (x, y, w, h) = rect;
-    let (left, top) = (corner == 0 || corner == 3, corner == 0 || corner == 1);
-    let nw = if left { w - d.0 } else { w + d.0 }.max(min.0);
-    let nh = if top { h - d.1 } else { h + d.1 }.max(min.1);
+    let (left, top) = (matches!(grip, 0 | 3 | 7), matches!(grip, 0 | 1 | 4));
+    let dx = if matches!(grip, 4 | 6) { 0 } else { d.0 };
+    let dy = if matches!(grip, 5 | 7) { 0 } else { d.1 };
+    let nw = if left { w - dx } else { w + dx }.max(min.0);
+    let nh = if top { h - dy } else { h + dy }.max(min.1);
     let nx = if left { x + w - nw } else { x };
     let ny = if top { y + h - nh } else { y };
     (nx, ny, nw, nh)
@@ -387,43 +429,43 @@ impl App {
 
     fn hit(&self, geo: &Geometry, world: (f32, f32), with_handles: bool) -> Hit {
         let z = self.camera.zoom;
+        let near = |p: (f32, f32), reach: f32| {
+            ((p.0 - world.0).powi(2) + (p.1 - world.1).powi(2)).sqrt() * z < reach
+        };
+        let selected = |id: &ElementId| self.sel.elements.contains(id);
         if with_handles {
-            for (id, r) in geo.elements.iter().rev() {
-                if !self.sel.elements.contains(id) {
-                    continue;
-                }
-                for (k, c) in corners(*r).iter().enumerate() {
-                    if ((c.0 - world.0).powi(2) + (c.1 - world.1).powi(2)).sqrt() * z < 7.0 {
-                        return Hit::Corner(*id, k as u8);
-                    }
-                }
-            }
-        }
-        // Any box's edge dots count, not only the hovered box's: by the
-        // time a drag registers, the pointer has often left the box.
-        if with_handles {
-            for (id, r) in geo.elements.iter().rev() {
-                for h in handles(*r) {
-                    if ((h.0 - world.0).powi(2) + (h.1 - world.1).powi(2)).sqrt() * z < 8.0 {
-                        return Hit::Handle(*id);
-                    }
+            for (id, r) in geo.elements.iter().rev().filter(|(id, _)| selected(id)) {
+                if let Some((k, _)) = grips(*r, z).into_iter().find(|(_, p)| near(*p, GRIP)) {
+                    return Hit::Grip(*id, k);
                 }
             }
-        }
-        if with_handles {
+            // Any box's dots count, not only the hovered box's: by the
+            // time a drag registers, the pointer has often left the box.
+            for (id, r) in geo.elements.iter().rev().filter(|(id, _)| !selected(id)) {
+                if dots(*r, false, z).into_iter().any(|p| near(p, DOT)) {
+                    return Hit::Handle(*id);
+                }
+            }
             for (id, r) in geo.packages.iter().rev() {
                 if !self.sel.packages.contains(id) {
                     continue;
                 }
-                for (k, c) in corners(*r).iter().enumerate() {
-                    if ((c.0 - world.0).powi(2) + (c.1 - world.1).powi(2)).sqrt() * z < 7.0 {
-                        return Hit::PackageCorner(*id, k as u8);
-                    }
+                if let Some((k, _)) = grips(*r, z).into_iter().find(|(_, p)| near(*p, GRIP)) {
+                    return Hit::PackageGrip(*id, k);
                 }
             }
         }
         if let Some((id, _)) = geo.elements.iter().rev().find(|(_, r)| r.contains(world)) {
             return Hit::Element(*id);
+        }
+        // A selected box's dots stand outside it, maybe over a box next to
+        // it, which keeps the press.
+        if with_handles {
+            for (id, r) in geo.elements.iter().rev().filter(|(id, _)| selected(id)) {
+                if dots(*r, true, z).into_iter().any(|p| near(p, DOT)) {
+                    return Hit::Handle(*id);
+                }
+            }
         }
         let tol = 6.0 / z;
         for (id, pts) in &geo.relations {
@@ -447,7 +489,7 @@ impl App {
 
     fn select_hit(&mut self, hit: Hit, shift: bool) {
         match hit {
-            Hit::Element(id) | Hit::Handle(id) | Hit::Corner(id, _) => {
+            Hit::Element(id) | Hit::Handle(id) | Hit::Grip(id, _) => {
                 if shift {
                     toggle(&mut self.sel.elements, id);
                 } else {
@@ -464,7 +506,7 @@ impl App {
                     };
                 }
             }
-            Hit::Package(id) | Hit::PackageCorner(id, _) => {
+            Hit::Package(id) | Hit::PackageGrip(id, _) => {
                 if shift {
                     toggle(&mut self.sel.packages, id);
                 } else {
@@ -649,22 +691,24 @@ impl App {
         let geo = self.geometry();
         let pointer_world = resp.hover_pos().map(|p| self.camera.to_world(p));
         let shift = ctx.input(|i| i.modifiers.shift);
-        self.canvas.hover = pointer_world.and_then(|w| match self.hit(&geo, w, false) {
-            Hit::Element(id) => Some(id),
-            _ => None,
-        });
         let hit_now =
             pointer_world.map_or(Hit::Empty, |w| self.hit(&geo, w, self.tool == Tool::Select));
+        // The box whose dots show: the one under the pointer, or whose
+        // square or dot is, so they stay while the pointer goes to them.
+        self.canvas.hover = match hit_now {
+            Hit::Element(id) | Hit::Handle(id) | Hit::Grip(id, _) => Some(id),
+            _ => None,
+        };
         let accent = c32(theme.accent);
 
         // Cursor.
         match (&self.canvas.drag, hit_now, self.tool) {
             (Some(Drag::Move { .. }), _, _) => ctx.set_cursor_icon(CursorIcon::Grabbing),
-            (Some(Drag::Resize { corner: c, .. }), _, _)
-            | (Some(Drag::ResizePackage { corner: c, .. }), _, _) => {
+            (Some(Drag::Resize { grip: c, .. }), _, _)
+            | (Some(Drag::ResizePackage { grip: c, .. }), _, _) => {
                 ctx.set_cursor_icon(resize_cursor(*c))
             }
-            (None, Hit::Corner(_, c) | Hit::PackageCorner(_, c), _) => {
+            (None, Hit::Grip(_, c) | Hit::PackageGrip(_, c), _) => {
                 ctx.set_cursor_icon(resize_cursor(c))
             }
             (Some(Drag::Connect { .. }), _, _) | (None, Hit::Handle(_), _) => {
@@ -707,7 +751,8 @@ impl App {
             let show: Vec<ElementId> = self.canvas.hover.into_iter().collect();
             for id in show {
                 if let Some((_, r)) = geo.elements.iter().find(|(e, _)| *e == id) {
-                    for h in handles(*r) {
+                    let selected = self.sel.elements.contains(&id);
+                    for h in dots(*r, selected, self.camera.zoom) {
                         let p = self.camera.to_screen(h);
                         painter.circle(p, 4.5, c32(theme.box_fill), Stroke::new(1.5, accent));
                     }
@@ -725,10 +770,10 @@ impl App {
                 .filter(|(id, _)| self.sel.packages.contains(id))
                 .map(|(_, r)| r);
             for r in selected_boxes.map(|(_, r)| r).chain(selected_packages) {
-                for c in corners(*r) {
+                for (_, c) in grips(*r, self.camera.zoom) {
                     let p = self.camera.to_screen(c);
                     painter.rect(
-                        Rect::from_center_size(p, Vec2::splat(7.0)),
+                        Rect::from_center_size(p, Vec2::splat(GRIP)),
                         1.0,
                         c32(theme.box_fill),
                         Stroke::new(1.5, accent),
@@ -903,7 +948,7 @@ impl App {
                 (Tool::Select, Hit::Element(id)) if !self.sel.elements.contains(&id) => {
                     self.select_hit(hit, shift)
                 }
-                (Tool::Select, Hit::Package(p) | Hit::PackageCorner(p, _))
+                (Tool::Select, Hit::Package(p) | Hit::PackageGrip(p, _))
                     if !self.sel.packages.contains(&p) =>
                 {
                     self.select_hit(hit, false)
@@ -912,7 +957,7 @@ impl App {
             }
             let s = self.session.as_ref().unwrap();
             self.canvas.drag = match (self.tool, hit) {
-                (Tool::Select, Hit::Corner(id, corner)) => {
+                (Tool::Select, Hit::Grip(id, grip)) => {
                     let d = &self.view.diagram;
                     match (s.editor.doc.elements.get(&id), d.mapping.node_of(id)) {
                         (Some(el), Some(i)) => {
@@ -921,7 +966,7 @@ impl App {
                             let min = umpl_draw::measure::box_content(el).size();
                             Some(Drag::Resize {
                                 id,
-                                corner,
+                                grip,
                                 start: world,
                                 rect: (x, y, n.w, n.h),
                                 min,
@@ -950,7 +995,7 @@ impl App {
                         last: (0, 0),
                     })
                 }
-                (Tool::Select, Hit::PackageCorner(p, corner)) => {
+                (Tool::Select, Hit::PackageGrip(p, grip)) => {
                     let d = &self.view.diagram;
                     d.mapping
                         .packages
@@ -964,7 +1009,7 @@ impl App {
                             let c = umpl_layout::group_rects(&bare, &d.layout.nodes)[g];
                             Some(Drag::ResizePackage {
                                 id: p,
-                                corner,
+                                grip,
                                 start: world,
                                 rect: (r.x, r.y, r.w, r.h),
                                 content: (c.x, c.y, c.w, c.h),
@@ -1036,7 +1081,7 @@ impl App {
                 }
                 Some(Drag::ResizePackage {
                     id,
-                    corner,
+                    grip,
                     start,
                     rect,
                     content,
@@ -1048,7 +1093,7 @@ impl App {
                     );
                     if d != *last {
                         *last = d;
-                        let (x, y, w, h) = resized(*rect, *corner, d, (4, 4));
+                        let (x, y, w, h) = resized(*rect, *grip, d, (4, 4));
                         // No bigger than around the content: no frame kept.
                         let (cx, cy, cw, ch) = *content;
                         let within = x >= cx && y >= cy && x + w <= cx + cw && y + h <= cy + ch;
@@ -1065,7 +1110,7 @@ impl App {
                 }
                 Some(Drag::Resize {
                     id,
-                    corner,
+                    grip,
                     start,
                     rect,
                     min,
@@ -1077,7 +1122,7 @@ impl App {
                     );
                     if d != *last {
                         *last = d;
-                        let (x, y, w, h) = resized(*rect, *corner, d, *min);
+                        let (x, y, w, h) = resized(*rect, *grip, d, *min);
                         // At the size the text needs, the box fits its text
                         // again: no size is kept.
                         let size = ((w, h) != *min).then_some((w, h));
