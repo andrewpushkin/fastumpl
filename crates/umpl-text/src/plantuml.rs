@@ -58,23 +58,42 @@ struct Exporter<'a> {
 }
 
 /// The name a relation uses for each element: the plain name when no other
-/// element has it, otherwise the full dotted name.
+/// element has it, otherwise the full dotted name; an alias (see
+/// [`needs_alias`]) where PlantUML would read the name otherwise.
 fn reference_names(doc: &Document) -> HashMap<ElementId, String> {
     let mut count: HashMap<&str, usize> = HashMap::new();
     for el in doc.elements.values() {
         *count.entry(el.name.as_str()).or_default() += 1;
     }
-    doc.elements
-        .iter()
-        .map(|(id, el)| {
-            let name = if count[el.name.as_str()] == 1 {
+    let mut taken: std::collections::HashSet<String> =
+        doc.elements.values().map(|e| e.name.clone()).collect();
+    doc.elements_in_order()
+        .into_iter()
+        .map(|id| {
+            let el = &doc.elements[&id];
+            let name = if needs_alias(el) {
+                let base = crate::scan::clean(&el.name);
+                let mut alias = base.clone();
+                let mut n = 2;
+                while !taken.insert(alias.clone()) {
+                    alias = format!("{base}{n}");
+                    n += 1;
+                }
+                alias
+            } else if count[el.name.as_str()] == 1 {
                 umpl_core::name_in_path(&el.name).into_owned()
             } else {
-                doc.full_name(*id)
+                doc.full_name(id)
             };
-            (*id, name)
+            (id, name)
         })
         .collect()
+}
+
+/// Does `el` need an alias in PlantUML? A note's alias must be a plain
+/// name, and PlantUML reads a dot in any name as a package separator.
+fn needs_alias(el: &Element) -> bool {
+    !umpl_core::is_plain_name(&el.name) && (el.kind == ElementKind::Note || el.name.contains('.'))
 }
 
 fn comment(c: &str) -> String {
@@ -134,8 +153,13 @@ impl Exporter<'_> {
             .as_ref()
             .map(|c| format!(" #{c}"))
             .unwrap_or_default();
+        let name = if umpl_core::is_plain_name(&p.name) {
+            p.name.clone()
+        } else {
+            pquote(&p.name)
+        };
         self.out
-            .push_str(&format!("{indent}package {}{color} {{\n", p.name));
+            .push_str(&format!("{indent}package {name}{color} {{\n"));
         self.decls(&p.body, depth + 1, false);
         self.out.push_str(&format!("{indent}}}\n"));
     }
@@ -156,16 +180,22 @@ impl Exporter<'_> {
             out.push_str(&format!(
                 "{indent}note {} as {}{color}\n",
                 pquote(&text.join("\n")),
-                el.name
+                self.refs[&id]
             ));
             return;
         }
         let name = if umpl_core::is_plain_name(&el.name) {
             el.name.clone()
+        } else if needs_alias(el) {
+            self.refs[&id].clone()
         } else {
             pquote(&el.name)
         };
-        match &el.label {
+        let label = el
+            .label
+            .clone()
+            .or_else(|| needs_alias(el).then(|| el.name.clone()));
+        match &label {
             Some(l) => out.push_str(&format!(
                 "{indent}{} {} as {name}",
                 el.kind.keyword(),
@@ -238,11 +268,35 @@ pub fn import_path_nth(path: &Path, n: usize) -> std::io::Result<Parsed> {
     let bytes = std::fs::read(path)?;
     let src = String::from_utf8_lossy(&bytes);
     let read = |p: &Path| {
-        std::fs::read(p)
+        let text = std::fs::read(p)
             .ok()
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .map(|b| String::from_utf8_lossy(&b).into_owned())?;
+        includable(p, &text).then_some(text)
     };
     Ok(import_nth(&src, path.parent(), &read, n))
+}
+
+/// File extensions `!include` reads: PlantUML files and the parts projects
+/// split them into (themes, sprites, styles, definitions).
+const INCLUDE_EXTENSIONS: [&str; 12] = [
+    "puml", "plantuml", "pu", "iuml", "wsd", "ipu", "theme", "sprite", "style", "txt", "inc", "def",
+];
+
+/// Is the file at `path`, holding `text`, one `!include` may read? A file
+/// with a PlantUML extension, or one without an extension that starts like
+/// PlantUML (`@start…`, a `!` directive or a `'` comment). Anything else,
+/// such as `/etc/passwd` or a key file, would put local data into the
+/// diagram, so it is not read.
+fn includable(path: &Path, text: &str) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(e) => INCLUDE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()),
+        None => text
+            .trim_start_matches('\u{feff}')
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .is_some_and(|l| l.starts_with(['@', '!', '\''])),
+    }
 }
 
 /// The text with one kind of line end, `\n`, and without a byte order
@@ -3206,9 +3260,8 @@ fn is_separator(t: &str) -> bool {
 }
 
 fn enum_literals(t: &str) -> Vec<Member> {
-    t.split([',', ';'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    split_literals(t, &[',', ';'])
+        .into_iter()
         .map(Member::plain)
         .collect()
 }

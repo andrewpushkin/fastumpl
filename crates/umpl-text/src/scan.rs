@@ -199,13 +199,15 @@ impl<'a> Cursor<'a> {
         if !r.starts_with('<') || r.starts_with("<<") {
             return None;
         }
+        // The `>` that closes the brackets, or a later one if more text
+        // follows it directly: `<a>b>` holds `a>b`.
         let mut depth = 0;
         for (i, c) in r.char_indices() {
             match c {
                 '<' => depth += 1,
                 '>' => {
                     depth -= 1;
-                    if depth == 0 {
+                    if depth <= 0 && ends_token(&r[i + 1..]) {
                         let inner = r[1..i].trim();
                         if inner.is_empty() {
                             return None;
@@ -242,7 +244,13 @@ impl<'a> Cursor<'a> {
         let r = self.rest();
         for (open, close) in [("<<", ">>"), ("«", "»")] {
             if let Some(after) = r.strip_prefix(open) {
-                if let Some(end) = after.find(close) {
+                // The first close that ends the token: `<<a>>b>>` is `a>>b`.
+                let end = after
+                    .match_indices(close)
+                    .map(|(i, _)| i)
+                    .find(|&i| ends_token(&after[i + close.len()..]))
+                    .or_else(|| after.find(close));
+                if let Some(end) = end {
                     self.pos += open.len() + end + close.len();
                     return Some(after[..end].trim().to_string());
                 }
@@ -250,6 +258,12 @@ impl<'a> Cursor<'a> {
         }
         None
     }
+}
+
+/// Does `rest`, the text after a closing `>` or `>>`, leave it closing?
+/// Not when a name goes on directly (`<a>b>`, `<<a>>b>>`).
+fn ends_token(rest: &str) -> bool {
+    !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_')
 }
 
 /// Quotes a string for writing, escaping `\`, `"` and newlines.

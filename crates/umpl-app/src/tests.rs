@@ -1544,3 +1544,69 @@ fn plantuml_includes_next_to_the_file_are_read() {
     assert_eq!(h.state().session.as_ref().unwrap().problems, vec![]);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// QA-12: Save As of a diagram without a file leaves no recovery copy
+/// behind (it was named after the old, missing path).
+#[test]
+fn save_as_removes_the_recovery_copy_of_an_untitled_diagram() {
+    let mut h = new_app();
+    add(&mut h, "A", 0, 0);
+    h.state_mut().write_recovery();
+    let copy = h.state().recovery_file().unwrap();
+    assert!(copy.exists());
+    let dir = std::env::temp_dir().join(format!("fastumpl-saveas-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(h.state_mut().save_as_path(&dir.join("saved.umpl")));
+    let left: Vec<_> = std::fs::read_dir(h.state().storage.recovery_dir())
+        .map(|d| d.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(left.is_empty(), "recovery files left: {left:?}");
+}
+
+/// QA-13: a recovery copy is deleted only once it is open; cancelling the
+/// unsaved-changes question keeps it.
+#[test]
+fn cancelling_a_recovery_keeps_the_copy() {
+    let mut h = new_app();
+    let dir = h.state().storage.recovery_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("old-0000000000000001.umpl");
+    std::fs::write(&file, "class Old\n").unwrap();
+    std::fs::write(file.with_extension("path"), "").unwrap();
+    add(&mut h, "A", 0, 0);
+    let ctx = h.ctx.clone();
+    h.state_mut().recover(&ctx, &file);
+    assert!(matches!(
+        h.state().dialog,
+        Some(crate::app::Dialog::Unsaved(_))
+    ));
+    h.state_mut().dialog = None;
+    assert!(file.exists(), "the copy was deleted before it was opened");
+    h.state_mut().perform(&ctx, Pending::Recover(file.clone()));
+    h.run_steps(2);
+    assert!(doc_of(&h).find("Old").is_some());
+    assert!(!file.exists());
+}
+
+/// QA-16: a `.umpl` file that is not UTF-8 opens (as `umpl check` reads
+/// it), with a problem saying so.
+#[test]
+fn a_file_that_is_not_utf8_opens_with_a_problem() {
+    let dir = std::env::temp_dir().join(format!("fastumpl-latin1-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("latin1.umpl");
+    std::fs::write(&path, b"class A\n# caf\xe9\n").unwrap();
+    let mut h = new_app();
+    let ctx = h.ctx.clone();
+    h.state_mut().open_path(&ctx, &path);
+    h.run_steps(2);
+    let _ = std::fs::remove_dir_all(&dir);
+    let s = h.state().session.as_ref().expect("the file opened");
+    assert!(s.editor.doc.find("A").is_some());
+    assert!(
+        s.problems[0].message.contains("not UTF-8"),
+        "{:?}",
+        s.problems
+    );
+}

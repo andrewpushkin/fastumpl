@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use umpl_core::*;
 
@@ -99,16 +99,24 @@ struct Parser {
     has_layout: bool,
     last_line: usize,
     spans: Vec<Span>,
+    /// Every name the file declares, so a duplicate is renamed to a name
+    /// the file does not use further down.
+    declared: HashSet<String>,
 }
 
 /// Parses a `.umpl` file. Never fails; see [`Parsed::problems`].
 pub fn parse(src: &str) -> Parsed {
+    // Editors on Windows often start UTF-8 files with a byte order mark.
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     // PlantUML text (how a sequence diagram is kept, or pasted in): read
     // as PlantUML.
     if src.trim_start().starts_with("@start") {
         return crate::plantuml::import(src);
     }
-    let mut p = Parser::default();
+    let mut p = Parser {
+        declared: declared_names(src),
+        ..Parser::default()
+    };
     for (i, line) in src.lines().enumerate() {
         p.last_line = i + 1;
         p.line(i + 1, line);
@@ -172,14 +180,12 @@ impl Parser {
                     self.stack.pop();
                     self.close_span(Item::Element(id), n);
                 } else if !t.is_empty() {
+                    // `\}`: a member that is `}`; `\\…`: one starting with `\`.
+                    let t = t.strip_prefix('\\').unwrap_or(t);
                     let el = self.doc.elements.get_mut(&id).unwrap();
                     if is_enum {
-                        el.members.extend(
-                            t.split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .map(Member::plain),
-                        );
+                        el.members
+                            .extend(split_literals(t, &[',']).into_iter().map(Member::plain));
                     } else {
                         el.members.push(Member::parse_line(t));
                     }
@@ -337,6 +343,21 @@ impl Parser {
             };
             c.at_end().then_some((name, Pos::new(x, y), size))
         })();
+        let in_range = |(_, pos, size): &(String, Pos, Option<(i32, i32)>)| {
+            pos.x.abs() <= MAX_COORD
+                && pos.y.abs() <= MAX_COORD
+                && size.is_none_or(|(w, h)| w <= MAX_SIZE && h <= MAX_SIZE)
+        };
+        if parsed.as_ref().is_some_and(|p| !in_range(p)) {
+            self.problem(
+                n,
+                1,
+                format!(
+                    "position beyond {MAX_COORD} or size beyond {MAX_SIZE} grid units; line ignored"
+                ),
+            );
+            return;
+        }
         match parsed {
             Some((name, pos, size)) => self.positions.push(PendingPos {
                 name,
@@ -358,7 +379,10 @@ impl Parser {
         if self.doc.name_is_free(name, container) {
             return name.to_string();
         }
-        let new = self.doc.unique_name(name, container);
+        let new = (2..)
+            .map(|k| format!("{name}{k}"))
+            .find(|n| self.doc.name_is_free(n, container) && !self.declared.contains(n))
+            .unwrap();
         self.problem(
             n,
             1,
@@ -420,8 +444,16 @@ impl Parser {
         el.comments = std::mem::take(&mut self.comments);
         let is_enum = kind == ElementKind::Enum;
         if let Some(inner) = inline {
-            let sep = if is_enum { ',' } else { ';' };
-            for part in inner.split(sep).map(str::trim).filter(|s| !s.is_empty()) {
+            let parts = if is_enum {
+                split_literals(inner, &[','])
+            } else {
+                inner
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            };
+            for part in parts {
                 el.members.push(if is_enum {
                     Member::plain(part)
                 } else {
@@ -483,7 +515,8 @@ impl Parser {
             }
         };
         let name = if c.eat(":") {
-            let lines: Vec<&str> = c.rest().split("\\n").map(str::trim).collect();
+            let text = unescape_name(c.rest());
+            let lines: Vec<&str> = text.split('\n').map(str::trim).collect();
             Some(lines.join("\n").trim().to_string()).filter(|s| !s.is_empty())
         } else if c.at_end() {
             None
@@ -541,9 +574,18 @@ impl Parser {
 
         for rel in std::mem::take(&mut self.relations) {
             let prefix = rel.container.map(|p| self.doc.full_package_name(p));
-            let mut ends = Vec::new();
-            for (name, _) in [&rel.from, &rel.to] {
-                ends.push(self.resolve(&mut names, prefix.as_deref(), name));
+            // An end that is neither known nor a single new name keeps the
+            // line as raw text; then neither end is created.
+            let usable = |n: &str| {
+                lookup(&names, prefix.as_deref(), n).is_some() || new_class_name(n).is_some()
+            };
+            let from_ok = usable(&rel.from.0);
+            let to_ok = usable(&rel.to.0);
+            let mut ends = [None, None];
+            if from_ok && to_ok {
+                for (k, (name, _)) in [&rel.from, &rel.to].into_iter().enumerate() {
+                    ends[k] = self.resolve(&mut names, prefix.as_deref(), name);
+                }
             }
             match (ends[0], ends[1]) {
                 (Some(f), Some(t)) => {
@@ -563,11 +605,7 @@ impl Parser {
                     self.doc.relations.insert(rel.id, relation);
                 }
                 _ => {
-                    let bad = if ends[0].is_none() {
-                        &rel.from.0
-                    } else {
-                        &rel.to.0
-                    };
+                    let bad = if from_ok { &rel.to.0 } else { &rel.from.0 };
                     let col = rel.text.find(bad.as_str()).map(|i| i + 1).unwrap_or(1);
                     let message = format!("unknown element `{bad}`; line kept as written");
                     self.problem(rel.line, col, message);
@@ -601,6 +639,14 @@ impl Parser {
                     let pkg = self.doc.packages.get_mut(id).unwrap();
                     pkg.frame = p.size.map(|s| (p.pos, s));
                 }
+                Some(Endpoint::Package(_)) => self.problem(
+                    p.line,
+                    1,
+                    format!(
+                        "`{}` is a package: its frame takes a size, `{} at x, y size w, h`; line ignored",
+                        p.name, p.name
+                    ),
+                ),
                 _ => self.problem(
                     p.line,
                     1,
@@ -628,17 +674,10 @@ impl Parser {
         prefix: Option<&str>,
         name: &str,
     ) -> Option<Endpoint> {
-        if let Some(prefix) = prefix {
-            if let Some(t) = names.get(&format!("{prefix}.{name}")) {
-                return Some(*t);
-            }
+        if let Some(t) = lookup(names, prefix, name) {
+            return Some(t);
         }
-        if let Some(t) = names.get(name) {
-            return Some(*t);
-        }
-        // One name, as written (unquoted).
-        let mut c = Cursor::new(name);
-        let single = c.segment().filter(|_| c.at_end())?;
+        let single = new_class_name(name)?;
         let id = self.doc.new_element_id();
         self.doc
             .elements
@@ -647,6 +686,75 @@ impl Parser {
         names.insert(name.to_string(), Endpoint::Element(id));
         Some(Endpoint::Element(id))
     }
+}
+
+/// `name` (relative to the package `prefix` first) among the declared names.
+fn lookup(names: &HashMap<String, Endpoint>, prefix: Option<&str>, name: &str) -> Option<Endpoint> {
+    if let Some(prefix) = prefix {
+        if let Some(t) = names.get(&format!("{prefix}.{name}")) {
+            return Some(*t);
+        }
+    }
+    names.get(name).copied()
+}
+
+/// The class an unknown end creates: a single name, as written (unquoted).
+/// A dotted name makes none.
+fn new_class_name(name: &str) -> Option<String> {
+    let mut c = Cursor::new(name);
+    c.segment().filter(|_| c.at_end())
+}
+
+/// A relation name as written: `\n` is a line break and `\\` a backslash;
+/// any other backslash is kept as it is.
+fn unescape_name(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.peek() {
+                Some('n') => {
+                    chars.next();
+                    out.push('\n');
+                    continue;
+                }
+                Some('\\') => {
+                    chars.next();
+                    out.push('\\');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The names declared anywhere in `src` (classes, notes, packages…).
+fn declared_names(src: &str) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for line in src.lines() {
+        let mut c = Cursor::new(line.trim());
+        let keyword = [
+            "abstract",
+            "class",
+            "interface",
+            "enum",
+            "diamond",
+            "note",
+            "package",
+        ]
+        .into_iter()
+        .any(|k| c.eat_word(k));
+        if keyword {
+            c.eat_word("class");
+            if let Some(name) = c.segment() {
+                out.insert(name);
+            }
+        }
+    }
+    out
 }
 
 fn strip_comment(c: &str) -> String {

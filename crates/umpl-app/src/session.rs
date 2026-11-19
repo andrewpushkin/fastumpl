@@ -46,9 +46,24 @@ impl Session {
     /// the chosen goal, if the file has no `layout` block); that does not
     /// count as an unsaved change.
     pub fn open(path: &Path, layout: &umpl_layout::Options) -> Result<Session, String> {
-        let src = std::fs::read_to_string(path)
-            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        let src = String::from_utf8_lossy(&bytes);
         let mut s = Session::from_text(&src, layout);
+        // Opened anyway, as `umpl check` reads it; Problems says what Save
+        // will change.
+        if std::str::from_utf8(&bytes).is_err() {
+            s.problems.insert(
+                0,
+                Problem {
+                    line: 1,
+                    col: 1,
+                    message: "the file is not UTF-8: bytes that are not were replaced by �, \
+                              and Save writes UTF-8"
+                        .into(),
+                },
+            );
+        }
         s.path = Some(path.to_path_buf());
         s.disk_stamp = mtime(path);
         Ok(s)

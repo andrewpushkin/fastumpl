@@ -24,6 +24,40 @@ impl Pos {
     }
 }
 
+/// Positions in a file lie within this many grid units of the origin;
+/// further ones are ignored as typos (layout cost grows with the drawing's
+/// extent).
+pub const MAX_COORD: i32 = 1_000_000;
+/// The largest width or height, in grid units, a box or frame may be given.
+pub const MAX_SIZE: i32 = 10_000;
+
+/// Splits enum literals written on one line at `,` (and at any other of
+/// `seps`), except inside brackets or quotes: `RED(255, 0, 0), GREEN` is
+/// two literals. Parts are trimmed; empty ones are dropped.
+pub fn split_literals<'a>(text: &'a str, seps: &[char]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '(' | '[' | '{' | '<' if !quoted => depth += 1,
+            ')' | ']' | '}' | '>' if !quoted => depth = depth.saturating_sub(1),
+            c if depth == 0 && !quoted && seps.contains(&c) => {
+                out.push(&text[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[start..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Is `s` a plain name: a letter or `_`, then letters, digits and `_`? Plain
 /// names are written as they are in a file; others are quoted.
 pub fn is_plain_name(s: &str) -> bool {

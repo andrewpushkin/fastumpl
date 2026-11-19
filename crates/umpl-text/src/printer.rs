@@ -192,14 +192,18 @@ impl Writer<'_> {
         if el.kind == ElementKind::Enum {
             let literals: Vec<String> = el.members.iter().map(|m| m.to_line()).collect();
             let inline = literals.join(", ");
-            if inline.len() <= 60 && !inline.contains('\n') {
+            // Inline only if it reads back as the same literals.
+            let plain = literals
+                .iter()
+                .all(|l| !l.contains(['{', '}', '"', '\\', '\n']));
+            if plain && inline.len() <= 60 {
                 out.push_str(&format!(" {{ {inline} }}\n"));
                 return;
             }
         }
         out.push_str(" {\n");
         for m in &el.members {
-            out.push_str(&format!("{indent}  {}\n", m.to_line()));
+            out.push_str(&format!("{indent}  {}\n", body_line(m)));
         }
         out.push_str(&format!("{indent}}}\n"));
     }
@@ -226,9 +230,20 @@ impl Writer<'_> {
         if let Some(n) = &r.name {
             // A label over several lines: `a\nb`.
             line.push_str(" : ");
-            line.push_str(&n.replace('\n', "\\n"));
+            line.push_str(&n.replace('\\', "\\\\").replace('\n', "\\n"));
         }
         line.push('\n');
         self.out.push_str(&line);
+    }
+}
+
+/// A member as written in a body: a line that is `}` (which would close
+/// the body) or starts with `\` gets a `\` in front.
+fn body_line(m: &Member) -> String {
+    let line = m.to_line();
+    if line == "}" || line.starts_with('\\') {
+        format!("\\{line}")
+    } else {
+        line
     }
 }

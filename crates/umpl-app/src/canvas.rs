@@ -267,9 +267,8 @@ pub fn parse_members(kind: ElementKind, text: &str) -> Vec<Member> {
     match kind {
         ElementKind::Note => text.lines().map(|l| Member::plain(l.trim_end())).collect(),
         ElementKind::Enum => text
-            .split(['\n', ','])
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
+            .lines()
+            .flat_map(|l| umpl_core::split_literals(l, &[',']))
             .map(Member::plain)
             .collect(),
         _ => text

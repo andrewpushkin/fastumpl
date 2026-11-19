@@ -198,6 +198,18 @@ fn refuse_foreign(path: &Path, command: &str) -> Result<(), String> {
     }
 }
 
+/// `fmt` and `tidy` rewrite the file: one that is not UTF-8 would have its
+/// other bytes replaced, so it is refused.
+fn require_utf8(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    String::from_utf8(bytes).map_err(|_| {
+        format!(
+            "{}: not UTF-8, so not rewritten; save it as UTF-8 first",
+            path.display()
+        )
+    })
+}
+
 /// The layout options `--fill` asks for.
 fn layout(a: &Args) -> Options {
     Options {
@@ -291,7 +303,7 @@ fn tidy(args: &[String]) -> Result<bool, String> {
     let a = parse_args(args)?;
     for path in &a.files {
         refuse_foreign(path, "tidy")?;
-        let parsed = read(path, a.diagram)?;
+        let parsed = parse(&require_utf8(path)?);
         report(path, &parsed);
         let diagram = Diagram::tidy(&parsed.doc, &layout(&a));
         let mut ed = Editor::new(parsed.doc);
@@ -312,7 +324,7 @@ fn fmt(args: &[String]) -> Result<bool, String> {
     let mut ok = true;
     for path in &a.files {
         refuse_foreign(path, "fmt")?;
-        let src = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let src = require_utf8(path)?;
         let formatted = print(&parse(&src).doc);
         if formatted == src {
             continue;

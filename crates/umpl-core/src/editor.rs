@@ -135,6 +135,9 @@ impl Editor {
         let Some(g) = self.undo.pop() else {
             return false;
         };
+        // The step now on top is finished: a later drag must not merge
+        // into it.
+        self.seal();
         let redo = g
             .inverse
             .into_iter()

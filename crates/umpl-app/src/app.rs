@@ -38,7 +38,8 @@ pub struct TidyJob {
 pub enum Pending {
     New,
     Open(Option<PathBuf>),
-    OpenText(String, Option<PathBuf>),
+    /// Opens a recovery copy (and then deletes it).
+    Recover(PathBuf),
     Quit,
 }
 
@@ -387,11 +388,22 @@ impl App {
                     self.open_path(ctx, &path);
                 }
             }
-            Pending::OpenText(text, path) => {
+            Pending::Recover(file) => {
+                // Read first: the copy may be the current diagram's own.
+                let text = std::fs::read(&file)
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+                    .unwrap_or_default();
+                let origin = std::fs::read_to_string(file.with_extension("path"))
+                    .ok()
+                    .filter(|p| !p.trim().is_empty())
+                    .map(PathBuf::from);
+                self.clear_recovery();
                 let mut s = Session::from_text(&text, &self.layout_options(ctx));
-                s.path = path;
+                s.path = origin;
                 s.mark_dirty();
                 self.install_session(s);
+                // Only now that it is open is the copy no longer needed.
+                App::discard_recovery(&file);
             }
             Pending::Quit => {
                 self.clear_recovery();
@@ -436,11 +448,24 @@ impl App {
         if path.extension().is_none() {
             path.set_extension("umpl");
         }
-        let s = self.session.as_mut().unwrap();
-        match s.save_to(&path) {
+        self.save_as_path(&path)
+    }
+
+    /// Saves to `path`, the file chosen in Save As.
+    pub fn save_as_path(&mut self, path: &Path) -> bool {
+        // The recovery copy is named after the file it was written for:
+        // the one written before this save has the old name.
+        let before = self.recovery_file();
+        let Some(s) = self.session.as_mut() else {
+            return false;
+        };
+        match s.save_to(path) {
             Ok(()) => {
+                if let Some(f) = before {
+                    App::discard_recovery(&f);
+                }
                 self.clear_recovery();
-                push_recent(&mut self.recent, &path);
+                push_recent(&mut self.recent, path);
                 self.storage.save_recent(&self.recent);
                 self.notify(format!("Saved {}", path.display()));
                 true
@@ -578,11 +603,15 @@ impl App {
 
     // ----- recovery --------------------------------------------------------
 
-    fn recovery_file(&self) -> Option<PathBuf> {
+    pub(crate) fn recovery_file(&self) -> Option<PathBuf> {
         use std::hash::{Hash, Hasher};
         let s = self.session.as_ref()?;
         let mut h = std::collections::hash_map::DefaultHasher::new();
         s.path.hash(&mut h);
+        // Untitled diagrams of two windows must not share one copy.
+        if s.path.is_none() {
+            std::process::id().hash(&mut h);
+        }
         let stem = s
             .path
             .as_ref()
@@ -596,7 +625,7 @@ impl App {
         )
     }
 
-    fn write_recovery(&mut self) {
+    pub(crate) fn write_recovery(&mut self) {
         let Some(file) = self.recovery_file() else {
             return;
         };
@@ -631,15 +660,10 @@ impl App {
         v
     }
 
+    /// Opens a recovery copy, after asking about unsaved changes. The copy
+    /// is deleted only once it is open, so cancelling keeps it.
     pub fn recover(&mut self, ctx: &Context, file: &Path) {
-        let text = std::fs::read_to_string(file).unwrap_or_default();
-        let origin = std::fs::read_to_string(file.with_extension("path"))
-            .ok()
-            .filter(|p| !p.trim().is_empty())
-            .map(PathBuf::from);
-        let _ = std::fs::remove_file(file);
-        let _ = std::fs::remove_file(file.with_extension("path"));
-        self.request(ctx, Pending::OpenText(text, origin));
+        self.request(ctx, Pending::Recover(file.to_path_buf()));
     }
 
     pub fn discard_recovery(file: &Path) {

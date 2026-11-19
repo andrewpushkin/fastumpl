@@ -38,10 +38,9 @@ pub fn export(doc: &Document) -> String {
         if !has_classes {
             continue;
         }
-        w.out.push_str(&format!(
-            "    namespace {} {{\n",
-            doc.package_path(pkg).join("_")
-        ));
+        let path: Vec<String> = doc.package_path(pkg).iter().map(|n| word(n)).collect();
+        w.out
+            .push_str(&format!("    namespace {} {{\n", path.join("_")));
         w.decls(body, 2);
         w.out.push_str("    }\n");
     }
@@ -82,8 +81,31 @@ struct Writer<'a> {
     out: String,
 }
 
-/// Plain names where they are unique among the classes, otherwise the full
-/// name with `_` for `.` (and a label showing the plain name).
+/// Is `s` usable as a Mermaid class or namespace id as it is: an ASCII
+/// letter or `_`, then ASCII letters, digits and `_`?
+fn is_word(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// `s` made into a Mermaid id: every other character becomes `_`.
+fn word(s: &str) -> String {
+    let mut out: String = s
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    if !out.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        out.insert(0, '_');
+    }
+    out
+}
+
+/// Plain names where they are unique among the classes and Mermaid ids as
+/// they are; otherwise the full name made into an id (and a label showing
+/// the name).
 fn class_ids(doc: &Document) -> HashMap<ElementId, (String, Option<String>)> {
     let classes: Vec<ElementId> = doc
         .elements_in_order()
@@ -97,17 +119,24 @@ fn class_ids(doc: &Document) -> HashMap<ElementId, (String, Option<String>)> {
     let mut used: HashSet<String> = classes
         .iter()
         .map(|id| &doc.elements[id].name)
-        .filter(|n| count[n.as_str()] == 1)
+        .filter(|n| count[n.as_str()] == 1 && is_word(n))
         .cloned()
         .collect();
     let mut ids = HashMap::new();
     for id in classes {
         let name = &doc.elements[&id].name;
-        if count[name.as_str()] == 1 {
+        if count[name.as_str()] == 1 && is_word(name) {
             ids.insert(id, (name.clone(), None));
             continue;
         }
-        let base = doc.full_name(id).replace('.', "_");
+        let base = match doc.element_package(id) {
+            Some(p) => {
+                let mut path: Vec<String> = doc.package_path(p).iter().map(|n| word(n)).collect();
+                path.push(word(name));
+                path.join("_")
+            }
+            None => word(name),
+        };
         let mut candidate = base.clone();
         let mut n = 2;
         while !used.insert(candidate.clone()) {
@@ -205,7 +234,7 @@ impl Writer<'_> {
         // Mermaid draws no lines to namespaces: those stay as a comment.
         let (Some(from), Some(to)) = (r.from.element(), r.to.element()) else {
             self.out.push_str(&format!(
-                "    %% {} {} {} (between packages)\n",
+                "    %% {} {} {} (a line to a package)\n",
                 self.doc.endpoint_name(r.from.target),
                 r.kind.arrow(),
                 self.doc.endpoint_name(r.to.target)

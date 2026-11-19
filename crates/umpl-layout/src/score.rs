@@ -113,39 +113,64 @@ pub fn crossing_points(graph: &Graph, routes: &[Route]) -> Vec<((i32, i32), usiz
 }
 
 /// Counts grid points covered by collinear segments of different bundles.
+/// Interior points of one route segment along a grid line: the route,
+/// its bundle, and the first and last point.
+type Lane = (usize, u32, i32, i32);
+
 fn shared_lanes(graph: &Graph, routes: &[Route]) -> usize {
     use std::collections::HashMap;
-    // (point, is_horizontal) -> first bundle seen, or u32::MAX if several.
-    let mut owner: HashMap<((i32, i32), bool), u32> = HashMap::new();
-    let mut count = 0;
+    // Interior points of each route, as ranges along grid lines: for a
+    // line (horizontal?, y or x), the ranges (route, bundle, lo, hi). Work
+    // grows with the number of segments, not their length, so boxes far
+    // apart cost nothing extra.
+    let mut lines: HashMap<(bool, i32), Vec<Lane>> = HashMap::new();
     for (e, r) in routes.iter().enumerate() {
         let b = bundle_of(graph, e);
-        let mut mine: HashSet<((i32, i32), bool)> = HashSet::new();
         for (p, q) in r.segments() {
+            if p == q {
+                continue;
+            }
             let hz = p.1 == q.1;
-            let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
-            let mut c = p;
+            let (fixed, a, z) = if hz { (p.1, p.0, q.0) } else { (p.0, p.1, q.1) };
             // Interior points only; endpoints are bends or ports.
-            loop {
-                c = (c.0 + dx, c.1 + dy);
-                if c == q {
-                    break;
-                }
-                mine.insert((c, hz));
+            let (lo, hi) = (a.min(z) + 1, a.max(z) - 1);
+            if lo <= hi {
+                lines.entry((hz, fixed)).or_default().push((e, b, lo, hi));
             }
         }
-        for key in mine {
-            match owner.get(&key) {
-                None => {
-                    owner.insert(key, b);
+    }
+    let mut count = 0;
+    for ranges in lines.values() {
+        // Cut the line where any range starts or ends: each piece is
+        // covered by the same routes all along.
+        let mut cuts: Vec<i32> = ranges.iter().flat_map(|r| [r.2, r.3 + 1]).collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        for w in cuts.windows(2) {
+            let (from, to) = (w[0], w[1]);
+            let mut covering: Vec<(usize, u32)> = ranges
+                .iter()
+                .filter(|r| r.2 <= from && from <= r.3)
+                .map(|r| (r.0, r.1))
+                .collect();
+            covering.sort_unstable();
+            covering.dedup_by_key(|c| c.0);
+            // As routes are added in order: a point counts once a second
+            // bundle reaches it, and once more for every route after that.
+            let mut owner: Option<u32> = None;
+            let mut per_point = 0;
+            for (_, b) in covering {
+                match owner {
+                    None => owner = Some(b),
+                    Some(o) if o != b && o != u32::MAX => {
+                        per_point += 1;
+                        owner = Some(u32::MAX);
+                    }
+                    Some(u32::MAX) => per_point += 1,
+                    _ => {}
                 }
-                Some(&o) if o != b && o != u32::MAX => {
-                    count += 1;
-                    owner.insert(key, u32::MAX);
-                }
-                Some(&o) if o == u32::MAX => count += 1,
-                _ => {}
             }
+            count += per_point * (to - from) as usize;
         }
     }
     count
@@ -194,6 +219,84 @@ pub fn measure(graph: &Graph, nodes: &[(i32, i32)], routes: &[Route]) -> Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `shared_lanes` as first written, point by point: the reference the
+    /// range version must agree with.
+    fn shared_lanes_by_points(graph: &Graph, routes: &[Route]) -> usize {
+        use std::collections::HashMap;
+        let mut owner: HashMap<((i32, i32), bool), u32> = HashMap::new();
+        let mut count = 0;
+        for (e, r) in routes.iter().enumerate() {
+            let b = bundle_of(graph, e);
+            let mut mine: HashSet<((i32, i32), bool)> = HashSet::new();
+            for (p, q) in r.segments() {
+                let hz = p.1 == q.1;
+                let (dx, dy) = ((q.0 - p.0).signum(), (q.1 - p.1).signum());
+                let mut c = p;
+                loop {
+                    c = (c.0 + dx, c.1 + dy);
+                    if c == q {
+                        break;
+                    }
+                    mine.insert((c, hz));
+                }
+            }
+            for key in mine {
+                match owner.get(&key) {
+                    None => {
+                        owner.insert(key, b);
+                    }
+                    Some(&o) if o != b && o != u32::MAX => {
+                        count += 1;
+                        owner.insert(key, u32::MAX);
+                    }
+                    Some(&o) if o == u32::MAX => count += 1,
+                    _ => {}
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn shared_lanes_by_ranges_matches_counting_points() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut below = |n: i32| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % n as u64) as i32
+        };
+        for _ in 0..500 {
+            let mut g = Graph::default();
+            let nodes = 2 + below(4) as usize;
+            for _ in 0..nodes {
+                g.add_node(2, 2);
+            }
+            let mut routes = Vec::new();
+            for _ in 0..1 + below(6) {
+                let (a, b) = (below(nodes as i32) as usize, below(nodes as i32) as usize);
+                g.add_edge(a, b, EdgeKind::Assoc);
+                // An orthogonal route over a small grid, so lines overlap.
+                let mut p = (below(8), below(8));
+                let mut points = vec![p];
+                for k in 0..1 + below(4) {
+                    p = if k % 2 == 0 {
+                        (below(8), p.1)
+                    } else {
+                        (p.0, below(8))
+                    };
+                    points.push(p);
+                }
+                routes.push(Route { points });
+            }
+            assert_eq!(
+                shared_lanes(&g, &routes),
+                shared_lanes_by_points(&g, &routes),
+                "{routes:?}"
+            );
+        }
+    }
 
     fn graph_with_edges(n: usize) -> Graph {
         let mut g = Graph::default();
