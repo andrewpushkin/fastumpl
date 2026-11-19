@@ -467,6 +467,63 @@ impl Editor {
         self.transact(label, ops);
     }
 
+    /// Resizes element `id` to at least `size` grid units (`None`: as big
+    /// as its text needs), moving it to `pos`. With a `merge_key`, repeated
+    /// calls merge into one undo step until [`Editor::seal`] (a drag).
+    pub fn resize_element(
+        &mut self,
+        id: ElementId,
+        pos: Pos,
+        size: Option<(i32, i32)>,
+        merge_key: Option<&str>,
+    ) {
+        let Some(el) = self.doc.elements.get(&id) else {
+            return;
+        };
+        if el.size == size && el.pos == Some(pos) {
+            return;
+        }
+        let label = format!("Resize {}", el.name);
+        let mut new = el.clone();
+        new.size = size;
+        new.pos = Some(pos);
+        let ops = vec![Op::Element(id, Some(new))];
+        match merge_key {
+            Some(k) => self.transact_merge(k, &label, ops),
+            None => self.transact(&label, ops),
+        }
+    }
+
+    /// Sets the fill colour of elements and packages (`None`: the usual
+    /// colour) as one undo step.
+    pub fn set_color(
+        &mut self,
+        elements: &[ElementId],
+        packages: &[PackageId],
+        color: Option<String>,
+    ) {
+        let mut ops = Vec::new();
+        for id in elements {
+            if let Some(el) = self.doc.elements.get(id).filter(|e| e.color != color) {
+                let mut new = el.clone();
+                new.color = color.clone();
+                ops.push(Op::Element(*id, Some(new)));
+            }
+        }
+        for id in packages {
+            if let Some(p) = self.doc.packages.get(id).filter(|p| p.color != color) {
+                let mut new = p.clone();
+                new.color = color.clone();
+                ops.push(Op::Package(*id, Some(new)));
+            }
+        }
+        let label = match color {
+            Some(_) => "Change colour",
+            None => "Reset colour",
+        };
+        self.transact(label, ops);
+    }
+
     pub fn set_title(&mut self, title: Option<String>) {
         if self.doc.title != title {
             self.transact("Change title", vec![Op::Title(title)]);

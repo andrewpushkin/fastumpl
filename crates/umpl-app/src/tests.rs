@@ -192,6 +192,85 @@ fn dragging_a_box_moves_it_and_undo_restores() {
 }
 
 #[test]
+fn dragging_a_corner_resizes_the_box_and_undo_restores() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    h.run_steps(2);
+    let r = rect_of(&h, a);
+    let natural = ((r.w / GRID).round() as i32, (r.h / GRID).round() as i32);
+    let zoom = h.state().camera.zoom;
+    let corner = screen(&h, (r.right(), r.bottom()));
+    drag(
+        &mut h,
+        corner,
+        corner + Vec2::new(8.0 * GRID * zoom, 6.0 * GRID * zoom),
+    );
+    let el = |h: &Harness<'static, App>| {
+        h.state().session.as_ref().unwrap().editor.doc.elements[&a].clone()
+    };
+    assert_eq!(el(&h).size, Some((natural.0 + 8, natural.1 + 6)));
+    assert_eq!(el(&h).pos, Some(Pos::new(0, 0)));
+    let r2 = rect_of(&h, a);
+    assert!((r2.w - r.w - 8.0 * GRID).abs() < 0.5, "{r:?} {r2:?}");
+    // Smaller than its text needs: the box stops at that size, and keeps
+    // no size of its own.
+    let corner = screen(&h, (r2.right(), r2.bottom()));
+    drag(
+        &mut h,
+        corner,
+        corner - Vec2::new(40.0 * GRID * zoom, 40.0 * GRID * zoom),
+    );
+    assert_eq!(el(&h).size, None);
+    // One drag is one undo step.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(el(&h).size, Some((natural.0 + 8, natural.1 + 6)));
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(el(&h).size, None);
+}
+
+#[test]
+fn right_click_colours_a_box() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    let r = rect_of(&h, a);
+    let p = screen(&h, r.center());
+    h.hover_at(p);
+    h.event(Event::PointerButton {
+        pos: p,
+        button: PointerButton::Secondary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    h.event(Event::PointerButton {
+        pos: p,
+        button: PointerButton::Secondary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(3);
+    // The box under the pointer is selected, and the menu is about it.
+    assert_eq!(h.state().sel.elements, vec![a]);
+    h.get_by_label("Transparent").hover();
+    h.run_steps(1);
+    h.get_by_label("Transparent").click();
+    h.run_steps(3);
+    let color = |h: &Harness<'static, App>, id| {
+        h.state().session.as_ref().unwrap().editor.doc.elements[&id]
+            .color
+            .clone()
+    };
+    assert_eq!(color(&h, a).as_deref(), Some("transparent"));
+    assert_eq!(color(&h, b), None);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(color(&h, a), None);
+}
+
+#[test]
 fn rubber_band_selects_and_delete_removes() {
     let mut h = new_app();
     let a = add(&mut h, "A", 0, 0);
@@ -773,9 +852,18 @@ fn the_text_panel_can_be_hidden_and_shown() {
     assert!(Cmd::ToggleSource.shortcut().is_some());
 }
 
+/// A settings folder for one test: the tests run at once, and would
+/// otherwise rewrite one another's settings.
+fn own_settings(h: &mut Harness<'static, App>, name: &str) {
+    let dir = std::env::temp_dir().join(format!("fastumpl-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    h.state_mut().storage = crate::storage::Storage::at(&dir);
+}
+
 #[test]
 fn settings_window_changes_and_saves_settings() {
     let mut h = new_app();
+    own_settings(&mut h, "settings-window");
     let ctx = h.ctx.clone();
     h.state_mut().run(&ctx, Cmd::Settings);
     h.run_steps(3);
@@ -827,6 +915,7 @@ fn saved_settings_are_read_back() {
 #[test]
 fn layout_goal_is_chosen_in_the_arrange_menu_and_saved() {
     let mut h = new_app();
+    own_settings(&mut h, "arrange-layout");
     assert_eq!(h.state().layout_goal, umpl_layout::Goal::FewestCrossings);
     h.get_by_label("Arrange").click();
     h.run_steps(2);

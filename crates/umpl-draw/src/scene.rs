@@ -71,6 +71,9 @@ pub struct TextStyle {
     pub color: Color,
     /// Centred on `pos.0` instead of starting there.
     pub centered: bool,
+    /// The width (in diagram pixels) the text must stay within, inside a
+    /// box: drawn smaller if a font would make it wider.
+    pub fit: Option<f32>,
 }
 
 impl TextStyle {
@@ -82,7 +85,13 @@ impl TextStyle {
             underline: false,
             color,
             centered: false,
+            fit: None,
         }
+    }
+
+    fn fit(mut self, width: f32) -> TextStyle {
+        self.fit = Some(width.max(1.0));
+        self
     }
 }
 
@@ -311,26 +320,32 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             (theme.package_stroke, 1.0)
         };
         let tab_w = (text_width(&pkg.name, 12.0) + 20.0).min(r.w);
+        let fill = theme.user_fill(theme.package_fill, pkg.color.as_deref());
+        // A transparent package is a frame: the tab sits on its top edge.
+        let tab_h = if fill.is_some() { TAB_H + 4.0 } else { TAB_H };
         s.shapes.push(Shape::Rect {
-            rect: RectF::new(r.x, r.y, tab_w, TAB_H + 4.0),
-            fill: Some(theme.package_fill),
+            rect: RectF::new(r.x, r.y, tab_w, tab_h),
+            fill,
             stroke: Some(stroke),
             radius: 3.0,
         });
         s.shapes.push(Shape::Rect {
             rect: RectF::new(r.x, r.y + TAB_H, r.w, r.h - TAB_H),
-            fill: Some(theme.package_fill),
+            fill,
             stroke: Some(stroke),
             radius: 4.0,
         });
         // Hide the tab's bottom border where it joins the body.
-        s.shapes.push(Shape::Rect {
-            rect: RectF::new(r.x + 1.0, r.y + TAB_H - 1.0, tab_w - 2.0, 3.0),
-            fill: Some(theme.package_fill),
-            stroke: None,
-            radius: 0.0,
-        });
-        let mut st = TextStyle::new(12.0, theme.muted);
+        if fill.is_some() {
+            s.shapes.push(Shape::Rect {
+                rect: RectF::new(r.x + 1.0, r.y + TAB_H - 1.0, tab_w - 2.0, 3.0),
+                fill,
+                stroke: None,
+                radius: 0.0,
+            });
+        }
+        let name_color = theme.text_on(fill, pkg.color.as_deref(), true);
+        let mut st = TextStyle::new(12.0, name_color);
         st.bold = true;
         s.shapes.push(Shape::Text {
             pos: (r.x + 10.0, r.y + TAB_H / 2.0 + 1.0),
@@ -586,7 +601,7 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
                 (r.x, r.bottom()),
             ],
             stroke: Some((theme.note_stroke, 1.2)),
-            fill: Some(theme.note_fill),
+            fill: theme.user_fill(theme.note_fill, c.color.as_deref()),
             closed: true,
             dashed: false,
         });
@@ -601,6 +616,8 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
             closed: false,
             dashed: false,
         });
+        let fill = theme.user_fill(theme.note_fill, c.color.as_deref());
+        let color = theme.text_on(fill, c.color.as_deref(), false);
         if let Some(lines) = c.compartments.first() {
             for (k, l) in lines.iter().enumerate() {
                 shapes.push(Shape::Text {
@@ -609,22 +626,25 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
                         r.y + NOTE_PAD + MEMBER_LINE * (k as f32 + 0.5),
                     ),
                     text: l.text.clone(),
-                    style: TextStyle::new(MEMBER_SIZE, theme.text),
+                    style: TextStyle::new(MEMBER_SIZE, color).fit(r.w - 2.0 * NOTE_PAD - 4.0),
                 });
             }
         }
         return;
     }
 
+    let fill = theme.user_fill(theme.fill(c.kind), c.color.as_deref());
+    let text = theme.text_on(fill, c.color.as_deref(), false);
+    let muted = theme.text_on(fill, c.color.as_deref(), true);
     shapes.push(Shape::Rect {
         rect: r,
-        fill: Some(theme.fill(c.kind)),
+        fill,
         stroke: Some((theme.box_stroke, BOX_W)),
         radius: 4.0,
     });
     let mut y = r.y + PAD_Y;
     if let Some(st) = &c.stereotype {
-        let mut style = TextStyle::new(STEREO_SIZE, theme.muted);
+        let mut style = TextStyle::new(STEREO_SIZE, muted).fit(r.w - 2.0 * PAD_X);
         style.centered = true;
         shapes.push(Shape::Text {
             pos: (r.x + r.w / 2.0, y + STEREO_LINE / 2.0),
@@ -647,7 +667,7 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
         text: kind_letter(c.kind).into(),
         style: badge,
     });
-    let mut name = TextStyle::new(NAME_SIZE, theme.text);
+    let mut name = TextStyle::new(NAME_SIZE, text).fit(r.w - 2.0 * BADGE_ROOM);
     name.bold = true;
     name.italic = c.italic_name;
     name.centered = true;
@@ -669,7 +689,7 @@ fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hi
         y += 4.0;
         for l in comp {
             if !hide_members {
-                let mut st = TextStyle::new(MEMBER_SIZE, theme.text);
+                let mut st = TextStyle::new(MEMBER_SIZE, text).fit(r.w - 2.0 * PAD_X);
                 st.italic = l.italic;
                 st.underline = l.underline;
                 shapes.push(Shape::Text {

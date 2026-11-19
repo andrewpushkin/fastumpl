@@ -140,13 +140,26 @@ pub fn paint_scene(painter: &Painter, scene: &Scene, cam: &Camera, clip: Rect) {
                 } else {
                     Align2::LEFT_CENTER
                 };
-                let r = painter.text(
-                    p,
-                    anchor,
-                    text,
-                    FontId::new(size, family(style.bold, style.italic)),
-                    c32(style.color),
-                );
+                let family = family(style.bold, style.italic);
+                let color = c32(style.color);
+                let mut galley =
+                    painter.layout_no_wrap(text.clone(), FontId::new(size, family.clone()), color);
+                // Text in a box stays inside it: a font that draws it wider
+                // than it was measured gets a smaller size.
+                if let Some(fit) = style.fit {
+                    let room = fit * z;
+                    let w = galley.size().x;
+                    if w > room && w > 0.0 {
+                        let smaller = (size * room / w).max(1.0);
+                        galley = painter.layout_no_wrap(
+                            text.clone(),
+                            FontId::new(smaller, family),
+                            color,
+                        );
+                    }
+                }
+                let r = anchor.anchor_size(p, galley.size());
+                painter.galley(r.min, galley, color);
                 if style.underline {
                     let y = r.bottom() - size * 0.12;
                     painter.line_segment(

@@ -145,6 +145,7 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
         let new = Package {
             name: p.name.clone(),
             body: map_decls(&p.body),
+            color: p.color.clone(),
             comments: p.comments.clone(),
         };
         if cur.packages.get(&id) != Some(&new) {
@@ -155,6 +156,10 @@ pub fn reconcile(cur: &mut Document, target: &Document, removed: &mut Removed) -
         let id = el_map[t];
         let mut new = el.clone();
         new.pos = el.pos.or(el_pos[t]);
+        // The size, like the position, is not in the text.
+        if new.size.is_none() {
+            new.size = cur.elements.get(&id).and_then(|e| e.size);
+        }
         if cur.elements.get(&id) != Some(&new) {
             ops.push(Op::Element(id, Some(new)));
         }

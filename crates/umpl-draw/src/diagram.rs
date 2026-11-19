@@ -80,6 +80,11 @@ pub fn build_graph(doc: &Document) -> (Graph, Mapping) {
         let el = &doc.elements[&id];
         let content = box_content(el);
         let (w, h) = content.size();
+        // A resized box is at least the size it was given.
+        let (w, h) = match el.size {
+            Some((sw, sh)) if el.kind != umpl_core::ElementKind::Diamond => (w.max(sw), h.max(sh)),
+            _ => (w, h),
+        };
         m.node_of.insert(id, g.nodes.len());
         g.nodes.push(Node {
             w,

@@ -220,6 +220,22 @@ impl<'a> Cursor<'a> {
         None
     }
 
+    /// A colour: `#lightblue`, `#a1b2c3`, `#transparent` (without the `#`,
+    /// in lower case).
+    pub fn color(&mut self) -> Option<String> {
+        self.skip_ws();
+        let r = self.rest();
+        let after = r.strip_prefix('#')?;
+        let len = after
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(after.len());
+        if len == 0 {
+            return None;
+        }
+        self.pos += 1 + len;
+        Some(after[..len].to_ascii_lowercase())
+    }
+
     /// `<<stereo>>` or `«stereo»`.
     pub fn stereotype(&mut self) -> Option<String> {
         self.skip_ws();

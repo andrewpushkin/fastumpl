@@ -68,6 +68,16 @@ impl Storage {
         Storage { config, cache }
     }
 
+    /// Storage in a folder of its own, for a test that saves settings
+    /// while others run.
+    #[cfg(test)]
+    pub fn at(dir: &Path) -> Storage {
+        Storage {
+            config: dir.join("config"),
+            cache: dir.join("cache"),
+        }
+    }
+
     pub fn recovery_dir(&self) -> PathBuf {
         self.cache.join("recovery")
     }

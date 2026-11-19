@@ -84,6 +84,7 @@ struct PendingRelation {
 struct PendingPos {
     name: String,
     pos: Pos,
+    size: Option<(i32, i32)>,
     line: usize,
 }
 
@@ -244,6 +245,7 @@ impl Parser {
         let Some(name) = c.segment() else {
             return false;
         };
+        let color = c.color();
         if !c.eat("{") {
             return false;
         }
@@ -255,6 +257,7 @@ impl Parser {
         let name = self.free_name(n, &name, container);
         let id = self.doc.new_package_id();
         let mut pkg = Package::new(name);
+        pkg.color = color;
         pkg.comments = std::mem::take(&mut self.comments);
         self.doc.packages.insert(id, pkg);
         self.push_decl(Decl::Package(id));
@@ -300,11 +303,32 @@ impl Parser {
                 return None;
             }
             let y = c.int()?;
-            c.at_end().then_some((name, Pos::new(x, y)))
+            // `size w, h`: the box was resized to that.
+            let size = if c.eat_word("size") {
+                let w = c.int()?;
+                if !c.eat(",") {
+                    return None;
+                }
+                let h = c.int()?;
+                (w > 0 && h > 0).then_some((w, h))?;
+                Some((w, h))
+            } else {
+                None
+            };
+            c.at_end().then_some((name, Pos::new(x, y), size))
         })();
         match parsed {
-            Some((name, pos)) => self.positions.push(PendingPos { name, pos, line: n }),
-            None => self.problem(n, 1, "expected `Name at x, y`; line ignored"),
+            Some((name, pos, size)) => self.positions.push(PendingPos {
+                name,
+                pos,
+                size,
+                line: n,
+            }),
+            None => self.problem(
+                n,
+                1,
+                "expected `Name at x, y` or `Name at x, y size w, h`; line ignored",
+            ),
         }
     }
 
@@ -353,6 +377,7 @@ impl Parser {
             None
         };
         let stereotype = c.stereotype();
+        let color = c.color();
         let rest = c.rest().trim();
         let (open, inline) = if rest.is_empty() {
             (false, None)
@@ -371,6 +396,7 @@ impl Parser {
         el.type_params = type_params;
         el.label = label;
         el.stereotype = stereotype;
+        el.color = color;
         el.comments = std::mem::take(&mut self.comments);
         let is_enum = kind == ElementKind::Enum;
         if let Some(inner) = inline {
@@ -401,6 +427,7 @@ impl Parser {
             return false;
         };
         let Some(text) = c.string() else { return false };
+        let color = c.color();
         if !c.at_end() {
             return false;
         }
@@ -408,6 +435,7 @@ impl Parser {
         let name = self.free_name(n, &name, container);
         let id = self.doc.new_element_id();
         let mut el = Element::new(ElementKind::Note, name);
+        el.color = color;
         el.members = text.split('\n').map(Member::plain).collect();
         el.comments = std::mem::take(&mut self.comments);
         self.doc.elements.insert(id, el);
@@ -543,7 +571,9 @@ impl Parser {
         for p in std::mem::take(&mut self.positions) {
             match names.get(&p.name) {
                 Some(Endpoint::Element(id)) => {
-                    self.doc.elements.get_mut(id).unwrap().pos = Some(p.pos)
+                    let el = self.doc.elements.get_mut(id).unwrap();
+                    el.pos = Some(p.pos);
+                    el.size = p.size;
                 }
                 _ => self.problem(
                     p.line,
@@ -770,6 +800,20 @@ layout {
         let p = parse("class A {\n  +x: int\n");
         assert_eq!(p.doc.elements.len(), 1);
         assert_eq!(p.problems.len(), 1);
+    }
+
+    #[test]
+    fn colours_and_sizes_are_read_and_written() {
+        let src = "package core #transparent {\n  class A <<entity>> #lightblue\n}\n\nnote N \"hi\" #ffeeaa\n\nlayout {\n  N      at 30, 0\n  core.A at 0, 0 size 20, 8\n}\n";
+        let p = parse(src);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        let a = el(&p.doc, "core.A");
+        assert_eq!(a.color.as_deref(), Some("lightblue"));
+        assert_eq!(a.size, Some((20, 8)));
+        assert_eq!(el(&p.doc, "N").color.as_deref(), Some("ffeeaa"));
+        let core = p.doc.find_package("core").unwrap();
+        assert_eq!(p.doc.packages[&core].color.as_deref(), Some("transparent"));
+        assert_eq!(crate::print(&p.doc), src);
     }
 
     #[test]

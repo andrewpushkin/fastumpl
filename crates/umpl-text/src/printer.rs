@@ -5,10 +5,12 @@ use crate::scan::quote;
 /// Writes a document in the canonical `.umpl` style.
 pub fn print(doc: &Document) -> String {
     let mut out = print_model(doc);
-    let mut positions: Vec<(String, Pos)> = doc
+    // Full name, position, and the size a box was resized to.
+    type Placed = (String, Pos, Option<(i32, i32)>);
+    let mut positions: Vec<Placed> = doc
         .elements
         .iter()
-        .filter_map(|(id, el)| el.pos.map(|p| (doc.full_name(*id), p)))
+        .filter_map(|(id, el)| el.pos.map(|p| (doc.full_name(*id), p, el.size)))
         .collect();
     positions.sort_by(|a, b| a.0.cmp(&b.0));
     if !positions.is_empty() {
@@ -17,18 +19,17 @@ pub fn print(doc: &Document) -> String {
         }
         let width = positions
             .iter()
-            .map(|(n, _)| n.chars().count())
+            .map(|(n, _, _)| n.chars().count())
             .max()
             .unwrap_or(0);
         out.push_str("layout {\n");
-        for (name, p) in positions {
+        for (name, p, size) in positions {
             let pad = width - name.chars().count();
-            out.push_str(&format!(
-                "  {name}{} at {}, {}\n",
-                " ".repeat(pad),
-                p.x,
-                p.y
-            ));
+            out.push_str(&format!("  {name}{} at {}, {}", " ".repeat(pad), p.x, p.y));
+            if let Some((w, h)) = size {
+                out.push_str(&format!(" size {w}, {h}"));
+            }
+            out.push('\n');
         }
         out.push_str("}\n");
     }
@@ -114,12 +115,21 @@ impl Writer<'_> {
         };
         let indent = "  ".repeat(depth);
         self.comments(&p.comments, &indent);
+        let color = p
+            .color
+            .as_ref()
+            .map(|c| format!(" #{c}"))
+            .unwrap_or_default();
         if p.body.is_empty() {
-            self.out
-                .push_str(&format!("{indent}package {} {{}}\n", name_in_path(&p.name)));
+            self.out.push_str(&format!(
+                "{indent}package {}{color} {{}}\n",
+                name_in_path(&p.name)
+            ));
         } else {
-            self.out
-                .push_str(&format!("{indent}package {} {{\n", name_in_path(&p.name)));
+            self.out.push_str(&format!(
+                "{indent}package {}{color} {{\n",
+                name_in_path(&p.name)
+            ));
             self.decls(&p.body, depth + 1, false);
             self.out.push_str(&format!("{indent}}}\n"));
         }
@@ -134,10 +144,14 @@ impl Writer<'_> {
         if el.kind == ElementKind::Note {
             let text: Vec<&str> = el.members.iter().map(|m| m.text.as_str()).collect();
             out.push_str(&format!(
-                "{indent}note {} {}\n",
+                "{indent}note {} {}",
                 name_in_path(&el.name),
                 quote(&text.join("\n"))
             ));
+            if let Some(c) = &el.color {
+                out.push_str(&format!(" #{c}"));
+            }
+            out.push('\n');
             return;
         }
         out.push_str(indent);
@@ -152,6 +166,9 @@ impl Writer<'_> {
         }
         if let Some(s) = &el.stereotype {
             out.push_str(&format!(" <<{s}>>"));
+        }
+        if let Some(c) = &el.color {
+            out.push_str(&format!(" #{c}"));
         }
         if el.members.is_empty() {
             out.push('\n');

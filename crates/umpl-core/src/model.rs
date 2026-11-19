@@ -223,6 +223,12 @@ pub struct Element {
     /// (notes).
     pub members: Vec<Member>,
     pub pos: Option<Pos>,
+    /// Width and height in grid units the box was resized to: it is at
+    /// least that big, and bigger if its text needs it. Layout, like `pos`.
+    pub size: Option<(i32, i32)>,
+    /// Fill colour: `#rrggbb`, a web colour name (`lightblue`) or
+    /// `transparent`; the kind's colour if none.
+    pub color: Option<String>,
     pub comments: Vec<String>,
 }
 
@@ -236,6 +242,8 @@ impl Element {
             stereotype: None,
             members: Vec::new(),
             pos: None,
+            size: None,
+            color: None,
             comments: Vec::new(),
         }
     }
@@ -416,6 +424,9 @@ pub enum Decl {
 pub struct Package {
     pub name: String,
     pub body: Vec<Decl>,
+    /// Fill colour, as for [`Element::color`]: `transparent` draws only
+    /// the frame.
+    pub color: Option<String>,
     pub comments: Vec<String>,
 }
 
@@ -424,6 +435,7 @@ impl Package {
         Package {
             name: name.into(),
             body: Vec::new(),
+            color: None,
             comments: Vec::new(),
         }
     }

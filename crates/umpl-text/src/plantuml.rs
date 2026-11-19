@@ -122,8 +122,13 @@ impl Exporter<'_> {
         };
         let indent = "  ".repeat(depth);
         self.comments(&p.comments, &indent);
+        let color = p
+            .color
+            .as_ref()
+            .map(|c| format!(" #{c}"))
+            .unwrap_or_default();
         self.out
-            .push_str(&format!("{indent}package {} {{\n", p.name));
+            .push_str(&format!("{indent}package {}{color} {{\n", p.name));
         self.decls(&p.body, depth + 1, false);
         self.out.push_str(&format!("{indent}}}\n"));
     }
@@ -136,8 +141,13 @@ impl Exporter<'_> {
         let out = &mut self.out;
         if el.kind == ElementKind::Note {
             let text: Vec<&str> = el.members.iter().map(|m| m.text.as_str()).collect();
+            let color = el
+                .color
+                .as_ref()
+                .map(|c| format!(" #{c}"))
+                .unwrap_or_default();
             out.push_str(&format!(
-                "{indent}note {} as {}\n",
+                "{indent}note {} as {}{color}\n",
                 pquote(&text.join("\n")),
                 el.name
             ));
@@ -161,6 +171,9 @@ impl Exporter<'_> {
         }
         if let Some(s) = &el.stereotype {
             out.push_str(&format!(" <<{s}>>"));
+        }
+        if let Some(c) = &el.color {
+            out.push_str(&format!(" #{c}"));
         }
         if el.members.is_empty() {
             out.push('\n');
@@ -671,13 +684,15 @@ enum Mode {
     Description(ElementId, Vec<String>),
     /// The lines of a `json` object, with the depth of `{` and `[`.
     Json(ElementId, usize),
+    /// A `skinparam kind {` block, read for its background colour.
+    Skinparam(String),
+    /// A `<style>` block: the selectors open around the line.
+    Style(Vec<String>),
 }
 
 enum SkipEnd {
     /// `}` that brings the brace depth to zero.
     Brace(usize),
-    /// An exact closing line such as `</style>`.
-    Line(&'static str),
 }
 
 #[derive(Default)]
@@ -702,6 +717,12 @@ struct Importer {
     shown_named: std::collections::HashSet<ElementId>,
     /// The line made last, for `note on link`.
     last_relation: Option<RelationId>,
+    /// Background colours from `skinparam` and `<style>`, by the kind of
+    /// box or group they are for (`package`, `rectangle`, `class`,
+    /// `note`, …).
+    skin: HashMap<String, String>,
+    /// The keyword each package and box was declared with, for `skin`.
+    keyword_of: HashMap<Endpoint, String>,
     /// Elements first named in a line and not declared yet: a declaration
     /// moves them to where it is.
     undeclared: std::collections::HashSet<ElementId>,
@@ -1285,6 +1306,8 @@ impl Importer {
                 }
             }
             Mode::Skip(end) => self.skip_line(t, end),
+            Mode::Skinparam(kind) => self.skinparam_line(t, kind),
+            Mode::Style(selectors) => self.style_line(t, selectors),
             Mode::Title(mut lines) => {
                 if is_end(t, "title") {
                     let title = lines.join("\n");
@@ -1457,7 +1480,6 @@ impl Importer {
                 let depth = (depth + opened).saturating_sub(closed);
                 (depth > 0).then_some(SkipEnd::Brace(depth))
             }
-            SkipEnd::Line(l) => (!t.eq_ignore_ascii_case(l)).then_some(SkipEnd::Line(l)),
         };
         self.mode = next.map(Mode::Skip);
     }
@@ -1650,8 +1672,7 @@ impl Importer {
             return true;
         }
         if lower.starts_with("<style>") {
-            self.mode =
-                (!lower.contains("</style>")).then_some(Mode::Skip(SkipEnd::Line("</style>")));
+            self.mode = (!lower.contains("</style>")).then_some(Mode::Style(Vec::new()));
             return true;
         }
         // `left to right direction`, `top to bottom direction`.
@@ -1695,6 +1716,9 @@ impl Importer {
         });
         if lower.starts_with("@start") || lower.starts_with("@end") || rule {
             return true;
+        }
+        if first == "skinparam" {
+            return self.skinparam(after) || silent(self);
         }
         if STYLING.contains(&first) {
             return silent(self);
@@ -1799,13 +1823,23 @@ impl Importer {
             }
             return false;
         }
-        let container = CONTAINERS.iter().any(|w| c.eat_word(w));
-        if !(container || c.eat_word("package") || c.eat_word("namespace")) {
-            return false;
-        }
+        let found = CONTAINERS.iter().find(|w| c.eat_word(w)).copied();
+        let container = found.is_some();
+        let keyword = match found {
+            Some(w) => w,
+            None if c.eat_word("package") => "package",
+            None if c.eat_word("namespace") => "namespace",
+            None => return false,
+        };
         // `package [src] as C_0001 {` (clang-uml).
         c.skip_ws();
         let name_quoted = c.rest().starts_with(['"', '[']);
+        // `rectangle #transparent {`: a colour first.
+        let lead = if c.rest().starts_with('#') {
+            decorations(&mut c)
+        } else {
+            None
+        };
         // `rectangle {`, `package {`: a frame without a name.
         if c.rest().trim() == "{" {
             let container = self.container();
@@ -1817,6 +1851,7 @@ impl Importer {
                 path.last_mut().unwrap().push(' ');
             }
             let pkg = self.package_at(&path, None, true);
+            self.mark_package(pkg, keyword, lead);
             self.stack.push(pkg);
             return true;
         }
@@ -1836,7 +1871,7 @@ impl Importer {
         else {
             return false;
         };
-        skip_decorations(&mut c);
+        let mut color = decorations(&mut c).or(lead);
         let mut alias = None;
         if c.eat_word("as") {
             c.skip_ws();
@@ -1846,7 +1881,7 @@ impl Importer {
             };
             alias = Some((a, alias_quoted));
         }
-        skip_decorations(&mut c);
+        color = decorations(&mut c).or(color);
         if container && !c.rest().starts_with('{') {
             // `node Web` without a body is a box.
             return false;
@@ -1855,6 +1890,7 @@ impl Importer {
             // `package Signup [` … `]`: a box showing the text.
             let code = alias.map_or(name, |(a, _)| a);
             let id = self.declare_named(ElementKind::Class, &code, None, Some("package".into()));
+            self.doc.elements.get_mut(&id).unwrap().color = color;
             self.mode = Some(Mode::Description(id, Vec::new()));
             return true;
         }
@@ -1892,15 +1928,149 @@ impl Importer {
             }
             let stereotype = Some("package".to_string());
             let id = self.declare_named(ElementKind::Class, &code, shown.as_deref(), stereotype);
+            if color.is_some() {
+                self.doc.elements.get_mut(&id).unwrap().color = color;
+            }
+            self.keyword_of
+                .insert(Endpoint::Element(id), "package".into());
             self.last_package = Some(Endpoint::Element(id));
             self.last_element = Some(id);
             return true;
         }
         let pkg = self.package_at(&path, shown.as_deref(), true);
+        self.mark_package(pkg, keyword, color);
         if open {
             self.stack.push(pkg);
         }
         true
+    }
+
+    /// Keeps a package's keyword (for `skinparam`) and gives it `color`.
+    fn mark_package(&mut self, pkg: Option<PackageId>, keyword: &str, color: Option<String>) {
+        let Some(p) = pkg else { return };
+        self.keyword_of
+            .entry(Endpoint::Package(p))
+            .or_insert_with(|| keyword.to_string());
+        if color.is_some() {
+            self.doc.packages.get_mut(&p).unwrap().color = color;
+        }
+    }
+
+    /// `skinparam classBackgroundColor Gold`, or the start of a block,
+    /// `skinparam package {`: background colours are kept for the boxes
+    /// and groups of that kind; the rest only styles the drawing. Whether
+    /// the line was taken (a block opened).
+    fn skinparam(&mut self, after: &str) -> bool {
+        let words: Vec<&str> = after.split_whitespace().collect();
+        match words.as_slice() {
+            [kind, "{"] if !kind.contains("<<") => {
+                self.mode = Some(Mode::Skinparam(kind.to_ascii_lowercase()));
+                true
+            }
+            [key, value, ..] if !key.contains("<<") => {
+                self.skin_value(key, value);
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn skin_value(&mut self, key: &str, value: &str) {
+        let key = key.to_ascii_lowercase();
+        if let (Some(kind), Some(paint)) = (
+            key.strip_suffix("backgroundcolor"),
+            paint_of(&format!("#{}", value.trim_start_matches('#'))),
+        ) {
+            if !kind.is_empty() {
+                self.skin.insert(kind.to_string(), paint);
+            }
+        }
+    }
+
+    fn skinparam_line(&mut self, t: &str, kind: String) {
+        let t = t.trim();
+        if t.starts_with('}') {
+            return;
+        }
+        let mut words = t.split_whitespace();
+        if let (Some(key), Some(value)) = (words.next(), words.next()) {
+            if key.eq_ignore_ascii_case("backgroundcolor") {
+                self.skin_value(&format!("{kind}backgroundcolor"), value);
+            }
+        }
+        self.mode = Some(Mode::Skinparam(kind));
+    }
+
+    /// A line of a `<style>` block: `package {`, `BackGroundColor Gold`,
+    /// `}`, up to `</style>`.
+    fn style_line(&mut self, t: &str, mut selectors: Vec<String>) {
+        let t = t.trim();
+        if t.to_ascii_lowercase().starts_with("</style>") {
+            return;
+        }
+        if let Some(sel) = t.strip_suffix('{') {
+            selectors.push(sel.trim().to_ascii_lowercase());
+        } else if t.starts_with('}') {
+            selectors.pop();
+        } else {
+            let mut words = t.split_whitespace();
+            if let (Some(key), Some(value), Some(sel)) =
+                (words.next(), words.next(), selectors.last())
+            {
+                if key.eq_ignore_ascii_case("backgroundcolor") && !sel.starts_with('.') {
+                    let sel = sel.clone();
+                    self.skin_value(
+                        &format!("{sel}backgroundcolor"),
+                        value.trim_end_matches(';'),
+                    );
+                }
+            }
+        }
+        self.mode = Some(Mode::Style(selectors));
+    }
+
+    /// Gives the boxes and groups without a colour of their own the
+    /// background colour `skinparam` or `<style>` set for their kind.
+    fn apply_skin(&mut self) {
+        if self.skin.is_empty() {
+            return;
+        }
+        for (thing, keyword) in &self.keyword_of {
+            let kind = match keyword.as_str() {
+                "class" | "abstract" | "interface" | "enum" | "annotation" | "entity"
+                | "struct" | "record" | "exception" | "metaclass" | "protocol" | "dataclass" => {
+                    "class"
+                }
+                "namespace" => "package",
+                k => k,
+            };
+            let Some(color) = self
+                .skin
+                .get(kind)
+                .or_else(|| self.skin.get(keyword.as_str()))
+            else {
+                continue;
+            };
+            match thing {
+                Endpoint::Element(e) => {
+                    if let Some(el) = self.doc.elements.get_mut(e).filter(|el| el.color.is_none()) {
+                        el.color = Some(color.clone());
+                    }
+                }
+                Endpoint::Package(p) => {
+                    if let Some(pk) = self.doc.packages.get_mut(p).filter(|p| p.color.is_none()) {
+                        pk.color = Some(color.clone());
+                    }
+                }
+            }
+        }
+        if let Some(color) = self.skin.get("note") {
+            for el in self.doc.elements.values_mut() {
+                if el.kind == ElementKind::Note && el.color.is_none() {
+                    el.color = Some(color.clone());
+                }
+            }
+        }
     }
 
     fn try_element(&mut self, t: &str) -> bool {
@@ -1974,6 +2144,7 @@ impl Importer {
             }
         }
         let mut stereotype = None;
+        let mut color = None;
         let mut tags: Vec<String> = Vec::new();
         let mut parents: Vec<(RelationKind, String)> = Vec::new();
         loop {
@@ -1999,7 +2170,9 @@ impl Importer {
                     });
                 }
             } else if r.starts_with('#') {
+                let start = c.pos;
                 skip_token(&mut c);
+                color = paint_of(&t[start..c.pos]).or(color);
             } else if r.starts_with('$') {
                 // `class A $tag`: tags, for `hide $tag`.
                 let start = c.pos;
@@ -2075,6 +2248,7 @@ impl Importer {
             || keyword_stereo
                 .as_deref()
                 .is_some_and(|k| k == "object" || CONTAINERS.contains(&k) || BOXES.contains(&k));
+        let keyword = keyword_stereo.clone().unwrap_or_else(|| "class".into());
         let id = self.declare_where(
             kind,
             &code,
@@ -2082,6 +2256,10 @@ impl Importer {
             stereotype.or(keyword_stereo),
             anywhere,
         );
+        self.keyword_of.insert(Endpoint::Element(id), keyword);
+        if color.is_some() {
+            self.doc.elements.get_mut(&id).unwrap().color = color;
+        }
         if !more.is_empty() {
             let el = self.doc.elements.get_mut(&id).unwrap();
             el.members.extend(more.into_iter().map(Member::plain));
@@ -2188,11 +2366,12 @@ impl Importer {
             } else {
                 None
             };
-            skip_decorations(&mut c);
+            let color = decorations(&mut c);
             if !c.at_end() {
                 return false;
             }
-            self.new_note(alias, &text);
+            let id = self.new_note(alias, &text);
+            self.doc.elements.get_mut(&id).unwrap().color = color;
             return true;
         }
         // note as N ... end note
@@ -2200,8 +2379,9 @@ impl Importer {
             let Some(alias) = decl_name(&mut c) else {
                 return false;
             };
-            skip_decorations(&mut c);
+            let color = decorations(&mut c);
             let id = self.new_note(Some(alias), "");
+            self.doc.elements.get_mut(&id).unwrap().color = color;
             self.mode = Some(Mode::Note {
                 id: Some(id),
                 lines: Vec::new(),
@@ -2240,7 +2420,7 @@ impl Importer {
         } else {
             None
         };
-        skip_decorations(&mut c);
+        let color = decorations(&mut c);
         // `note right of X {` … `}`: the text in braces.
         let braces = c.rest().trim() == "{";
         let text = if c.eat(":") {
@@ -2251,6 +2431,7 @@ impl Importer {
             return false;
         };
         let id = self.new_note(None, text.as_deref().unwrap_or(""));
+        self.doc.elements.get_mut(&id).unwrap().color = color;
         match target {
             Some(target) => {
                 let t = self.resolve_end(self.container(), &target);
@@ -2739,6 +2920,7 @@ impl Importer {
         self.doc.trailing_comments.append(&mut self.comments);
         self.stack.clear();
 
+        self.apply_skin();
         self.apply_visibility();
         for (_, text) in std::mem::take(&mut self.legends) {
             let id = self.new_local(None, ElementKind::Note, "Legend");
@@ -3439,19 +3621,55 @@ fn skip_token(c: &mut Cursor) {
 
 /// Stereotypes and colours after a package or note name.
 fn skip_decorations(c: &mut Cursor) {
+    decorations(c);
+}
+
+/// Skips the stereotypes, colours and `$tags` after a name, and returns the
+/// background colour among them.
+fn decorations(c: &mut Cursor) -> Option<String> {
+    let mut color = None;
     loop {
         c.skip_ws();
         if c.rest().starts_with("<<") {
             if stereo(c).is_none() {
-                return;
+                return color;
             }
         } else if c.rest().starts_with('#') || c.rest().starts_with('$') {
-            // A colour, or a `$tag`.
+            let start = c.pos;
             skip_token(c);
+            color = paint_of(&c.s[start..c.pos]).or(color);
         } else {
-            return;
+            return color;
         }
     }
+}
+
+/// The background colour a PlantUML colour token sets, in lower case
+/// without `#`: `#LightBlue`, `#AABBCC`, `#back:lightblue;line:red`,
+/// `#transparent`, the first colour of a gradient `#Gold/Red`. None for a
+/// border or line style (`##red`, `#line.dashed`, `#line:red`) or a `$tag`.
+fn paint_of(token: &str) -> Option<String> {
+    let t = token.trim().strip_prefix('#')?;
+    if t.starts_with('#') {
+        return None;
+    }
+    let mut out = None;
+    for part in t.split(';') {
+        let part = part.trim();
+        match part.split_once(':') {
+            Some((k, v))
+                if k.eq_ignore_ascii_case("back") || k.eq_ignore_ascii_case("background") =>
+            {
+                out = Some(v.trim())
+            }
+            Some(_) => {}
+            None if !part.contains('.') && out.is_none() => out = Some(part),
+            None => {}
+        }
+    }
+    let v = out?.trim_start_matches('#');
+    let v = v.split(['/', '|', '\\', '-']).next()?;
+    (!v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric())).then(|| v.to_ascii_lowercase())
 }
 
 /// Reads a PlantUML arrow such as `-->`, `<|--`, `.left.>`,
@@ -4491,6 +4709,32 @@ User -[#red]-> [Mail]
                 rel(d, from, to);
             }
         }
+    }
+
+    #[test]
+    fn colours_of_boxes_and_groups_are_read() {
+        let src = "skinparam packageBackgroundColor transparent\nskinparam rectangle {\n  BackgroundColor Gold\n  FontColor red\n}\n<style>\nnote {\n  BackGroundColor #FFEEAA\n}\n</style>\npackage Plain {\n  component X #LightBlue\n}\npackage Own #Pink {\n  class Y #back:AABBCC;line:red\n}\nrectangle \"Group\" as g {\n  class Z ##red\n}\nnode Server #Gold/Red {\n}\nnote right of Y #yellow\n  y\nend note\nnote left of Z\n  z\nend note\n";
+        let p = import(src);
+        assert_eq!(p.problems, vec![], "{:?}", p.problems);
+        let d = &p.doc;
+        let pkg = |n: &str| d.packages[&d.find_package(n).unwrap()].color.clone();
+        // From skinparam, unless the group has its own colour.
+        assert_eq!(pkg("Plain").as_deref(), Some("transparent"));
+        assert_eq!(pkg("Own").as_deref(), Some("pink"));
+        assert_eq!(pkg("Group").as_deref(), Some("gold"));
+        // A gradient's first colour; a border colour is not a fill.
+        assert_eq!(pkg("Server").as_deref(), Some("gold"));
+        assert_eq!(el(d, "Plain.X").color.as_deref(), Some("lightblue"));
+        assert_eq!(el(d, "Own.Y").color.as_deref(), Some("aabbcc"));
+        assert_eq!(el(d, "Group.Z").color, None);
+        let notes: Vec<Option<String>> = d
+            .elements
+            .values()
+            .filter(|e| e.kind == ElementKind::Note)
+            .map(|e| e.color.clone())
+            .collect();
+        assert!(notes.contains(&Some("yellow".into())), "{notes:?}");
+        assert!(notes.contains(&Some("ffeeaa".into())), "{notes:?}");
     }
 
     #[test]

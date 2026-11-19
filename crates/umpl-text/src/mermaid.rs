@@ -49,6 +49,18 @@ pub fn export(doc: &Document) -> String {
     for id in doc.elements_in_order() {
         w.note(id);
     }
+    // Colours the user gave classes.
+    for id in doc.elements_in_order() {
+        let el = &doc.elements[&id];
+        if let (Some(c), Some((mid, _))) = (&el.color, w.ids.get(&id)) {
+            let css = if matches!(c.len(), 3 | 6) && c.chars().all(|c| c.is_ascii_hexdigit()) {
+                format!("#{c}")
+            } else {
+                c.clone()
+            };
+            w.out.push_str(&format!("    style {mid} fill:{css}\n"));
+        }
+    }
     for c in &doc.trailing_comments {
         w.out.push_str(&format!("    %% {c}\n"));
     }

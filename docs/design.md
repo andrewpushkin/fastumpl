@@ -127,7 +127,7 @@ A document holds:
 - Notes, each with text and the element it is attached to.
 - A position for each element (top-left corner, in whole grid units). A position may be missing.
 
-Box sizes and line routes are never stored. They are always computed, which is why the same file always gives the same picture.
+Line routes are never stored, and box sizes only as a minimum the user resized a box to (the layout block's `size`); otherwise both are always computed, which is why the same file always gives the same picture. Text that a font would draw wider than measured is drawn a little smaller, so it always stays inside its box.
 
 Names are unique inside a package, and the full name (`billing.Invoice`) identifies an element in the file. A name may be any text: one that is not a plain word is quoted in paths (`billing."Order line"`). Renaming an element updates every relation and position that refers to it. Labels let several boxes show the same text (PlantUML's `class "Order" as O1` and `class "Order" as O2` are two classes): the names stay unique, the labels need not.
 
@@ -175,7 +175,8 @@ layout {
 Rules:
 
 - Relation arrows: `--|>` generalization, `..|>` realization, `--` association, `-->` directed association, `o--` aggregation, `*--` composition, `..>` dependency, `+--` nesting (an inner class), `..` a note's or association class's dashed line. Either end may name a package.
-- Declarations: `class "Order line"<T> as "Line of an order" <<entity>> { … }`: a quoted name, type parameters, a label after `as`, a stereotype. `diamond A` is the point an association class hangs from.
+- Declarations: `class "Order line"<T> as "Line of an order" <<entity>> #lightblue { … }`: a quoted name, type parameters, a label after `as`, a stereotype, a fill colour (a CSS name, `#rgb`, `#rrggbb` or `transparent`; packages and notes take one too). `diamond A` is the point an association class hangs from.
+- A layout line may carry the size a box was resized to: `Order at 24, 8 size 30, 12`. Sizes, like positions, are layout: the box is at least that big, and still as big as its text needs. Box sizes are otherwise computed, never stored.
 - The `layout` block is optional and comes last. Its lines are sorted by name. Meaning stays at the top of the file and geometry at the bottom, so a diff shows clearly whether a change was to the model or only to the picture.
 - An element with no line in the `layout` block gets placed automatically when the file opens. A file with no `layout` block at all gets a full Tidy. This makes hand-written files work.
 - Comments start with `#` and are kept. A comment belongs to the declaration that follows it and moves with it.

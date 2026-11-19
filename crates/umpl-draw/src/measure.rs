@@ -22,7 +22,34 @@ pub const MIN_W_UNITS: i32 = 10;
 pub const DIAMOND_UNITS: i32 = 3;
 
 pub fn text_width(text: &str, size: f32) -> f32 {
-    text.chars().count() as f32 * ADVANCE * size
+    text.chars().map(cells).sum::<u32>() as f32 * ADVANCE * size
+}
+
+/// How many monospace cells a character takes: two for the wide letters
+/// of Chinese, Japanese and Korean and for emoji (drawn from fallback
+/// fonts at about twice the width), none for combining marks and
+/// zero-width characters, four for a tab, else one.
+pub fn cells(c: char) -> u32 {
+    match c as u32 {
+        0x09 => 4,
+        0x0300..=0x036F | 0x200B..=0x200F | 0xFE00..=0xFE0F | 0x20D0..=0x20FF => 0,
+        0x1100..=0x115F
+        | 0x2E80..=0x303E
+        | 0x3041..=0x33FF
+        | 0x3400..=0x4DBF
+        | 0x4E00..=0x9FFF
+        | 0xA000..=0xA4CF
+        | 0xAC00..=0xD7A3
+        | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F
+        | 0xFF00..=0xFF60
+        | 0xFFE0..=0xFFE6
+        | 0x1F300..=0x1F64F
+        | 0x1F900..=0x1F9FF
+        | 0x20000..=0x2FFFD
+        | 0x30000..=0x3FFFD => 2,
+        _ => 1,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +70,8 @@ pub struct BoxContent {
     /// Non-empty compartments under the name (attributes, operations; or
     /// literals for an enum). Notes keep their text here, one compartment.
     pub compartments: Vec<Vec<MemberLine>>,
+    /// The colour the user gave the box (see [`umpl_core::Element::color`]).
+    pub color: Option<String>,
 }
 
 impl BoxContent {
@@ -97,7 +126,7 @@ pub fn box_content(el: &Element) -> BoxContent {
                 t.push(' ');
             }
             t.push_str(&m.text);
-            t
+            t.replace('\t', "    ")
         },
         italic: m.is_abstract,
         underline: m.is_static,
@@ -107,7 +136,7 @@ pub fn box_content(el: &Element) -> BoxContent {
             .members
             .iter()
             .map(|m| MemberLine {
-                text: m.text.clone(),
+                text: m.text.replace('\t', "    "),
                 italic: false,
                 underline: false,
             })
@@ -127,6 +156,7 @@ pub fn box_content(el: &Element) -> BoxContent {
             .into_iter()
             .filter(|c: &Vec<MemberLine>| !c.is_empty())
             .collect(),
+        color: el.color.clone(),
     }
 }
 
@@ -142,6 +172,14 @@ pub fn label_size(text: &str) -> (i32, i32) {
 mod tests {
     use super::*;
     use umpl_core::Member;
+
+    #[test]
+    fn wide_letters_and_tabs_take_more_room() {
+        assert_eq!(text_width("ab", 10.0), 2.0 * ADVANCE * 10.0);
+        assert_eq!(text_width("日本", 10.0), 4.0 * ADVANCE * 10.0);
+        assert_eq!(text_width("a\tb", 10.0), 6.0 * ADVANCE * 10.0);
+        assert_eq!(text_width("e\u{301}", 10.0), ADVANCE * 10.0);
+    }
 
     #[test]
     fn box_size_grows_with_members() {

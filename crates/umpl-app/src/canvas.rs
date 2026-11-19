@@ -32,6 +32,9 @@ const CONNECT_KINDS: [RelationKind; 8] = [
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Hit {
     Handle(ElementId),
+    /// A corner of a selected box, to resize it: 0 top left, 1 top right,
+    /// 2 bottom right, 3 bottom left.
+    Corner(ElementId, u8),
     Element(ElementId),
     Relation(RelationId),
     Package(PackageId),
@@ -52,6 +55,16 @@ pub enum Drag {
     Connect {
         from: ElementId,
         current: (f32, f32),
+    },
+    /// Dragging a corner of box `id`: its place and size in grid units when
+    /// the drag began, and the least size its text needs.
+    Resize {
+        id: ElementId,
+        corner: u8,
+        start: (f32, f32),
+        rect: (i32, i32, i32, i32),
+        min: (i32, i32),
+        last: (i32, i32),
     },
 }
 
@@ -76,6 +89,8 @@ pub struct CanvasState {
     pub drag: Option<Drag>,
     pub edit: Option<InlineEdit>,
     pub connect: Option<ConnectMenu>,
+    /// What the context menu (a right click) is about.
+    pub context: Option<Hit>,
     hover: Option<ElementId>,
     /// The scroll bar thumbs as last painted: horizontal, then vertical.
     pub scroll_thumbs: [Option<Rect>; 2],
@@ -90,6 +105,7 @@ impl Default for CanvasState {
             drag: None,
             edit: None,
             connect: None,
+            context: None,
             hover: None,
             scroll_thumbs: [None, None],
             scroll_drag: None,
@@ -140,6 +156,67 @@ fn dist_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
 pub fn handles(r: RectF) -> [(f32, f32); 4] {
     let (cx, cy) = r.center();
     [(cx, r.y), (r.right(), cy), (cx, r.bottom()), (r.x, cy)]
+}
+
+/// Corners where a selected box can be resized: top left, top right,
+/// bottom right, bottom left.
+pub fn corners(r: RectF) -> [(f32, f32); 4] {
+    [
+        (r.x, r.y),
+        (r.right(), r.y),
+        (r.right(), r.bottom()),
+        (r.x, r.bottom()),
+    ]
+}
+
+/// The pointer shape over a box's `corner`.
+fn resize_cursor(corner: u8) -> CursorIcon {
+    if corner == 0 || corner == 2 {
+        CursorIcon::ResizeNwSe
+    } else {
+        CursorIcon::ResizeNeSw
+    }
+}
+
+/// Fill colours offered by the right-click menu, as written in files:
+/// two rows of pale ones, one of stronger ones.
+pub const SWATCHES: [&str; 18] = [
+    "lightyellow",
+    "wheat",
+    "peachpuff",
+    "mistyrose",
+    "lightpink",
+    "thistle",
+    "lavender",
+    "lightsteelblue",
+    "lightblue",
+    "lightcyan",
+    "honeydew",
+    "palegreen",
+    "gold",
+    "orange",
+    "tomato",
+    "orchid",
+    "cornflowerblue",
+    "mediumseagreen",
+];
+
+/// Where a box drawn at `rect` (grid units: x, y, w, h) goes when its
+/// `corner` is dragged by `d` grid units: never smaller than `min`, the
+/// opposite corner staying put.
+pub fn resized(
+    rect: (i32, i32, i32, i32),
+    corner: u8,
+    d: (i32, i32),
+    min: (i32, i32),
+) -> (i32, i32, i32, i32) {
+    let (x, y, w, h) = rect;
+    let (left, top) = (corner == 0 || corner == 3, corner == 0 || corner == 1);
+    let nw = if left { w - d.0 } else { w + d.0 }.max(min.0);
+    let nh = if top { h - d.1 } else { h + d.1 }.max(min.1);
+    let nx = if left { x + w - nw } else { x };
+    let ny = if top { y + h - nh } else { y };
+    (nx, ny, nw, nh)
 }
 
 /// Text for the inline member editor.
@@ -282,6 +359,18 @@ impl App {
 
     fn hit(&self, geo: &Geometry, world: (f32, f32), with_handles: bool) -> Hit {
         let z = self.camera.zoom;
+        if with_handles {
+            for (id, r) in geo.elements.iter().rev() {
+                if !self.sel.elements.contains(id) {
+                    continue;
+                }
+                for (k, c) in corners(*r).iter().enumerate() {
+                    if ((c.0 - world.0).powi(2) + (c.1 - world.1).powi(2)).sqrt() * z < 7.0 {
+                        return Hit::Corner(*id, k as u8);
+                    }
+                }
+            }
+        }
         // Any box's edge dots count, not only the hovered box's: by the
         // time a drag registers, the pointer has often left the box.
         if with_handles {
@@ -318,7 +407,7 @@ impl App {
 
     fn select_hit(&mut self, hit: Hit, shift: bool) {
         match hit {
-            Hit::Element(id) | Hit::Handle(id) => {
+            Hit::Element(id) | Hit::Handle(id) | Hit::Corner(id, _) => {
                 if shift {
                     toggle(&mut self.sel.elements, id);
                 } else {
@@ -522,6 +611,8 @@ impl App {
         // Cursor.
         match (&self.canvas.drag, hit_now, self.tool) {
             (Some(Drag::Move { .. }), _, _) => ctx.set_cursor_icon(CursorIcon::Grabbing),
+            (Some(Drag::Resize { corner: c, .. }), _, _) => ctx.set_cursor_icon(resize_cursor(*c)),
+            (None, Hit::Corner(_, c), _) => ctx.set_cursor_icon(resize_cursor(c)),
             (Some(Drag::Connect { .. }), _, _) | (None, Hit::Handle(_), _) => {
                 ctx.set_cursor_icon(CursorIcon::Crosshair)
             }
@@ -536,6 +627,27 @@ impl App {
         self.handle_drag(&ctx, &resp, &geo, shift);
         self.handle_clicks(&resp, &geo, shift);
 
+        // A right click (not a drag, which pans) opens a menu for the box
+        // or package under the pointer, selecting it unless it already is.
+        if resp.secondary_clicked() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let hit = self.hit(&geo, self.camera.to_world(p), false);
+                let selected = match hit {
+                    Hit::Element(id) => self.sel.elements.contains(&id),
+                    Hit::Package(id) => self.sel.packages.contains(&id),
+                    _ => true,
+                };
+                if !selected {
+                    self.select_hit(hit, false);
+                }
+                self.canvas.context = match hit {
+                    Hit::Element(_) | Hit::Package(_) => Some(hit),
+                    _ => None,
+                };
+            }
+        }
+        resp.context_menu(|ui| self.context_menu(ui));
+
         // Overlays: handles, drag feedback, guides.
         if self.tool == Tool::Select && self.canvas.drag.is_none() && self.canvas.edit.is_none() {
             let show: Vec<ElementId> = self.canvas.hover.into_iter().collect();
@@ -545,6 +657,23 @@ impl App {
                         let p = self.camera.to_screen(h);
                         painter.circle(p, 4.5, c32(theme.box_fill), Stroke::new(1.5, accent));
                     }
+                }
+            }
+        }
+        if self.tool == Tool::Select && self.canvas.edit.is_none() {
+            for (id, r) in &geo.elements {
+                if !self.sel.elements.contains(id) {
+                    continue;
+                }
+                for c in corners(*r) {
+                    let p = self.camera.to_screen(c);
+                    painter.rect(
+                        Rect::from_center_size(p, Vec2::splat(7.0)),
+                        1.0,
+                        c32(theme.box_fill),
+                        Stroke::new(1.5, accent),
+                        StrokeKind::Middle,
+                    );
                 }
             }
         }
@@ -576,7 +705,7 @@ impl App {
                 }
             }
             Some(Drag::Move { .. }) => self.paint_guides(&painter, &geo, accent),
-            None => {}
+            Some(Drag::Resize { .. }) | None => {}
         }
 
         self.paint_found(&painter);
@@ -725,6 +854,25 @@ impl App {
             }
             let s = self.session.as_ref().unwrap();
             self.canvas.drag = match (self.tool, hit) {
+                (Tool::Select, Hit::Corner(id, corner)) => {
+                    let d = &self.view.diagram;
+                    match (s.editor.doc.elements.get(&id), d.mapping.node_of(id)) {
+                        (Some(el), Some(i)) => {
+                            let (x, y) = d.layout.nodes[i];
+                            let n = &d.graph.nodes[i];
+                            let min = umpl_draw::measure::box_content(el).size();
+                            Some(Drag::Resize {
+                                id,
+                                corner,
+                                start: world,
+                                rect: (x, y, n.w, n.h),
+                                min,
+                                last: (0, 0),
+                            })
+                        }
+                        _ => None,
+                    }
+                }
                 (Tool::Relation, Hit::Element(id) | Hit::Handle(id))
                 | (Tool::Select, Hit::Handle(id)) => Some(Drag::Connect {
                     from: id,
@@ -796,6 +944,32 @@ impl App {
                 Some(Drag::Rubber { current, .. }) | Some(Drag::Connect { current, .. }) => {
                     *current = world
                 }
+                Some(Drag::Resize {
+                    id,
+                    corner,
+                    start,
+                    rect,
+                    min,
+                    last,
+                }) => {
+                    let d = (
+                        ((world.0 - start.0) / GRID).round() as i32,
+                        ((world.1 - start.1) / GRID).round() as i32,
+                    );
+                    if d != *last {
+                        *last = d;
+                        let (x, y, w, h) = resized(*rect, *corner, d, *min);
+                        // At the size the text needs, the box fits its text
+                        // again: no size is kept.
+                        let size = ((w, h) != *min).then_some((w, h));
+                        let id = *id;
+                        if let Some(s) = &mut self.session {
+                            s.editor
+                                .resize_element(id, Pos::new(x, y), size, Some("resize"));
+                            self.view.sync(&mut s.editor);
+                        }
+                    }
+                }
                 None => {}
             }
             // Keep the pointer in view by panning at the edges.
@@ -823,6 +997,15 @@ impl App {
 
         if resp.drag_stopped_by(PointerButton::Primary) {
             match self.canvas.drag.take() {
+                Some(Drag::Resize { last, .. }) => {
+                    if let Some(s) = &mut self.session {
+                        s.editor.seal();
+                        self.view.sync(&mut s.editor);
+                        if last != (0, 0) {
+                            self.view.reroute_all();
+                        }
+                    }
+                }
                 Some(Drag::Move { last, .. }) => {
                     if let Some(s) = &mut self.session {
                         s.editor.seal();
@@ -887,6 +1070,85 @@ impl App {
                 }
                 None => {}
             }
+        }
+    }
+
+    /// The right-click menu: colours, size and delete for what was clicked
+    /// (and the rest of the selection it belongs to); Tidy and Fit on empty
+    /// space.
+    fn context_menu(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let Some(hit) = self.canvas.context else {
+            for cmd in [crate::commands::Cmd::Tidy, crate::commands::Cmd::Fit] {
+                if ui.button(cmd.label()).clicked() {
+                    ui.close();
+                    self.run(&ctx, cmd);
+                }
+            }
+            return;
+        };
+        let (elements, packages) = (self.sel.elements.clone(), self.sel.packages.clone());
+        let mut color: Option<Option<String>> = None;
+        ui.label(egui::RichText::new("Colour").weak());
+        egui::Grid::new("swatches")
+            .spacing([4.0, 4.0])
+            .show(ui, |ui| {
+                for (k, name) in SWATCHES.iter().enumerate() {
+                    let fill = match umpl_draw::theme::parse_paint(name) {
+                        Some(umpl_draw::theme::Paint::Color(c)) => c32(c),
+                        _ => Color32::TRANSPARENT,
+                    };
+                    let (rect, r) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::click());
+                    let stroke = if r.hovered() {
+                        Stroke::new(2.0, ui.visuals().strong_text_color())
+                    } else {
+                        Stroke::new(1.0, ui.visuals().weak_text_color())
+                    };
+                    ui.painter()
+                        .rect(rect, 3.0, fill, stroke, StrokeKind::Inside);
+                    if r.on_hover_text(*name).clicked() {
+                        color = Some(Some(name.to_string()));
+                    }
+                    if k % 6 == 5 {
+                        ui.end_row();
+                    }
+                }
+            });
+        if ui.button("Transparent").clicked() {
+            color = Some(Some("transparent".into()));
+        }
+        if ui.button("Default colour").clicked() {
+            color = Some(None);
+        }
+        if let Some(c) = color {
+            ui.close();
+            if let Some(s) = &mut self.session {
+                s.editor.set_color(&elements, &packages, c);
+                self.view.sync(&mut s.editor);
+            }
+            return;
+        }
+        if let Hit::Element(id) = hit {
+            ui.separator();
+            let resized = self
+                .session
+                .as_ref()
+                .and_then(|s| s.editor.doc.elements.get(&id))
+                .and_then(|e| Some((e.size?, e.pos?)));
+            let fit = ui.add_enabled(resized.is_some(), egui::Button::new("Fit size to text"));
+            if fit.clicked() {
+                ui.close();
+                if let (Some((_, pos)), Some(s)) = (resized, &mut self.session) {
+                    s.editor.resize_element(id, pos, None, None);
+                    self.view.sync(&mut s.editor);
+                    self.view.reroute_all();
+                }
+            }
+        }
+        ui.separator();
+        if ui.button("Delete").clicked() {
+            ui.close();
+            self.run(&ctx, crate::commands::Cmd::Delete);
         }
     }
 
