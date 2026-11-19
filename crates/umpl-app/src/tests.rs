@@ -31,6 +31,12 @@ fn new_app() -> Harness<'static, App> {
         .with_size(Vec2::new(1200.0, 800.0))
         .with_step_dt(1.0 / 60.0)
         .build_eframe(|cc| App::new(cc, None));
+    // Settings a test changes go to a folder of its own: the shared one
+    // stays empty, so every app starts from the defaults, whatever the
+    // tests running beside it do.
+    static APPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = APPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    own_settings(&mut h, &format!("app{n}"));
     let ctx = h.ctx.clone();
     h.state_mut().perform(&ctx, Pending::New);
     h.run_steps(3);
@@ -948,7 +954,7 @@ fn layout_goal_is_chosen_in_the_arrange_menu_and_saved() {
     h.run_steps(2);
     assert_eq!(h.state().layout_goal, umpl_layout::Goal::FillView);
     let saved = h.state().storage.load_setting("layout");
-    // Back to the default, which the other tests expect.
+    // Back to the default, saved as well.
     let ctx = h.ctx.clone();
     h.state_mut()
         .run(&ctx, Cmd::LayoutGoal(umpl_layout::Goal::FewestCrossings));
