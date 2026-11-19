@@ -9,8 +9,10 @@ mod editor;
 mod model;
 mod ops;
 mod reconcile;
+pub mod sequence;
 
 pub use editor::{valid_name, Editor};
 pub use model::*;
 pub use ops::{Op, Slot};
 pub use reconcile::{reconcile, Removed};
+pub use sequence::Sequence;

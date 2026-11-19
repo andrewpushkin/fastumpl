@@ -4,6 +4,10 @@ use crate::scan::quote;
 
 /// Writes a document in the canonical `.umpl` style.
 pub fn print(doc: &Document) -> String {
+    // A sequence diagram is kept as PlantUML text: it has no positions.
+    if doc.sequence.is_some() {
+        return crate::plantuml::export(doc);
+    }
     let mut out = print_model(doc);
     // Full name, position, and the size a box was resized to.
     type Placed = (String, Pos, Option<(i32, i32)>);
@@ -38,6 +42,9 @@ pub fn print(doc: &Document) -> String {
 
 /// The model part of [`print`]: everything except the `layout` block.
 pub fn print_model(doc: &Document) -> String {
+    if doc.sequence.is_some() {
+        return crate::plantuml::export(doc);
+    }
     let mut out = String::new();
     if let Some(t) = &doc.title {
         out.push_str("diagram ");

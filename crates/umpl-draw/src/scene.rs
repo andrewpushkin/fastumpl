@@ -77,7 +77,7 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
-    fn new(size: f32, color: Color) -> TextStyle {
+    pub(crate) fn new(size: f32, color: Color) -> TextStyle {
         TextStyle {
             size,
             bold: false,
@@ -294,8 +294,12 @@ fn kind_letter(k: ElementKind) -> &'static str {
     }
 }
 
-/// Builds the shape list for `diagram` (whose layout must be current).
+/// Builds the shape list for `diagram` (whose layout must be current). A
+/// sequence diagram is drawn from the document alone.
 pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &SceneOptions) -> Scene {
+    if let Some(seq) = &doc.sequence {
+        return crate::sequence::scene(seq, doc.title.as_deref(), theme);
+    }
     let (graph, mapping, layout) = (&diagram.graph, &diagram.mapping, &diagram.layout);
     let mut s = Scene::default();
 
@@ -583,8 +587,8 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
 }
 
 /// The diagram title above the drawing.
-const TITLE_SIZE: f32 = 20.0;
-const TITLE_ROOM: f32 = 44.0;
+pub(crate) const TITLE_SIZE: f32 = 20.0;
+pub(crate) const TITLE_ROOM: f32 = 44.0;
 
 /// Points around an ellipse.
 fn ellipse(c: (f32, f32), rx: f32, ry: f32, from: f32, to: f32, n: usize) -> Vec<(f32, f32)> {
@@ -845,7 +849,13 @@ fn draw_shape(
     }
 }
 
-fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hide_members: bool) {
+pub(crate) fn draw_box(
+    shapes: &mut Vec<Shape>,
+    c: &BoxContent,
+    r: RectF,
+    theme: &Theme,
+    hide_members: bool,
+) {
     if let Look::Shape(kind) = c.look {
         return draw_shape(shapes, c, kind, r, theme, hide_members);
     }

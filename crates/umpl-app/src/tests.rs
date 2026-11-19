@@ -1326,7 +1326,7 @@ fn a_file_with_several_diagrams_asks_which_to_open() {
     let path = dir.join("many.puml");
     std::fs::write(
         &path,
-        "@startuml model\nclass A\n@enduml\n@startuml\nAlice -> Bob : hi\n@enduml\n@startuml\nclass B\nnewpage\nclass C\n@enduml\n",
+        "@startuml model\nclass A\n@enduml\n@startuml\nstart\n:step;\nstop\n@enduml\n@startuml\nclass B\nnewpage\nclass C\n@enduml\n",
     )
     .unwrap();
     let mut h = new_app();
@@ -1338,8 +1338,8 @@ fn a_file_with_several_diagrams_asks_which_to_open() {
         _ => panic!("no choice of diagram"),
     };
     assert_eq!(list.len(), 4);
-    // The sequence diagram is listed but cannot be opened.
-    let seq = h.get_by_label_contains("sequence diagram (not read)");
+    // The activity diagram is listed but cannot be opened.
+    let seq = h.get_by_label_contains("activity diagram (not read)");
     assert!(seq.accesskit_node().is_disabled());
     h.get_by_label_contains("Diagram 4").click();
     h.run_steps(3);
@@ -1354,29 +1354,49 @@ fn a_file_with_several_diagrams_asks_which_to_open() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A sequence diagram opens and is drawn; the canvas adds nothing to it,
+/// and the status bar counts its participants and messages.
 #[test]
-fn opening_a_sequence_diagram_says_what_it_is() {
+fn a_sequence_diagram_opens_and_is_drawn() {
     let dir = std::env::temp_dir().join(format!("fastumpl-seq-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("flow.puml");
     std::fs::write(
         &path,
-        "@startuml\nAlice -> Bob : hello\nactivate Bob\n@enduml\n",
+        "@startuml\nAlice -> Bob : hello\nactivate Bob\nBob --> Alice : hi\n@enduml\n",
     )
     .unwrap();
     let mut h = new_app();
-    add(&mut h, "Kept", 0, 0);
     let ctx = h.ctx.clone();
     h.state_mut().open_path(&ctx, &path);
     h.run_steps(3);
-    match &h.state().dialog {
-        Some(crate::app::Dialog::Message(_, m)) => {
-            assert!(m.contains("This is a sequence diagram"), "{m}")
+    assert!(h.state().dialog.is_none());
+    assert!(h.state().is_sequence());
+    let seq = doc_of(&h).sequence.clone().unwrap();
+    assert_eq!(seq.participants.len(), 2);
+    let _ = h.get_by_label("2 participants");
+    let _ = h.get_by_label("2 messages");
+    // Drawn: the names show on the canvas, at the top and the bottom.
+    let scene = h.state_mut().view_scene_texts();
+    assert_eq!(scene.iter().filter(|t| *t == "Alice").count(), 2);
+    assert!(scene.iter().any(|t| t == "hello"));
+    // A double-click on empty canvas adds no class.
+    let r = h.state().canvas.rect;
+    h.get_by_label("Canvas").hover();
+    let at = r.center() + egui::vec2(0.0, r.height() * 0.4);
+    h.event(egui::Event::PointerMoved(at));
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
         }
-        _ => panic!("no message"),
     }
-    // The open diagram stays.
-    assert!(doc_of(&h).find("Kept").is_some());
+    h.run_steps(3);
+    assert!(doc_of(&h).elements.is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }
 

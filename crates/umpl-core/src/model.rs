@@ -447,6 +447,9 @@ pub struct Document {
     /// Laid out left to right (PlantUML's `left to right direction`),
     /// not top to bottom.
     pub left_to_right: bool,
+    /// A sequence diagram instead of boxes and lines (it then has no
+    /// elements, relations or packages).
+    pub sequence: Option<crate::Sequence>,
     pub elements: BTreeMap<ElementId, Element>,
     pub relations: BTreeMap<RelationId, Relation>,
     pub packages: BTreeMap<PackageId, Package>,

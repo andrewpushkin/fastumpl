@@ -318,6 +318,14 @@ Tried and rejected, so they need not be tried again:
 - **Folding children inside packages at the usual width:** small families of three or four subclasses split into rows for no gain (banking 199 → 220, same crossings).
 - **Bounded routing by line count (over 300 lines):** the 972-class diagram, which routes fully in 1.7 s, got 1692 shared lanes. Only the grid size predicts the cost.
 
+### 6.9 Sequence diagrams
+
+Added on 2026-11-19. A PlantUML sequence diagram is kept as written: its participants in order and a list of steps (messages, notes, fragment starts, `else` and ends, dividers, delays, spaces, activations, destroys, refs, `autonumber`), in `Document::sequence`. It has no stored positions: the drawing follows from the order, so the file is the PlantUML text itself (`.umpl` and the text panel hold that text; reading text that starts with `@start` reads it as PlantUML). Undo replaces the sequence as a whole.
+
+Drawing (`umpl-draw/src/sequence.rs`): each step gets its own row, as tall as its text, so rows never overlap. Columns: the least distance between lifeline i and j (i < j) is the widest of what must fit between them, the two boxes with a gap, a message's label between them, a note beside one, a self-call's label; lifelines are then placed left to right, each as far left as every need towards a lifeline before it allows (longest path in a graph whose edges all point right). A label that crosses the lifelines of participants between its ends sits on a patch of the background. Fragment frames take the width of what is drawn inside them; nested frames sit inside their parent's. The canvas fits a sequence diagram's width and shows its top; it is read-only (edited as text).
+
+Measured on the 164 sequence diagrams of the PlantUML corpus that PlantUML reads without error: every one opens without a problem, has as many participants as PlantUML finds, and reads back the same after being written as PlantUML.
+
 ## 7. Visual style
 
 Clean layout is most of beauty. The rest is consistent drawing.

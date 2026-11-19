@@ -103,6 +103,11 @@ struct Parser {
 
 /// Parses a `.umpl` file. Never fails; see [`Parsed::problems`].
 pub fn parse(src: &str) -> Parsed {
+    // PlantUML text (how a sequence diagram is kept, or pasted in): read
+    // as PlantUML.
+    if src.trim_start().starts_with("@start") {
+        return crate::plantuml::import(src);
+    }
     let mut p = Parser::default();
     for (i, line) in src.lines().enumerate() {
         p.last_line = i + 1;

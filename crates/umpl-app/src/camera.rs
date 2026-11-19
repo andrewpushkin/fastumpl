@@ -84,6 +84,29 @@ impl Camera {
             center.y - (bounds.y + bounds.h / 2.0) * self.zoom,
         );
     }
+
+    /// Shows `bounds` as a page to read down: its whole width (at most at
+    /// 100 %), from its top. A short drawing is fitted whole.
+    pub fn fit_width(&mut self, bounds: RectF, view: Rect) {
+        self.fit(bounds, view);
+        if bounds.w <= 0.0 || bounds.h <= 0.0 {
+            return;
+        }
+        let zx = ((view.width() - 2.0 * FIT_MARGIN) / bounds.w).clamp(MIN_ZOOM, 1.0);
+        if bounds.h * zx <= view.height() - 2.0 * FIT_MARGIN {
+            self.zoom = self.zoom.min(1.0);
+        } else {
+            self.zoom = zx;
+        }
+        self.origin = Pos2::new(
+            view.center().x - (bounds.x + bounds.w / 2.0) * self.zoom,
+            if bounds.h * self.zoom <= view.height() - 2.0 * FIT_MARGIN {
+                view.center().y - (bounds.y + bounds.h / 2.0) * self.zoom
+            } else {
+                view.min.y + FIT_MARGIN - bounds.y * self.zoom
+            },
+        );
+    }
 }
 
 #[cfg(test)]

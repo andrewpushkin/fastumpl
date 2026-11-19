@@ -369,6 +369,31 @@ impl App {
 
     fn diagram_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &mut self.session else { return };
+        if let Some(seq) = &s.editor.doc.sequence {
+            ui.heading("Sequence diagram");
+            ui.add_space(6.0);
+            egui::Grid::new("seq-stats")
+                .num_columns(2)
+                .spacing([16.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("Participants");
+                    ui.label(seq.participants.len().to_string());
+                    ui.end_row();
+                    ui.label("Messages");
+                    ui.label(seq.messages().count().to_string());
+                    ui.end_row();
+                });
+            ui.add_space(14.0);
+            ui.label(RichText::new("Tips").strong());
+            for tip in [
+                "Edit it in the text (View → Text or Both): the drawing follows.",
+                "Save keeps it as PlantUML text.",
+                "Right- or middle-drag pans; Ctrl+scroll zooms.",
+            ] {
+                ui.label(RichText::new(format!("• {tip}")).weak());
+            }
+            return;
+        }
         ui.heading("Diagram");
         ui.add_space(6.0);
         ui.label("Title");

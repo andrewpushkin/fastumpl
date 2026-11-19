@@ -11,6 +11,7 @@ pub mod measure;
 #[cfg(feature = "png")]
 pub mod png;
 pub mod scene;
+pub mod sequence;
 pub mod svg;
 pub mod theme;
 

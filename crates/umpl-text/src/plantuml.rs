@@ -15,15 +15,19 @@ use crate::scan::Cursor;
 
 mod kind;
 mod preprocess;
+mod sequence;
 
 pub use kind::{diagram_kind, DiagramKind};
 pub use preprocess::Reader;
 
 // ----- export ---------------------------------------------------------------
 
-/// Writes `doc` as a PlantUML class diagram. Positions are not written:
-/// PlantUML lays diagrams out itself.
+/// Writes `doc` as a PlantUML class diagram (or sequence diagram).
+/// Positions are not written: PlantUML lays diagrams out itself.
 pub fn export(doc: &Document) -> String {
+    if let Some(seq) = &doc.sequence {
+        return sequence::print(seq, doc.title.as_deref());
+    }
     let mut w = Exporter {
         doc,
         refs: reference_names(doc),
@@ -458,6 +462,9 @@ pub fn import_nth(src: &str, dir: Option<&Path>, read: Reader, n: usize) -> Pars
     im.problems.extend(problems);
     im.libraries = libraries;
     im.description = kind == DiagramKind::Description;
+    if kind == DiagramKind::Sequence {
+        im.seq = Some(sequence::SeqState::new());
+    }
     let mut k = 0;
     while k < pre.len() {
         let l = &pre[k];
@@ -662,6 +669,8 @@ const BOX_PARTS: [&str; 14] = [
 
 enum Mode {
     Normal,
+    /// A block of a sequence diagram (a note, a ref, a participant).
+    Seq(sequence::SeqMode),
     Body {
         id: ElementId,
         is_enum: bool,
@@ -754,6 +763,8 @@ struct Importer {
     /// `hide`/`remove` (false) and `show`/`restore` (true) of elements, in
     /// file order: line, show, target.
     shown: Vec<(usize, bool, String)>,
+    /// Reading a sequence diagram.
+    seq: Option<sequence::SeqState>,
     /// `$tags` of elements, for `hide $tag`.
     tags: HashMap<ElementId, Vec<String>>,
     /// Text of each `legend`, with its line.
@@ -1340,6 +1351,7 @@ impl Importer {
                 }
             }
             Mode::Map(id) => self.map_line(t, id),
+            Mode::Seq(m) => self.seq_mode_line(t, m),
             Mode::NoteBraces(id, mut lines) => {
                 if t.trim() == "}" {
                     self.finish_note(Some(id), lines);
@@ -1582,6 +1594,19 @@ impl Importer {
             self.stack.pop();
             return;
         }
+        if self.seq.is_some() {
+            // Its own statements, then the lines every diagram has.
+            let lower = lowercase_keyword(t);
+            let read = self.seq_statement(t)
+                || (lower != t && self.seq_statement(&lower))
+                || self.try_title(t)
+                || self.try_skipped(n, t)
+                || (lower != t && (self.try_title(&lower) || self.try_skipped(n, &lower)));
+            if !read {
+                self.problem(n, "not understood; skipped");
+            }
+            return;
+        }
         if self.statement(n, t) {
             return;
         }
@@ -1714,7 +1739,15 @@ impl Importer {
         // `footer "Page 1"`, `caption "…"`: text, not a relation.
         // `footer "Page 1"`, `caption <b>Zones</b>`, `hide *`: not relations.
         let text_line = [
-            "footer", "header", "caption", "legend", "hide", "show", "remove", "restore",
+            "footer",
+            "header",
+            "caption",
+            "legend",
+            "hide",
+            "show",
+            "remove",
+            "restore",
+            "mainframe",
         ]
         .iter()
         .any(|w| first.eq_ignore_ascii_case(w))
@@ -2941,7 +2974,25 @@ impl Importer {
             }
             Some(Mode::Title(lines)) => self.doc.title = Some(lines.join("\n")),
             Some(Mode::Text(what, lines)) => self.finish_text(line, what, lines),
+            Some(Mode::Seq(m)) => {
+                let what = self.seq_unfinished(m);
+                self.problem(line, what);
+            }
             _ => {}
+        }
+        if let Some(st) = self.seq.take() {
+            let mut seq = st.finish();
+            // A legend goes under the diagram, across it.
+            for (_, text) in std::mem::take(&mut self.legends) {
+                seq.steps.push(umpl_core::sequence::Step::Note {
+                    at: umpl_core::sequence::NoteAt::Across,
+                    text,
+                    shape: umpl_core::sequence::NoteShape::Rectangle,
+                    color: None,
+                    beside_previous: false,
+                });
+            }
+            self.doc.sequence = Some(seq);
         }
         // Packages still open end with the diagram, as in PlantUML.
         // Comments after the last declaration stay at the end, not with a
@@ -4952,12 +5003,76 @@ Rel_Back(api, user, "Replies")
 
     #[test]
     fn other_kinds_of_diagram_are_not_read() {
-        let p = import("@startuml\nAlice -> Bob : hello\nactivate Bob\n@enduml\n");
+        let p = import("@startuml\nstart\n:step;\nstop\n@enduml\n");
         assert!(p.doc.elements.is_empty());
         assert_eq!(p.problems.len(), 1);
-        assert!(p.problems[0].message.contains("sequence diagram"));
+        assert!(p.problems[0].message.contains("activity diagram"));
         let p = import("@startmindmap\n* root\n@endmindmap\n");
         assert!(p.problems[0].message.contains("mindmap"));
+    }
+
+    /// A sequence diagram: participants in order, messages with their
+    /// arrows, notes, fragments, activations, `return`, and a participant
+    /// created part way; written back, it reads the same.
+    #[test]
+    fn sequence_diagrams_are_read_and_written() {
+        use umpl_core::sequence::*;
+        let src = "@startuml\ntitle Login\nactor User\nparticipant \"Web App\" as web #lightblue\nautonumber\nUser -> web ++ : log in\\nnow\nweb -> DB : SELECT\nDB --> web\nalt ok\n  web -->> User : hi\nelse no\n  web ->x User\nend\nnote right of web : checks\nnote over User, DB\n  two\n  lines\nend note\nreturn done\n== Later ==\n...\ncreate Session\nweb -> Session ** : new\n[-> User : from outside\nUser <- DB : back\n@enduml\n";
+        let p = import(src);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        let seq = p.doc.sequence.as_ref().expect("a sequence diagram");
+        assert_eq!(p.doc.title.as_deref(), Some("Login"));
+        let names: Vec<&str> = seq.participants.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["User", "web", "DB", "Session"]);
+        assert_eq!(seq.participants[0].kind, ParticipantKind::Actor);
+        assert_eq!(seq.participants[1].shown, "Web App");
+        assert_eq!(seq.participants[1].color.as_deref(), Some("lightblue"));
+        assert!(seq.participants[3].created);
+        let msgs: Vec<&Message> = seq.messages().collect();
+        assert_eq!(msgs.len(), 9);
+        assert_eq!(msgs[0].text, "log in\nnow");
+        assert!(msgs[2].dashed);
+        assert_eq!(msgs[3].head, Head::Open);
+        assert_eq!(msgs[4].head, Head::Lost);
+        // `return`: back from web, the one called, to User.
+        assert_eq!(msgs[5].from, Some(MessageEnd::Participant(1)));
+        assert_eq!(msgs[5].to, Some(MessageEnd::Participant(0)));
+        assert_eq!(msgs[7].from, Some(MessageEnd::Left));
+        // `User <- DB`: DB sends.
+        assert_eq!(msgs[8].from, Some(MessageEnd::Participant(2)));
+        assert!(seq.steps.contains(&Step::Activate {
+            who: 1,
+            color: None
+        }));
+        assert!(seq.steps.contains(&Step::Divider("Later".into())));
+        assert!(seq.steps.iter().any(
+            |s| matches!(s, Step::Note { at: NoteAt::Over(0, 2), text, .. } if text == "two\nlines")
+        ));
+        assert_eq!(
+            seq.steps
+                .iter()
+                .filter(|s| matches!(s, Step::FragmentStart { .. }))
+                .count(),
+            1
+        );
+        // Written back as PlantUML, it reads the same.
+        let again = import(&export(&p.doc));
+        assert!(again.problems.is_empty(), "{:?}", again.problems);
+        assert_eq!(again.doc.sequence, p.doc.sequence);
+        assert_eq!(again.doc.title, p.doc.title);
+    }
+
+    /// Forms seen in real files: `note right Node`, `note<<s>> right`,
+    /// a colour right before the text, a style before the shaft, a stray
+    /// `end note`, `& ` for messages at the same time.
+    #[test]
+    fn sequence_lines_as_real_files_write_them() {
+        let src = "@startuml\nA -> B : x\nnote right B\n  text\nend note\nend note\nnote<<s>> right #cfecf7\n  y\nend note\nhnote across #black:<color:white>T1\nB<[#Orange]-? : in\n& A -> A : same time\nA [hidden]-> A\nnote right: tail\n@enduml\n";
+        let p = import(src);
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        let seq = p.doc.sequence.unwrap();
+        assert_eq!(seq.participants.len(), 2);
+        assert_eq!(seq.messages().count(), 4);
     }
 
     #[test]

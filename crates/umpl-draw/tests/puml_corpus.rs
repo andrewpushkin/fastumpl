@@ -181,6 +181,20 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
     let result = std::panic::catch_unwind(|| {
         let parsed = plantuml::import_path(path).expect("readable");
         let kind = plantuml::diagram_kind(&std::fs::read_to_string(path).unwrap_or_default());
+        // A sequence diagram is drawn straight from the document.
+        if let (true, Some(seq)) = (with_layout, &parsed.doc.sequence) {
+            let start = Instant::now();
+            let theme = umpl_draw::Theme::light();
+            let scene = umpl_draw::sequence::scene(seq, parsed.doc.title.as_deref(), &theme);
+            let layout = Layout {
+                ms: start.elapsed().as_millis(),
+                crossings: 0,
+                overlaps: 0,
+                width: scene.bounds.w,
+                height: scene.bounds.h,
+            };
+            return (parsed, kind, Some(layout));
+        }
         let layout = (with_layout && !parsed.doc.elements.is_empty()).then(|| {
             let start = Instant::now();
             let goal = match std::env::var("PUML_CORPUS_GOAL").as_deref() {
@@ -208,23 +222,44 @@ fn open(path: &Path, with_layout: bool) -> Outcome {
         Ok((parsed, kind, layout)) => {
             out.kind = kind.name().to_string();
             out.elements = parsed.doc.elements.len();
+            out.relations = parsed.doc.relations.len();
+            // A sequence diagram: its participants and messages. Written
+            // back as PlantUML, it must read the same.
+            if let Some(seq) = &parsed.doc.sequence {
+                out.elements = seq.participants.len();
+                out.relations = seq.messages().count();
+                let again = plantuml::import(&plantuml::export(&parsed.doc));
+                if let Some(b) = again.doc.sequence.as_ref().filter(|b| *b != seq) {
+                    let what = if b.participants != seq.participants {
+                        format!(
+                            "participants {:?} / {:?}",
+                            seq.participants.iter().map(|p| &p.name).collect::<Vec<_>>(),
+                            b.participants.iter().map(|p| &p.name).collect::<Vec<_>>()
+                        )
+                    } else {
+                        let k = seq.steps.iter().zip(&b.steps).position(|(x, y)| x != y);
+                        match k {
+                            Some(k) => format!("step {k}: {:?} / {:?}", seq.steps[k], b.steps[k]),
+                            None => format!("{} / {} steps", seq.steps.len(), b.steps.len()),
+                        }
+                    };
+                    out.problems
+                        .push((0, format!("written back, reads differently: {what}")));
+                }
+            }
             out.names = parsed
                 .doc
                 .elements
                 .values()
                 .map(|e| (format!("{:?}", e.kind), e.shown().replace('\n', "\\n")))
                 .collect();
-            out.relations = parsed.doc.relations.len();
             out.not_understood = parsed
                 .problems
                 .iter()
                 .filter(|p| p.message.contains("not understood"))
                 .count();
-            out.problems = parsed
-                .problems
-                .into_iter()
-                .map(|p| (p.line, p.message))
-                .collect();
+            out.problems
+                .extend(parsed.problems.into_iter().map(|p| (p.line, p.message)));
             out.layout = layout;
         }
         Err(e) => {
@@ -356,7 +391,10 @@ fn opens_the_corpus() {
             if o.problems.is_empty() {
                 valid_clean += 1;
             }
-            if !matches!(v.kind.as_str(), "ClassDiagram" | "DescriptionDiagram") {
+            if !matches!(
+                v.kind.as_str(),
+                "ClassDiagram" | "DescriptionDiagram" | "SequenceDiagram"
+            ) {
                 other_kind.push(format!("{} {} ({p})", v.kind, v.message));
             }
             if let Some(n) = v.entities {

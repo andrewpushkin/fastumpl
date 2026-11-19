@@ -1382,6 +1382,11 @@ impl App {
                 }
                 ui.separator();
                 let doc = &s.editor.doc;
+                if let Some(seq) = &doc.sequence {
+                    ui.label(format!("{} participants", seq.participants.len()));
+                    ui.label(format!("{} messages", seq.messages().count()));
+                    return;
+                }
                 let classes = doc
                     .elements
                     .values()
@@ -1434,10 +1439,37 @@ impl App {
     }
 
     /// The tools, on a card floating over the canvas's top left corner.
+    /// The texts the canvas draws, for tests.
+    #[cfg(test)]
+    pub fn view_scene_texts(&mut self) -> Vec<String> {
+        let Some(s) = &self.session else {
+            return Vec::new();
+        };
+        let theme = umpl_draw::Theme::light();
+        let sel = self.sel.clone();
+        self.view
+            .scene(&s.editor, &sel, &theme, false)
+            .shapes
+            .iter()
+            .filter_map(|sh| match sh {
+                umpl_draw::Shape::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Is the open diagram a sequence diagram? It is drawn from its text
+    /// and edited there; the canvas only shows it.
+    pub fn is_sequence(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|s| s.editor.doc.sequence.is_some())
+    }
+
     fn tools_panel(&mut self, ctx: &Context) {
         let theme = self.diagram_theme(ctx);
         let at = self.canvas.rect.min + egui::vec2(12.0, 12.0);
-        if !self.canvas.rect.is_positive() {
+        if !self.canvas.rect.is_positive() || self.is_sequence() {
             return;
         }
         egui::Area::new(egui::Id::new("tools"))

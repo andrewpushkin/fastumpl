@@ -44,7 +44,10 @@ impl DiagramKind {
     pub fn readable(self) -> bool {
         matches!(
             self,
-            DiagramKind::Class | DiagramKind::Description | DiagramKind::Empty
+            DiagramKind::Class
+                | DiagramKind::Description
+                | DiagramKind::Sequence
+                | DiagramKind::Empty
         )
     }
 }
@@ -721,6 +724,7 @@ mod tests {
         );
         assert_eq!(diagram_kind("@startgantt\n@endgantt\n"), Other("gantt"));
         assert_eq!(diagram_kind("class A\n"), Class);
-        assert!(Class.readable() && Description.readable() && !Sequence.readable());
+        assert!(Class.readable() && Description.readable() && Sequence.readable());
+        assert!(!Activity.readable());
     }
 }

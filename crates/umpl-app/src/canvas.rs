@@ -560,7 +560,10 @@ impl App {
         // Camera: fit, zoom, pan.
         if self.fit_pending && rect.width() > 50.0 {
             let s = self.session.as_ref().unwrap();
-            if s.editor.doc.elements.is_empty() && s.editor.doc.packages.is_empty() {
+            if s.editor.doc.sequence.is_some() {
+                let bounds = self.view.scene(&s.editor, &self.sel, &theme, false).bounds;
+                self.camera.fit_width(bounds, rect);
+            } else if s.editor.doc.elements.is_empty() && s.editor.doc.packages.is_empty() {
                 // Nothing to fill the view with: start at 100 %.
                 self.camera
                     .fit(umpl_draw::RectF::new(0.0, 0.0, 0.0, 0.0), rect);
@@ -1156,6 +1159,10 @@ impl App {
         let Some(pointer) = resp.interact_pointer_pos() else {
             return;
         };
+        // A sequence diagram has nothing to pick or add on the canvas.
+        if self.is_sequence() {
+            return;
+        }
         let world = self.camera.to_world(pointer);
         if resp.double_clicked() {
             match self.hit(geo, world, false) {

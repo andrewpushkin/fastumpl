@@ -13,6 +13,7 @@ pub enum Op {
     Root(Vec<Decl>),
     Title(Option<String>),
     LeftToRight(bool),
+    Sequence(Option<crate::Sequence>),
     TrailingComments(Vec<String>),
 }
 
@@ -25,6 +26,7 @@ pub enum Slot {
     Root,
     Title,
     LeftToRight,
+    Sequence,
     TrailingComments,
 }
 
@@ -37,6 +39,7 @@ impl Op {
             Op::Root(_) => Slot::Root,
             Op::Title(_) => Slot::Title,
             Op::LeftToRight(_) => Slot::LeftToRight,
+            Op::Sequence(_) => Slot::Sequence,
             Op::TrailingComments(_) => Slot::TrailingComments,
         }
     }
@@ -75,6 +78,7 @@ impl Document {
             Op::LeftToRight(value) => {
                 Op::LeftToRight(std::mem::replace(&mut self.left_to_right, value))
             }
+            Op::Sequence(value) => Op::Sequence(std::mem::replace(&mut self.sequence, value)),
             Op::TrailingComments(value) => {
                 Op::TrailingComments(std::mem::replace(&mut self.trailing_comments, value))
             }
