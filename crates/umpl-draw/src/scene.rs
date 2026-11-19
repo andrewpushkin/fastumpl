@@ -314,41 +314,23 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
             g.h as f32 * GRID,
         );
         let selected = opts.selected_packages.contains(pid);
+        // A frame in the group's colour, with its title inside.
+        let paint = theme.group_paint(gi, pkg.color.as_deref());
         let stroke = if selected {
             (theme.accent, 2.0)
         } else {
-            (theme.package_stroke, 1.0)
+            (paint.border, 1.3)
         };
-        let tab_w = (text_width(&pkg.name, 12.0) + 20.0).min(r.w);
-        let fill = theme.user_fill(theme.package_fill, pkg.color.as_deref());
-        // A transparent package is a frame: the tab sits on its top edge.
-        let tab_h = if fill.is_some() { TAB_H + 4.0 } else { TAB_H };
         s.shapes.push(Shape::Rect {
-            rect: RectF::new(r.x, r.y, tab_w, tab_h),
-            fill,
+            rect: r,
+            fill: paint.fill,
             stroke: Some(stroke),
-            radius: 3.0,
+            radius: 8.0,
         });
-        s.shapes.push(Shape::Rect {
-            rect: RectF::new(r.x, r.y + TAB_H, r.w, r.h - TAB_H),
-            fill,
-            stroke: Some(stroke),
-            radius: 4.0,
-        });
-        // Hide the tab's bottom border where it joins the body.
-        if fill.is_some() {
-            s.shapes.push(Shape::Rect {
-                rect: RectF::new(r.x + 1.0, r.y + TAB_H - 1.0, tab_w - 2.0, 3.0),
-                fill,
-                stroke: None,
-                radius: 0.0,
-            });
-        }
-        let name_color = theme.text_on(fill, pkg.color.as_deref(), true);
-        let mut st = TextStyle::new(12.0, name_color);
+        let mut st = TextStyle::new(12.5, paint.title).fit(r.w - 24.0);
         st.bold = true;
         s.shapes.push(Shape::Text {
-            pos: (r.x + 10.0, r.y + TAB_H / 2.0 + 1.0),
+            pos: (r.x + 12.0, r.y + TAB_H / 2.0 + 3.0),
             text: pkg.name.clone(),
             style: st,
         });
@@ -528,8 +510,7 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
                 continue;
             };
             let (x, y) = px(p);
-            let mut st = TextStyle::new(LABEL_SIZE, if k == 2 { theme.text } else { theme.muted });
-            st.italic = k == 2;
+            let st = TextStyle::new(LABEL_SIZE, if k == 2 { theme.text } else { theme.muted });
             s.shapes.push(Shape::Text {
                 pos: (x + 2.0, y + GRID),
                 text: (*text).clone(),
@@ -568,17 +549,304 @@ pub fn build_scene(doc: &Document, diagram: &Diagram, theme: &Theme, opts: &Scen
     }
 
     let b = layout.bounds(graph);
-    s.bounds = RectF::new(
+    let mut bounds = RectF::new(
         b.x as f32 * GRID,
         b.y as f32 * GRID,
         b.w as f32 * GRID,
         b.h as f32 * GRID,
-    )
-    .expand(16.0);
+    );
+    // The diagram's title, as a heading above it.
+    if let (Some(title), false) = (&doc.title, graph.nodes.is_empty()) {
+        let line = title.lines().next().unwrap_or("").trim();
+        if !line.is_empty() {
+            let mut st = TextStyle::new(TITLE_SIZE, theme.text);
+            st.bold = true;
+            let y = bounds.y - TITLE_ROOM / 2.0;
+            s.shapes.push(Shape::Text {
+                pos: (bounds.x, y),
+                text: line.to_string(),
+                style: st,
+            });
+            let w = text_width(line, TITLE_SIZE);
+            bounds = RectF::new(
+                bounds.x,
+                bounds.y - TITLE_ROOM,
+                bounds.w.max(w),
+                bounds.h + TITLE_ROOM,
+            );
+        }
+    }
+    s.bounds = bounds.expand(16.0);
     s
 }
 
+/// The diagram title above the drawing.
+const TITLE_SIZE: f32 = 20.0;
+const TITLE_ROOM: f32 = 44.0;
+
+/// Points around an ellipse.
+fn ellipse(c: (f32, f32), rx: f32, ry: f32, from: f32, to: f32, n: usize) -> Vec<(f32, f32)> {
+    (0..=n)
+        .map(|k| {
+            let a = from + (to - from) * k as f32 / n as f32;
+            (c.0 + rx * a.cos(), c.1 + ry * a.sin())
+        })
+        .collect()
+}
+
+/// A small line icon for a component-style box, centred on `c`.
+fn icon(shapes: &mut Vec<Shape>, kind: ShapeKind, c: (f32, f32), color: Color) {
+    use std::f32::consts::PI;
+    let w = 1.4;
+    let mut path = |points: Vec<(f32, f32)>, closed: bool| {
+        shapes.push(Shape::Path {
+            points,
+            stroke: Some((color, w)),
+            fill: None,
+            closed,
+            dashed: false,
+        })
+    };
+    let (x, y) = c;
+    match kind {
+        ShapeKind::Component => {
+            path(
+                vec![
+                    (x - 4.0, y - 7.0),
+                    (x + 7.0, y - 7.0),
+                    (x + 7.0, y + 7.0),
+                    (x - 4.0, y + 7.0),
+                ],
+                true,
+            );
+            for dy in [-4.0, 2.0] {
+                path(
+                    vec![
+                        (x - 7.0, y + dy),
+                        (x - 1.0, y + dy),
+                        (x - 1.0, y + dy + 3.0),
+                        (x - 7.0, y + dy + 3.0),
+                    ],
+                    true,
+                );
+            }
+        }
+        ShapeKind::Database => {
+            path(ellipse((x, y - 5.0), 7.0, 2.5, 0.0, 2.0 * PI, 20), true);
+            path(vec![(x - 7.0, y - 5.0), (x - 7.0, y + 5.0)], false);
+            path(vec![(x + 7.0, y - 5.0), (x + 7.0, y + 5.0)], false);
+            path(ellipse((x, y + 5.0), 7.0, 2.5, 0.0, PI, 12), false);
+        }
+        ShapeKind::Queue => {
+            for dy in [-5.0, 0.0, 5.0] {
+                path(vec![(x - 7.0, y + dy), (x + 7.0, y + dy)], false);
+            }
+        }
+        ShapeKind::Actor => {
+            path(
+                ellipse((x - 2.5, y - 3.5), 3.2, 3.2, 0.0, 2.0 * PI, 16),
+                true,
+            );
+            path(
+                ellipse((x - 2.5, y + 7.0), 6.0, 4.5, PI, 2.0 * PI, 12),
+                false,
+            );
+            path(
+                ellipse((x + 4.5, y - 2.5), 2.6, 2.6, -PI / 2.0, PI / 2.0, 8),
+                false,
+            );
+            path(
+                ellipse((x + 5.0, y + 7.0), 4.0, 3.5, 1.5 * PI, 2.0 * PI, 6),
+                false,
+            );
+        }
+        ShapeKind::Cloud => {
+            let mut outline = ellipse((x - 3.5, y + 1.0), 4.0, 4.0, 0.5 * PI, 1.5 * PI, 8);
+            outline.extend(ellipse((x + 0.5, y - 2.5), 4.5, 4.5, PI, 2.0 * PI, 10));
+            outline.extend(ellipse((x + 4.0, y + 1.5), 3.5, 3.5, 1.5 * PI, 2.5 * PI, 8));
+            path(outline, true);
+        }
+        ShapeKind::Node => {
+            path(
+                vec![
+                    (x - 7.0, y - 3.0),
+                    (x + 4.0, y - 3.0),
+                    (x + 4.0, y + 7.0),
+                    (x - 7.0, y + 7.0),
+                ],
+                true,
+            );
+            path(
+                vec![
+                    (x - 7.0, y - 3.0),
+                    (x - 4.0, y - 7.0),
+                    (x + 7.0, y - 7.0),
+                    (x + 4.0, y - 3.0),
+                ],
+                false,
+            );
+            path(
+                vec![(x + 7.0, y - 7.0), (x + 7.0, y + 3.0), (x + 4.0, y + 7.0)],
+                false,
+            );
+        }
+        ShapeKind::Folder => {
+            path(
+                vec![
+                    (x - 7.0, y - 6.0),
+                    (x - 2.0, y - 6.0),
+                    (x, y - 4.0),
+                    (x + 7.0, y - 4.0),
+                    (x + 7.0, y + 6.0),
+                    (x - 7.0, y + 6.0),
+                ],
+                true,
+            );
+        }
+        ShapeKind::File => {
+            path(
+                vec![
+                    (x - 5.5, y - 7.0),
+                    (x + 2.0, y - 7.0),
+                    (x + 5.5, y - 3.5),
+                    (x + 5.5, y + 7.0),
+                    (x - 5.5, y + 7.0),
+                ],
+                true,
+            );
+            path(
+                vec![(x + 2.0, y - 7.0), (x + 2.0, y - 3.5), (x + 5.5, y - 3.5)],
+                false,
+            );
+        }
+        ShapeKind::Usecase => {
+            path(ellipse((x, y), 7.5, 4.5, 0.0, 2.0 * PI, 20), true);
+        }
+        ShapeKind::Box => {
+            path(
+                vec![
+                    (x - 7.0, y - 6.0),
+                    (x + 7.0, y - 6.0),
+                    (x + 7.0, y + 6.0),
+                    (x - 7.0, y + 6.0),
+                ],
+                true,
+            );
+            path(vec![(x - 7.0, y - 2.5), (x + 7.0, y - 2.5)], false);
+        }
+    }
+}
+
+/// A box of a component, deployment or use case diagram: its shape (a
+/// cylinder for a database, an ellipse for a use case, else a rounded
+/// box), an icon for its kind on the left, the name and the lines under it
+/// centred.
+fn draw_shape(
+    shapes: &mut Vec<Shape>,
+    c: &BoxContent,
+    kind: ShapeKind,
+    r: RectF,
+    theme: &Theme,
+    hide_members: bool,
+) {
+    use std::f32::consts::PI;
+    let fill = theme.user_fill(theme.box_fill, c.color.as_deref());
+    let stroke = Some((theme.box_stroke, BOX_W));
+    let text = theme.text_on(fill, c.color.as_deref(), false);
+    let muted = theme.text_on(fill, c.color.as_deref(), true);
+    let mut top = r.y;
+    match kind {
+        ShapeKind::Database => {
+            let (cx, rx) = (r.x + r.w / 2.0, r.w / 2.0);
+            let mut outline = ellipse((cx, r.y + CAP), rx, CAP, PI, 2.0 * PI, 32);
+            outline.extend(ellipse((cx, r.bottom() - CAP), rx, CAP, 0.0, PI, 32));
+            shapes.push(Shape::Path {
+                points: outline,
+                stroke,
+                fill,
+                closed: true,
+                dashed: false,
+            });
+            shapes.push(Shape::Path {
+                points: ellipse((cx, r.y + CAP), rx, CAP, 0.0, PI, 32),
+                stroke,
+                fill: None,
+                closed: false,
+                dashed: false,
+            });
+            top += 2.0 * CAP;
+        }
+        ShapeKind::Usecase => {
+            shapes.push(Shape::Path {
+                points: ellipse(
+                    (r.x + r.w / 2.0, r.y + r.h / 2.0),
+                    r.w / 2.0,
+                    r.h / 2.0,
+                    0.0,
+                    2.0 * PI,
+                    48,
+                ),
+                stroke,
+                fill,
+                closed: true,
+                dashed: false,
+            });
+            top += 5.0;
+        }
+        _ => shapes.push(Shape::Rect {
+            rect: r,
+            fill,
+            stroke,
+            radius: 6.0,
+        }),
+    }
+    let lines: Vec<&MemberLine> = if hide_members {
+        Vec::new()
+    } else {
+        c.description().collect()
+    };
+    let block = NAME_LINE + lines.len() as f32 * DESC_LINE;
+    let bottom = if kind == ShapeKind::Database {
+        r.bottom() - CAP
+    } else {
+        r.bottom()
+    };
+    let y0 = top + ((bottom - top) - block) / 2.0;
+    let cx = r.x + r.w / 2.0;
+    if kind != ShapeKind::Usecase {
+        icon(
+            shapes,
+            kind,
+            (r.x + ICON_ROOM / 2.0 + 4.0, y0 + block / 2.0),
+            muted,
+        );
+    }
+    let room = r.w - 2.0 * ICON_ROOM;
+    let mut name = TextStyle::new(NAME_SIZE, text).fit(room);
+    name.centered = true;
+    name.bold = true;
+    shapes.push(Shape::Text {
+        pos: (cx, y0 + NAME_LINE / 2.0),
+        text: c.name.clone(),
+        style: name,
+    });
+    for (k, l) in lines.iter().enumerate() {
+        let mut st = TextStyle::new(DESC_SIZE, muted).fit(room);
+        st.centered = true;
+        st.italic = l.italic;
+        st.underline = l.underline;
+        shapes.push(Shape::Text {
+            pos: (cx, y0 + NAME_LINE + DESC_LINE * (k as f32 + 0.5)),
+            text: l.text.clone(),
+            style: st,
+        });
+    }
+}
+
 fn draw_box(shapes: &mut Vec<Shape>, c: &BoxContent, r: RectF, theme: &Theme, hide_members: bool) {
+    if let Look::Shape(kind) = c.look {
+        return draw_shape(shapes, c, kind, r, theme, hide_members);
+    }
     if c.kind == ElementKind::Diamond {
         let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
         shapes.push(Shape::Path {

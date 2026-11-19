@@ -8,7 +8,7 @@ shapes+fill 0 50.4
 shop 0 7.7
 shop+fill 0 7.7
 gen-20-1 0 63.6
-gen-20-1+fill 0 58.4
+gen-20-1+fill 0 96.3
 gen-20-2 0 113.1
 gen-20-2+fill 0 84.4
 gen-80-3 40 1686.5

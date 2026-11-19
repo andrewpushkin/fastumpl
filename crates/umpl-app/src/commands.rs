@@ -50,6 +50,28 @@ impl Tool {
     }
 }
 
+/// What the window shows: the text, the text and the drawing, or the
+/// drawing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMode {
+    Text,
+    Both,
+    Canvas,
+}
+
+impl ViewMode {
+    pub const ALL: [ViewMode; 3] = [ViewMode::Text, ViewMode::Both, ViewMode::Canvas];
+
+    /// Its name in the top bar and in settings.txt.
+    pub fn name(self) -> &'static str {
+        match self {
+            ViewMode::Text => "Text",
+            ViewMode::Both => "Both",
+            ViewMode::Canvas => "Canvas",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemePref {
     System,
@@ -84,6 +106,8 @@ pub enum Cmd {
     ZoomReset,
     Theme(ThemePref),
     ToggleGrid,
+    /// Show the text, the text and the drawing, or the drawing.
+    View(ViewMode),
     /// Lay diagrams out for the fewest crossings or to fill the window.
     LayoutGoal(Goal),
     ToggleSource,
@@ -135,6 +159,9 @@ impl Cmd {
             Cmd::Theme(ThemePref::Dark),
             Cmd::ToggleGrid,
             Cmd::ToggleSource,
+            Cmd::View(ViewMode::Text),
+            Cmd::View(ViewMode::Both),
+            Cmd::View(ViewMode::Canvas),
             Cmd::LayoutGoal(Goal::FewestCrossings),
             Cmd::LayoutGoal(Goal::FillView),
             Cmd::Problems,
@@ -176,6 +203,9 @@ impl Cmd {
             Cmd::Theme(ThemePref::Light) => "Theme: light".into(),
             Cmd::Theme(ThemePref::Dark) => "Theme: dark".into(),
             Cmd::ToggleGrid => "Show or hide grid".into(),
+            Cmd::View(ViewMode::Text) => "View: text only".into(),
+            Cmd::View(ViewMode::Both) => "View: text and drawing".into(),
+            Cmd::View(ViewMode::Canvas) => "View: drawing only".into(),
             Cmd::LayoutGoal(Goal::FewestCrossings) => {
                 "Lay out diagrams for fewest line crossings".into()
             }

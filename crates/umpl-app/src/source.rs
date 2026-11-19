@@ -181,8 +181,20 @@ impl App {
         self.source_apply(ctx, true);
         self.source.shown = !self.source.shown;
         self.source.revision = None;
+        // Hiding the text leaves the drawing, also from View: Text.
+        if !self.source.shown {
+            self.text_only = false;
+        }
         let v = if self.source.shown { "shown" } else { "hidden" };
         self.storage.save_setting("text", v);
+        let view = if self.text_only {
+            "text"
+        } else if self.source.shown {
+            "both"
+        } else {
+            "canvas"
+        };
+        self.storage.save_setting("view", view);
     }
 
     pub fn source_ui(&mut self, ui: &mut Ui) {

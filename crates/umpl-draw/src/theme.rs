@@ -358,3 +358,58 @@ impl Theme {
         }
     }
 }
+
+/// Colours of groups that have none of their own, in turn: blue, red,
+/// purple, green, amber, teal, pink, slate.
+const GROUP_HUES: [u32; 8] = [
+    0x4a86d8, 0xd2615f, 0x9a6fd8, 0x4ea56d, 0xd39b3a, 0x3aa6a8, 0xc864a0, 0x7f8a9c,
+];
+
+/// How a group (package) frame is painted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroupPaint {
+    pub border: Color,
+    /// `None`: transparent, only the frame.
+    pub fill: Option<Color>,
+    pub title: Color,
+}
+
+impl Theme {
+    /// The paint of the `index`-th group, coloured `color` by the user or
+    /// else in turn from a palette, so groups tell apart: a border in the
+    /// colour, a light tint of it inside, the title in it.
+    pub fn group_paint(&self, index: usize, color: Option<&str>) -> GroupPaint {
+        let paint = color.and_then(parse_paint);
+        let auto = Color::hex(GROUP_HUES[index % GROUP_HUES.len()]);
+        let hue = match paint {
+            Some(Paint::Color(c)) => c,
+            _ => auto,
+        };
+        let white = Color::rgb(255, 255, 255);
+        let black = Color::rgb(0, 0, 0);
+        let fill = match paint {
+            Some(Paint::Transparent) => None,
+            // A colour the user chose fills the group as chosen.
+            Some(Paint::Color(_)) => self.user_fill(self.package_fill, color),
+            None => Some(
+                self.background
+                    .blend(hue, if self.dark { 0.13 } else { 0.08 }),
+            ),
+        };
+        let border = if self.dark {
+            self.background.blend(hue, 0.8)
+        } else {
+            hue.blend(black, 0.15)
+        };
+        let title = match (paint, fill) {
+            (Some(Paint::Color(_)), f) => self.text_on(f, color, false),
+            _ if self.dark => hue.blend(white, 0.35),
+            _ => hue.blend(black, 0.35),
+        };
+        GroupPaint {
+            border,
+            fill,
+            title,
+        }
+    }
+}

@@ -283,8 +283,10 @@ fn rubber_band_selects_and_delete_removes() {
     h.run_steps(2);
     let ra = rect_of(&h, a);
     let rb = rect_of(&h, b);
-    let from = screen(&h, (ra.x - 20.0, ra.y - 20.0));
-    let to = screen(&h, (rb.right() + 10.0, rb.bottom() + 10.0));
+    // From the bottom right: the top left corner of the canvas is under
+    // the floating tools.
+    let from = screen(&h, (rb.right() + 10.0, rb.bottom() + 10.0));
+    let to = screen(&h, (ra.x - 20.0, ra.y - 20.0));
     drag(&mut h, from, to);
     let mut sel = h.state().sel.elements.clone();
     sel.sort();
@@ -896,6 +898,29 @@ fn settings_window_changes_and_saves_settings() {
     h.get_by_label("Close").click();
     h.run_steps(3);
     assert!(h.state().dialog.is_none());
+}
+
+#[test]
+fn the_view_switch_shows_text_both_or_canvas_and_is_saved() {
+    use crate::commands::ViewMode;
+    let mut h = new_app();
+    own_settings(&mut h, "view-switch");
+    for (label, mode) in [
+        ("Text", ViewMode::Text),
+        ("Both", ViewMode::Both),
+        ("Canvas", ViewMode::Canvas),
+    ] {
+        h.get_by_label(label).hover();
+        h.run_steps(1);
+        h.get_by_label(label).click();
+        h.run_steps(3);
+        assert_eq!(h.state().view(), mode, "{label}");
+        let saved = h.state().storage.load_setting("view");
+        assert_eq!(saved.as_deref(), Some(label.to_ascii_lowercase().as_str()));
+    }
+    // An older settings file, with only `text`, still says what to show.
+    assert_eq!(crate::app::view_mode(None, Some("shown")), ViewMode::Both);
+    assert_eq!(crate::app::view_mode(None, None), ViewMode::Canvas);
 }
 
 #[test]

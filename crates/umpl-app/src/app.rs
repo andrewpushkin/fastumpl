@@ -16,7 +16,7 @@ use umpl_text::{Format, PLANTUML_EXTENSIONS};
 
 use crate::camera::Camera;
 use crate::canvas::CanvasState;
-use crate::commands::{Cmd, ThemePref, Tool};
+use crate::commands::{Cmd, ThemePref, Tool, ViewMode};
 use crate::inspector::InspectorState;
 use crate::prefs::Prefs;
 use crate::session::Session;
@@ -69,6 +69,10 @@ pub struct App {
     pub layout_goal: Goal,
     /// Fonts and text sizes.
     pub prefs: Prefs,
+    /// The text alone fills the window (View: Text).
+    pub text_only: bool,
+    /// The file named on the command line, opened on the first frame.
+    open_at_start: Option<PathBuf>,
     pub recent: Vec<PathBuf>,
     pub tidy: Option<TidyJob>,
     pub dialog: Option<Dialog>,
@@ -91,6 +95,18 @@ const RECOVERY_EVERY: Duration = Duration::from_secs(30);
 /// the user turned it on.
 pub fn text_shown(setting: Option<&str>) -> bool {
     setting == Some("shown")
+}
+
+/// What the window shows, from the saved `view` setting, or else from the
+/// older `text` one (the text panel shown or not).
+pub fn view_mode(view: Option<&str>, text: Option<&str>) -> ViewMode {
+    match view {
+        Some("text") => ViewMode::Text,
+        Some("both") => ViewMode::Both,
+        Some("canvas") => ViewMode::Canvas,
+        _ if text_shown(text) => ViewMode::Both,
+        _ => ViewMode::Canvas,
+    }
 }
 
 /// Whether the grid is shown, from the saved setting: shown unless the
@@ -138,7 +154,11 @@ impl App {
             Some("dark") => ThemePref::Dark,
             _ => ThemePref::System,
         };
-        let source_shown = text_shown(storage.load_setting("text").as_deref());
+        let mode = view_mode(
+            storage.load_setting("view").as_deref(),
+            storage.load_setting("text").as_deref(),
+        );
+        let source_shown = mode != ViewMode::Canvas;
         let show_grid = grid_shown(storage.load_setting("grid").as_deref());
         let layout_goal = layout_goal(storage.load_setting("layout").as_deref());
         let mut app = App {
@@ -154,6 +174,8 @@ impl App {
             show_grid,
             layout_goal,
             prefs,
+            text_only: mode == ViewMode::Text,
+            open_at_start: None,
             tidy: None,
             dialog: None,
             palette: None,
@@ -170,16 +192,11 @@ impl App {
         };
         app.apply_theme(&cc.egui_ctx);
         let recovered = app.find_recovery();
-        if let Some(f) = file {
-            app.open_path(&cc.egui_ctx, &f);
-        }
+        // Opened on the first frame, when the window's size is known, so
+        // the layout fills it.
+        app.open_at_start = file;
         if !recovered.is_empty() {
             app.dialog = Some(Dialog::Recovery(recovered));
-        }
-        if let (Some(s), Ok(name)) = (&app.session, std::env::var("UMPL_SELECT")) {
-            if let Some(id) = s.editor.doc.find(&name) {
-                app.sel = Selection::only_element(id);
-            }
         }
         // For screenshots of a dialog: `UMPL_SHOW=settings`.
         if std::env::var("UMPL_SHOW").as_deref() == Ok("settings") {
@@ -843,6 +860,7 @@ impl App {
                 }
             }
             Cmd::ToggleSource => self.toggle_source(ctx),
+            Cmd::View(mode) => self.set_view(ctx, mode),
             Cmd::Problems => self.dialog = Some(Dialog::Problems),
             Cmd::Palette => self.palette = Some((String::new(), 0)),
             Cmd::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
@@ -1093,9 +1111,68 @@ impl App {
         }
     }
 
+    /// What the window shows now.
+    pub fn view(&self) -> ViewMode {
+        match (self.text_only, self.source.shown) {
+            (true, _) => ViewMode::Text,
+            (false, true) => ViewMode::Both,
+            (false, false) => ViewMode::Canvas,
+        }
+    }
+
+    /// Shows the text, the text and the drawing, or the drawing, and keeps
+    /// the choice for the next run.
+    pub fn set_view(&mut self, ctx: &Context, mode: ViewMode) {
+        if (mode == ViewMode::Canvas) == self.source.shown {
+            self.toggle_source(ctx);
+        }
+        self.text_only = mode == ViewMode::Text;
+        self.storage
+            .save_setting("view", &mode.name().to_ascii_lowercase());
+    }
+
+    /// The Text | Both | Canvas switch, centred over the top bar's `row`.
+    fn view_switch(&mut self, ui: &mut egui::Ui, row: egui::Rect) {
+        let width = 216.0;
+        let rect = egui::Rect::from_center_size(
+            egui::pos2(ui.max_rect().center().x, row.center().y),
+            egui::vec2(width, row.height().max(24.0)),
+        );
+        let mut picked = None;
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        child.scope(|ui| {
+            Frame::new()
+                .fill(ui.visuals().extreme_bg_color)
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .corner_radius(7)
+                .inner_margin(Margin::same(2))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        for mode in ViewMode::ALL {
+                            let on = self.view() == mode;
+                            let b = Button::selectable(on, mode.name())
+                                .min_size(egui::vec2(66.0, 20.0))
+                                .corner_radius(5);
+                            if ui.add(b).clicked() {
+                                picked = Some(mode);
+                            }
+                        }
+                    });
+                });
+        });
+        if let Some(mode) = picked {
+            self.run(ui.ctx(), Cmd::View(mode));
+        }
+    }
+
     fn menu_bar(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
+            let bar = egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     self.menu_item(ui, Cmd::New);
                     self.menu_item(ui, Cmd::Open);
@@ -1177,6 +1254,13 @@ impl App {
                     self.menu_item(ui, Cmd::Shortcuts);
                     self.menu_item(ui, Cmd::About);
                 });
+                // Where we are: fastumpl / the diagram.
+                if let Some(s) = &self.session {
+                    ui.add_space(10.0);
+                    ui.label(RichText::new("fastumpl  /").weak());
+                    let dirty = if s.is_dirty() { " •" } else { "" };
+                    ui.label(RichText::new(format!("{}{dirty}", s.display_name())).strong());
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.session.is_none() {
@@ -1251,6 +1335,9 @@ impl App {
                     }
                 });
             });
+            if self.session.is_some() {
+                self.view_switch(ui, bar.response.rect);
+            }
         });
     }
 
@@ -1320,40 +1407,62 @@ impl App {
         });
     }
 
+    /// The tools, on a card floating over the canvas's top left corner.
     fn tools_panel(&mut self, ctx: &Context) {
         let theme = self.diagram_theme(ctx);
-        egui::SidePanel::left("tools")
-            .resizable(false)
-            .exact_width(46.0)
+        let at = self.canvas.rect.min + egui::vec2(12.0, 12.0);
+        if !self.canvas.rect.is_positive() {
+            return;
+        }
+        egui::Area::new(egui::Id::new("tools"))
+            .fixed_pos(at)
+            .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                ui.add_space(6.0);
-                ui.vertical_centered(|ui| {
-                    for t in Tool::ALL {
-                        let sel = self.tool == t;
-                        let r = ui.add_sized([34.0, 30.0], Button::selectable(sel, ""));
-                        // The button has no text: name it for screen readers.
-                        r.widget_info(|| {
-                            egui::WidgetInfo::selected(
-                                egui::WidgetType::Button,
-                                true,
-                                sel,
-                                t.label(),
-                            )
+                Frame::new()
+                    .fill(ui.visuals().window_fill)
+                    .stroke(ui.visuals().window_stroke)
+                    .corner_radius(10)
+                    .inner_margin(Margin::same(5))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 2],
+                        blur: 8,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(40),
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(36.0);
+                        ui.vertical_centered(|ui| {
+                            for t in Tool::ALL {
+                                let sel = self.tool == t;
+                                let r = ui.add_sized([34.0, 30.0], Button::selectable(sel, ""));
+                                // The button has no text: name it for screen readers.
+                                r.widget_info(|| {
+                                    egui::WidgetInfo::selected(
+                                        egui::WidgetType::Button,
+                                        true,
+                                        sel,
+                                        t.label(),
+                                    )
+                                });
+                                let fg = ui.style().interact_selectable(&r, sel).fg_stroke.color;
+                                let icon = egui::Rect::from_center_size(
+                                    r.rect.center(),
+                                    egui::vec2(22.0, 22.0),
+                                );
+                                crate::icons::paint_tool_icon(ui.painter(), icon, t, fg, &theme);
+                                if r.on_hover_text(format!("{} ({:?})", t.label(), t.key()))
+                                    .clicked()
+                                {
+                                    self.run(ctx, Cmd::Tool(t));
+                                }
+                                if t == Tool::Select
+                                    || t == Tool::Element(umpl_core::ElementKind::Note)
+                                {
+                                    ui.separator();
+                                }
+                            }
                         });
-                        let fg = ui.style().interact_selectable(&r, sel).fg_stroke.color;
-                        let icon =
-                            egui::Rect::from_center_size(r.rect.center(), egui::vec2(22.0, 22.0));
-                        crate::icons::paint_tool_icon(ui.painter(), icon, t, fg, &theme);
-                        if r.on_hover_text(format!("{} ({:?})", t.label(), t.key()))
-                            .clicked()
-                        {
-                            self.run(ctx, Cmd::Tool(t));
-                        }
-                        if t == Tool::Select || t == Tool::Element(umpl_core::ElementKind::Note) {
-                            ui.separator();
-                        }
-                    }
-                });
+                    });
             });
     }
 
@@ -1417,6 +1526,14 @@ impl Selection {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        if let Some(f) = self.open_at_start.take() {
+            self.open_path(ctx, &f);
+            if let (Some(s), Ok(name)) = (&self.session, std::env::var("UMPL_SELECT")) {
+                if let Some(id) = s.editor.doc.find(&name) {
+                    self.sel = Selection::only_element(id);
+                }
+            }
+        }
         self.handle_events(ctx);
         self.poll_tidy(ctx);
         self.periodic(ctx);
@@ -1430,8 +1547,11 @@ impl eframe::App for App {
         self.menu_bar(ctx);
         self.find_bar(ctx);
         self.status_bar(ctx);
-        if self.session.is_some() {
-            self.tools_panel(ctx);
+        if self.session.is_some() && self.text_only {
+            egui::CentralPanel::default()
+                .frame(Frame::central_panel(&ctx.style()).inner_margin(Margin::same(12)))
+                .show(ctx, |ui| self.source_ui(ui));
+        } else if self.session.is_some() {
             if self.source.shown {
                 egui::SidePanel::left("source")
                     .resizable(true)
@@ -1449,6 +1569,7 @@ impl eframe::App for App {
             egui::CentralPanel::default()
                 .frame(Frame::NONE.fill(bg))
                 .show(ctx, |ui| self.canvas_ui(ui));
+            self.tools_panel(ctx);
         } else {
             self.start_screen(ctx);
         }

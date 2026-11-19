@@ -323,14 +323,17 @@ Clean layout is most of beauty. The rest is consistent drawing.
 - **Boxes.** 1.5-pixel border, 4-pixel corner radius, name centred and bold, members left-aligned in a monospace-friendly sans font. Abstract names are italic. Stereotypes sit above the name in a smaller size. Empty compartments are hidden.
 - **Lines.** 1.5 pixels, corner radius 6 pixels, standard UML arrowheads at one fixed size.
 - **Spacing.** At least 5 grid units between boxes and 10 between layers; a layer gap grows when many lines pass through it.
-- **Colour.** A light and a dark theme. One accent colour for selection. Packages get a faint tint and a tab with the name. Each kind of box (class, abstract class, interface, enum) has its own colour: the box is filled with a pale tint of it (12% in the light theme, 18% in the dark), and a lettered badge in that colour sits in the header, so the kind does not depend on colour alone. The tint is blended into an opaque fill, so the canvas grid never shows through behind text.
+- **Component-style boxes.** Boxes of component, deployment and use case diagrams (the importer gives them the keyword as stereotype: `component`, `rectangle`, `node`, `database`, `actor`, …) are drawn as such diagrams are drawn by drawing tools such as Eraser, not as UML classes: a rounded box with a small line icon for the kind on the left, the name centred and bold, and the lines under it (a PlantUML name over several lines, `"Request handler\n(on_key_event)"`) centred and smaller, in the order written; no «stereotype» line and no lettered badge. A `database` is a cylinder, a `usecase` an ellipse. The icons are vector shapes in the scene, so exports show them too.
+- **Groups.** A package is a rounded frame with its name inside the top left corner. Groups without a colour of their own take one in turn from a palette (blue, red, purple, green, amber, teal, pink, slate): a border in the colour, a light tint of it inside (8 % in the light theme, 13 % in the dark), the name in it, so the parts of an architecture tell apart. A colour from the file or the right-click menu replaces the tint; `transparent` leaves the frame only.
+- **Title.** The diagram's title is drawn above it as a heading.
+- **Colour.** A light and a dark theme. One accent colour for selection. Each kind of box (class, abstract class, interface, enum) has its own colour: the box is filled with a pale tint of it (12% in the light theme, 18% in the dark), and a lettered badge in that colour sits in the header, so the kind does not depend on colour alone. The tint is blended into an opaque fill, so the canvas grid never shows through behind text.
 - **Zoom.** Text and lines are redrawn sharp at every zoom level, never scaled as an image. Below about 40% zoom, members are hidden and only names show.
 
 ## 8. The editor window
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Arrange  Help      ⟲ ⟳ │ − 100% + │ [Fit] [Tidy] │
+│ File Edit View Arrange Help  fastumpl / shop.umpl  [Text|Both|Canvas]  ⟲ ⟳ │ − 100% + │ Fit Tidy │
 ├─────┬──────────────────────────────────────────────┬──────────────────┤
 │     │                                              │ Order            │
 │ Sel │      ┌─────────────┐        ┌───────────┐    │ ──────────────── │
@@ -346,8 +349,10 @@ Clean layout is most of beauty. The rest is consistent drawing.
 ├─────┴──────────────────────────────────────────────┴──────────────────┤
 │ shop.umpl •   12 classes   9 relations   0 crossings   Problems: 0    │
 └───────────────────────────────────────────────────────────────────────┘
-  tools                    canvas                         inspector
+  tools (floating)         canvas (dots)                  inspector
 ```
+
+The look follows drawing tools such as Eraser: quiet panels with thin borders, rounded buttons and menus, the tools on a card floating over the canvas's top left corner, a dot grid, and a switch in the middle of the top bar for what the window shows: the text alone, the text and the drawing, or the drawing alone (saved for the next run).
 
 Interaction:
 
@@ -357,7 +362,7 @@ Interaction:
 - **Select and move.** Click, shift-click, or drag a rectangle. Dragging snaps to the grid and shows guide lines when edges or centres line up with other boxes.
 - **View.** Scroll to pan, Ctrl-scroll to zoom toward the pointer, a key to fit the whole diagram. Scroll bars along the bottom and right edges span the diagram plus a margin, extended to whatever is in view, since the canvas has no edge; the − and + buttons zoom around the centre, and clicking the percentage returns to 100 %.
 - **Tools.** The tool buttons on the left are drawn icons of what they create: a class box with the coloured dot of its kind (as on the canvas), with an italic name for abstract, a lollipop for interface and a list for enum; a folded note; a folder for a package; a line with an arrowhead for relations.
-- **Text panel.** An optional panel between the tools and the canvas (View → Text, Ctrl+B; off by default) shows the model as `.umpl` text without the `layout` block, and both sides edit the same document; see below.
+- **Text panel.** An optional panel left of the canvas (Text, Both or Canvas in the top bar; Ctrl+B shows or hides it; off by default) shows the model as `.umpl` text without the `layout` block, and both sides edit the same document; see below. Text alone gives the whole window to the text.
 - **Undo.** Every change is undoable with no limit within a session. A drag is one step, not one per frame.
 - **Keyboard.** Standard shortcuts for file and edit commands, single keys for tools, Ctrl-T for Tidy, and a command palette (Ctrl-K) that lists everything.
 - **Export.** File → Export holds every export: SVG, PNG, PlantUML, Mermaid and Umple to file, and copying as an image or as Mermaid.

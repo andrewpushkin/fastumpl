@@ -566,7 +566,13 @@ impl App {
                     .fit(umpl_draw::RectF::new(0.0, 0.0, 0.0, 0.0), rect);
             } else {
                 let bounds = self.view.scene(&s.editor, &self.sel, &theme, false).bounds;
-                self.camera.fit(bounds, rect);
+                // Clear of the tools floating at the left.
+                let view = if rect.width() > 300.0 {
+                    rect.with_min_x(rect.min.x + 56.0)
+                } else {
+                    rect
+                };
+                self.camera.fit(bounds, view);
             }
             self.fit_pending = false;
         }
@@ -759,29 +765,23 @@ impl App {
         }
     }
 
+    /// A dot at every grid point (every other one, and so on, when zoomed
+    /// out, so dots stay apart).
     fn paint_grid(&self, painter: &egui::Painter, rect: Rect, color: Color32) {
         let mut step = GRID;
-        while step * self.camera.zoom < 14.0 {
+        while step * self.camera.zoom < 18.0 {
             step *= 2.0;
         }
         let w = self.camera.world_rect(rect);
-        let stroke = Stroke::new(1.0, color);
-        let mut x = (w.x / step).floor() * step;
-        while x <= w.right() {
-            let sx = self.camera.to_screen((x, 0.0)).x;
-            painter.line_segment(
-                [Pos2::new(sx, rect.top()), Pos2::new(sx, rect.bottom())],
-                stroke,
-            );
-            x += step;
-        }
+        let color = color.gamma_multiply(1.6);
+        let x0 = (w.x / step).floor() * step;
         let mut y = (w.y / step).floor() * step;
         while y <= w.bottom() {
-            let sy = self.camera.to_screen((0.0, y)).y;
-            painter.line_segment(
-                [Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)],
-                stroke,
-            );
+            let mut x = x0;
+            while x <= w.right() {
+                painter.circle_filled(self.camera.to_screen((x, y)), 1.1, color);
+                x += step;
+            }
             y += step;
         }
     }

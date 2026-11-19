@@ -8,8 +8,9 @@ A desktop editor for UML class diagrams that lays them out for you. It places th
 - **Few crossings.** Crossings are removed at several stages, from box order to line routing, and several candidate layouts compete. The status bar shows the crossing count.
 - **Lines follow you.** Drag a class and its lines re-route as you move.
 - **Type, don't click.** Double-click a class and type its members: `+total(): Money`.
+- **Looks like a drawing tool.** Component, deployment and use case boxes show an icon for their kind, the name and the lines under it (a database is a cylinder); each group gets its own colour; the title sits above the diagram. The window is quiet and dark or light with the system, with the tools floating on the canvas and a Text | Both | Canvas switch in the top bar.
 - **Size and colour.** Drag a corner of a selected box to make it bigger than its text needs (it never gets smaller). Right-click a box or package for its colour: a palette, transparent, or the usual colour back, and to fit a resized box to its text again.
-- **Text and drawing side by side.** The text panel shows the diagram as `.umpl` text. Edit either one and the other follows as you work: type a class or a relation and it appears, laid out; drag, rename or delete on the canvas and the text updates. Click a box and its lines in the text light up; put the cursor in a line and its box is selected. Show or hide the text with View → Text or Ctrl+B; it starts hidden.
+- **Text and drawing side by side.** The text panel shows the diagram as `.umpl` text. Edit either one and the other follows as you work: type a class or a relation and it appears, laid out; drag, rename or delete on the canvas and the text updates. Click a box and its lines in the text light up; put the cursor in a line and its box is selected. Choose Text, Both or Canvas in the middle of the top bar (Ctrl+B shows or hides the text); it starts with the canvas alone, and the choice is kept for the next run.
 - **Find.** Ctrl+F finds classes, members, relations and packages; matches are outlined in the drawing and marked in the text, and Enter steps through them.
 - **Plain text files.** Diagrams are `.umpl` text files that diff well. The model sits at the top and positions at the bottom.
 - **Command line too.** `umpl` renders SVG and PNG, formats and checks files.
@@ -145,7 +146,7 @@ umpl convert diagram.umpl --to mermaid       # write to standard output
 | F | Fit diagram in window (zooms in up to 200 % for a small diagram) |
 | Ctrl+K | Command palette |
 | Ctrl+F, then Enter / Shift+Enter (or F3 / Shift+F3) | Find, next and previous match; Esc closes |
-| Ctrl+B | Show or hide the text panel (also View → Text) |
+| Ctrl+B | Show or hide the text panel (also Text / Both / Canvas in the top bar) |
 | Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo; also the ⟲ ⟳ buttons, and the Edit menu names the step ("Undo Move Order") |
 | Right- or middle-drag, scroll, the scroll bars | Pan |
 | Ctrl+scroll, or − and + in the top bar | Zoom (click the percentage for 100 %) |

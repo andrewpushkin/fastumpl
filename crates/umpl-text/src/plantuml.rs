@@ -926,6 +926,17 @@ impl Importer {
         stereotype: Option<String>,
         explicit: bool,
     ) -> ElementId {
+        // Text over several lines: the first is shown as the name, the
+        // others under it.
+        if let Some(text) = shown.filter(|t| t.contains('\n')) {
+            let (first, more) = split_display(text);
+            let id = self.element_at(path, kind, Some(&first), stereotype, explicit);
+            let el = self.doc.elements.get_mut(&id).unwrap();
+            if el.members.is_empty() {
+                el.members.extend(more.into_iter().map(Member::plain));
+            }
+            return id;
+        }
         if let Some(Endpoint::Element(id)) = self.quarks.get(&path).copied() {
             if explicit && self.undeclared.remove(&id) {
                 let container = self.parent_of(Endpoint::Element(id));
@@ -1467,6 +1478,14 @@ impl Importer {
             .map_or(first, |i| i + 1);
         let text = lines[first..last.max(first)].join("\n");
         if text.is_empty() {
+            return;
+        }
+        // The first line is the name; the others are shown under it.
+        if text.contains('\n') {
+            let (name, more) = split_display(&text);
+            self.show(id, &name);
+            let el = self.doc.elements.get_mut(&id).unwrap();
+            el.members.extend(more.into_iter().map(Member::plain));
             return;
         }
         self.show(id, &text);
@@ -3394,17 +3413,21 @@ fn strip_links(t: &str) -> std::borrow::Cow<'_, str> {
     out.into()
 }
 
-/// A shown name with separator lines (`Take role\n--\nExtension points`):
-/// the lines above the first separator (the name, which may span lines)
-/// and the other lines below, without separators. A name without
-/// separators is kept whole.
+/// A shown name over several lines: the first is the name, the others
+/// are shown under it (`Request handler\n(on_key_event)`); separator
+/// lines (`Take role\n--\nExtension points`) end the name and are
+/// dropped.
 fn split_display(shown: &str) -> (String, Vec<String>) {
     if shown.trim().is_empty() {
         return (shown.to_string(), Vec::new());
     }
     let lines: Vec<&str> = shown.lines().map(str::trim).collect();
     match lines.iter().position(|l| is_separator(l)) {
-        None => (shown.trim().to_string(), Vec::new()),
+        None => {
+            let mut text = lines.iter().copied().filter(|l| !l.is_empty());
+            let name = text.next().unwrap_or("").to_string();
+            (name, text.map(str::to_string).collect())
+        }
         Some(k) => {
             let name: Vec<&str> = lines[..k]
                 .iter()
@@ -4176,7 +4199,15 @@ class Second
         let rows: Vec<&str> = cfg.members.iter().map(|m| m.text.as_str()).collect();
         assert_eq!(rows, ["port => 8080", "db"]);
         rel(d, "Config", "Store");
-        rel(d, "\"Line one\\nLine two\"", "Config");
+        // A description over several lines: the first is the name, the
+        // others are shown under it.
+        rel(d, "\"Line one\"", "Config");
+        let lines: Vec<&str> = el(d, "\"Line one\"")
+            .members
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect();
+        assert_eq!(lines, ["Line two"]);
         assert_eq!(el(d, "D").kind, ElementKind::Diamond);
         assert_eq!(el(d, "Api").kind, ElementKind::Interface);
         rel(d, "A", "Api");

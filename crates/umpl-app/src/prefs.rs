@@ -73,9 +73,10 @@ impl Prefs {
         storage.save_setting("text_size", &format!("{:.0}", self.text_size));
     }
 
-    /// Installs the fonts and sizes the interface text.
+    /// Installs the fonts, sizes the interface text and sets the look.
     pub fn apply(&self, ctx: &Context) {
         crate::paint::install_fonts(ctx, self.ui_font == UiFont::Mono);
+        look(ctx);
         let scale = self.ui_scale;
         ctx.all_styles_mut(|style| {
             style.text_styles = egui::style::default_text_styles();
@@ -92,6 +93,72 @@ impl Prefs {
     /// `size` points of interface text at the chosen scale.
     pub fn ui(&self, size: f32) -> f32 {
         (size * self.ui_scale).round()
+    }
+}
+
+/// The interface's look, in both themes: quiet panels with thin borders,
+/// rounded buttons, menus and windows (as drawing tools such as Eraser
+/// look), and a blue selection.
+fn look(ctx: &Context) {
+    use egui::{Color32, CornerRadius, Stroke};
+    let rgb = Color32::from_rgb;
+    for (theme, dark) in [(egui::Theme::Dark, true), (egui::Theme::Light, false)] {
+        ctx.style_mut_of(theme, |style| {
+            let v = &mut style.visuals;
+            let (panel, window, extreme, faint, border, text, idle, hover, active, select) = if dark
+            {
+                (
+                    rgb(0x18, 0x19, 0x1d),
+                    rgb(0x1e, 0x1f, 0x24),
+                    rgb(0x13, 0x14, 0x17),
+                    rgb(0x1c, 0x1d, 0x21),
+                    rgb(0x2c, 0x2e, 0x35),
+                    rgb(0xe4, 0xe6, 0xeb),
+                    rgb(0x24, 0x26, 0x2c),
+                    rgb(0x2e, 0x30, 0x38),
+                    rgb(0x36, 0x39, 0x42),
+                    rgb(0x2b, 0x45, 0x75),
+                )
+            } else {
+                (
+                    rgb(0xf7, 0xf7, 0xf8),
+                    rgb(0xff, 0xff, 0xff),
+                    rgb(0xff, 0xff, 0xff),
+                    rgb(0xf1, 0xf2, 0xf4),
+                    rgb(0xe1, 0xe3, 0xe8),
+                    rgb(0x1f, 0x23, 0x2b),
+                    rgb(0xee, 0xef, 0xf2),
+                    rgb(0xe4, 0xe6, 0xeb),
+                    rgb(0xd8, 0xdb, 0xe2),
+                    rgb(0xd6, 0xe4, 0xff),
+                )
+            };
+            v.panel_fill = panel;
+            v.window_fill = window;
+            v.extreme_bg_color = extreme;
+            v.faint_bg_color = faint;
+            v.window_stroke = Stroke::new(1.0, border);
+            v.window_corner_radius = CornerRadius::same(10);
+            v.menu_corner_radius = CornerRadius::same(8);
+            v.selection.bg_fill = select;
+            v.widgets.noninteractive.bg_fill = panel;
+            v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border);
+            for (w, fill) in [
+                (&mut v.widgets.inactive, idle),
+                (&mut v.widgets.hovered, hover),
+                (&mut v.widgets.active, active),
+                (&mut v.widgets.open, hover),
+            ] {
+                w.bg_fill = fill;
+                w.weak_bg_fill = fill;
+                w.corner_radius = CornerRadius::same(6);
+            }
+            v.widgets.inactive.bg_stroke = Stroke::NONE;
+            v.widgets.inactive.fg_stroke.color = text;
+            v.widgets.noninteractive.corner_radius = CornerRadius::same(6);
+            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+            style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        });
     }
 }
 

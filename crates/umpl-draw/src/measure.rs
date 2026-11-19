@@ -52,6 +52,59 @@ pub fn cells(c: char) -> u32 {
     }
 }
 
+/// Text under the name of a component-style box.
+pub const DESC_SIZE: f32 = 11.0;
+pub const DESC_LINE: f32 = 14.0;
+/// Room left and right of a component-style box's text, for its icon.
+pub const ICON_ROOM: f32 = 26.0;
+/// Height of the top and bottom ellipses of a database cylinder.
+pub const CAP: f32 = 9.0;
+
+/// How a box is drawn: a UML class box (name compartment, members), or
+/// a box of a component, deployment or use case diagram with an icon for
+/// its kind and the lines under its name shown centred and smaller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    Uml,
+    Shape(ShapeKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeKind {
+    Component,
+    Database,
+    Queue,
+    Actor,
+    Cloud,
+    Node,
+    Folder,
+    File,
+    Usecase,
+    /// `rectangle`, `card`, `frame`, `agent`, `hexagon` and the rest.
+    Box,
+}
+
+impl ShapeKind {
+    /// The shape a keyword (the stereotype the importer gives such boxes)
+    /// stands for, if it is one.
+    pub fn of_keyword(keyword: &str) -> Option<ShapeKind> {
+        Some(match keyword {
+            "component" | "portin" | "portout" | "port" => ShapeKind::Component,
+            "database" | "storage" => ShapeKind::Database,
+            "queue" | "collections" | "stack" => ShapeKind::Queue,
+            "actor" | "person" | "boundary" | "control" => ShapeKind::Actor,
+            "cloud" => ShapeKind::Cloud,
+            "node" => ShapeKind::Node,
+            "folder" | "package" => ShapeKind::Folder,
+            "file" | "artifact" => ShapeKind::File,
+            "usecase" => ShapeKind::Usecase,
+            "rectangle" | "card" | "frame" | "agent" | "hexagon" | "label" | "process"
+            | "action" | "circle" => ShapeKind::Box,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemberLine {
     pub text: String,
@@ -72,6 +125,7 @@ pub struct BoxContent {
     pub compartments: Vec<Vec<MemberLine>>,
     /// The colour the user gave the box (see [`umpl_core::Element::color`]).
     pub color: Option<String>,
+    pub look: Look,
 }
 
 impl BoxContent {
@@ -84,11 +138,34 @@ impl BoxContent {
         PAD_Y * 2.0 + stereo + NAME_LINE
     }
 
+    /// The lines under the name of a component-style box.
+    pub fn description(&self) -> impl Iterator<Item = &MemberLine> {
+        self.compartments.iter().flatten()
+    }
+
     /// Size in grid units.
     pub fn size(&self) -> (i32, i32) {
         let units = |px: f32| (px / GRID).ceil() as i32;
         if self.kind == ElementKind::Diamond {
             return (DIAMOND_UNITS, DIAMOND_UNITS);
+        }
+        if let Look::Shape(shape) = self.look {
+            let text = self
+                .description()
+                .map(|l| text_width(&l.text, DESC_SIZE))
+                .fold(text_width(&self.name, NAME_SIZE), f32::max);
+            let mut w = text + 2.0 * ICON_ROOM + 2.0 * PAD_X;
+            let lines = self.description().count() as f32;
+            let mut h = 2.0 * PAD_Y + NAME_LINE + lines * DESC_LINE + 4.0;
+            match shape {
+                ShapeKind::Database => h += 2.0 * CAP,
+                ShapeKind::Usecase => {
+                    w *= 1.2;
+                    h += 10.0;
+                }
+                _ => {}
+            }
+            return (units(w).max(MIN_W_UNITS), units(h).max(4));
         }
         if self.kind == ElementKind::Note {
             let lines = self.compartments.first().map_or(&[][..], |c| &c[..]);
@@ -142,6 +219,8 @@ pub fn box_content(el: &Element) -> BoxContent {
             })
             .collect()],
         ElementKind::Enum => vec![el.members.iter().map(line).collect()],
+        // A component-style box shows its lines in the order written.
+        _ if look_of(el) != Look::Uml => vec![el.members.iter().map(line).collect()],
         _ => vec![
             el.attributes().map(line).collect(),
             el.operations().map(line).collect(),
@@ -157,6 +236,24 @@ pub fn box_content(el: &Element) -> BoxContent {
             .filter(|c: &Vec<MemberLine>| !c.is_empty())
             .collect(),
         color: el.color.clone(),
+        look: look_of(el),
+    }
+}
+
+/// [`Look::Shape`] for a box whose stereotype is a component, deployment
+/// or use case keyword (as the PlantUML importer gives them), else UML.
+pub fn look_of(el: &Element) -> Look {
+    if el.kind != ElementKind::Class {
+        return Look::Uml;
+    }
+    let first = el
+        .stereotype
+        .as_deref()
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_ascii_lowercase());
+    match first.as_deref().and_then(ShapeKind::of_keyword) {
+        Some(shape) => Look::Shape(shape),
+        None => Look::Uml,
     }
 }
 
@@ -172,6 +269,28 @@ pub fn label_size(text: &str) -> (i32, i32) {
 mod tests {
     use super::*;
     use umpl_core::Member;
+
+    #[test]
+    fn component_boxes_show_their_lines_under_the_name() {
+        let mut el = Element::new(ElementKind::Class, "Request handler");
+        el.stereotype = Some("component".into());
+        let one = box_content(&el);
+        assert_eq!(one.look, Look::Shape(ShapeKind::Component));
+        el.members.push(umpl_core::Member::plain("(on_key_event,"));
+        el.members.push(umpl_core::Member::plain("on_fields)"));
+        let three = box_content(&el);
+        let lines: Vec<&str> = three.description().map(|l| l.text.as_str()).collect();
+        assert_eq!(lines, ["(on_key_event,", "on_fields)"]);
+        assert!(three.size().1 > one.size().1);
+        // A database is a cylinder: taller for its caps.
+        el.stereotype = Some("database".into());
+        let db = box_content(&el);
+        assert_eq!(db.look, Look::Shape(ShapeKind::Database));
+        assert!(db.size().1 > three.size().1);
+        // A class with a stereotype of its own stays a UML box.
+        el.stereotype = Some("entity".into());
+        assert_eq!(box_content(&el).look, Look::Uml);
+    }
 
     #[test]
     fn wide_letters_and_tabs_take_more_room() {

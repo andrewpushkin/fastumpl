@@ -74,6 +74,9 @@ pub(crate) struct Target {
     /// A package that is all there is at its level fills the view too
     /// ([`Goal::FillView`]).
     pub whole: bool,
+    /// Parts without inheritance may run left to right where that is
+    /// closer to the view's shape (some candidates when filling the view).
+    pub turn: bool,
 }
 
 #[cfg(test)]
@@ -84,6 +87,7 @@ impl Target {
             aspect: DEFAULT_ASPECT,
             fill: true,
             whole: false,
+            turn: false,
         }
     }
 }
@@ -170,6 +174,42 @@ fn find(parent: &mut [usize], x: usize) -> usize {
     r
 }
 
+/// Layers, orders and places one connected part: the positions of its
+/// items and their bounds.
+fn layered(
+    sizes: &[(i32, i32)],
+    edges: &[FlatEdge],
+    ghosts: &[Ghost],
+    hint: Option<&[f64]>,
+    start: Start,
+    ci: usize,
+    target: Target,
+) -> (Vec<(i32, i32)>, Rect) {
+    let n = sizes.len();
+    let layers = assign_layers_with(n, edges, sizes, target);
+    let mut lay = Layered::build_with_ghosts(n, &layers, edges, ghosts);
+    match start {
+        Start::Hint => lay.order(hint, None),
+        Start::DepthFirst => lay.order(None, None),
+        Start::Random(seed) => {
+            let mut rng = Rng::new(seed.wrapping_add(ci as u64 * 7919));
+            lay.order(None, Some(&mut rng))
+        }
+    }
+    lay.strip_ghosts();
+    let mut widths: Vec<i32> = sizes.iter().map(|s| s.0).collect();
+    let mut heights: Vec<i32> = sizes.iter().map(|s| s.1).collect();
+    widths.resize(lay.total(), 0);
+    heights.resize(lay.total(), 0);
+    let pos = assign_coords(&lay, &widths, &heights);
+    let mut bounds: Option<Rect> = None;
+    for (li, p) in pos.iter().enumerate().take(n) {
+        let r = Rect::new(p.0, p.1, sizes[li].0, sizes[li].1);
+        bounds = Some(bounds.map_or(r, |b| b.union(&r)));
+    }
+    (pos, bounds.unwrap_or_default())
+}
+
 /// Lays out one scope; returns item top-left corners, normalised to (0, 0).
 fn layout_scope(
     sizes: &[(i32, i32)],
@@ -223,29 +263,54 @@ fn layout_scope(
                 ..*g
             })
             .collect();
-        let layers = assign_layers_with(comp.len(), &sub_edges, &sub_sizes, target);
-        let mut lay = Layered::build_with_ghosts(comp.len(), &layers, &sub_edges, &sub_ghosts);
         let sub_hint: Option<Vec<f64>> = hint.map(|h| comp.iter().map(|&i| h[i]).collect());
-        match start {
-            Start::Hint => lay.order(sub_hint.as_deref(), None),
-            Start::DepthFirst => lay.order(None, None),
-            Start::Random(seed) => {
-                let mut rng = Rng::new(seed.wrapping_add(ci as u64 * 7919));
-                lay.order(None, Some(&mut rng))
+        let (mut pos, mut bounds) = layered(
+            &sub_sizes,
+            &sub_edges,
+            &sub_ghosts,
+            sub_hint.as_deref(),
+            start,
+            ci,
+            target,
+        );
+        // To fill the view, a part without inheritance (which keeps
+        // parents above children) may also run left to right: a chain of
+        // boxes becomes a row instead of a tall column. The direction
+        // closer to the view's shape wins.
+        let free = !sub_edges.iter().any(|e| e.kind == EdgeKind::Hierarchy);
+        if target.turn && free && comp.len() > 2 {
+            let shape = |b: &Rect| b.w.max(1) as f64 / b.h.max(1) as f64;
+            let t_sizes: Vec<(i32, i32)> = sub_sizes.iter().map(|&(w, h)| (h, w)).collect();
+            let t_edges: Vec<FlatEdge> = sub_edges
+                .iter()
+                .map(|e| FlatEdge {
+                    ports: (0.5, 0.5),
+                    ..*e
+                })
+                .collect();
+            let t_ghosts: Vec<Ghost> = sub_ghosts
+                .iter()
+                .map(|g| Ghost {
+                    side: match g.side {
+                        GhostSide::Top => GhostSide::Left,
+                        GhostSide::Bottom => GhostSide::Right,
+                        GhostSide::Left => GhostSide::Top,
+                        GhostSide::Right => GhostSide::Bottom,
+                    },
+                    port: 0.5,
+                    ..*g
+                })
+                .collect();
+            let (t_pos, t_bounds) = layered(&t_sizes, &t_edges, &t_ghosts, None, start, ci, target);
+            let t_bounds = Rect::new(t_bounds.y, t_bounds.x, t_bounds.h, t_bounds.w);
+            if misfit(shape(&t_bounds), target.aspect) + 0.05
+                < misfit(shape(&bounds), target.aspect)
+            {
+                pos = t_pos.iter().map(|&(x, y)| (y, x)).collect();
+                bounds = t_bounds;
             }
         }
-        lay.strip_ghosts();
-        let mut widths: Vec<i32> = sub_sizes.iter().map(|s| s.0).collect();
-        let mut heights: Vec<i32> = sub_sizes.iter().map(|s| s.1).collect();
-        widths.resize(lay.total(), 0);
-        heights.resize(lay.total(), 0);
-        let pos = assign_coords(&lay, &widths, &heights);
-        let mut bounds: Option<Rect> = None;
-        for (li, p) in pos.iter().enumerate() {
-            let r = Rect::new(p.0, p.1, sub_sizes[li].0, sub_sizes[li].1);
-            bounds = Some(bounds.map_or(r, |b| b.union(&r)));
-        }
-        placed.push((comp.clone(), pos, bounds.unwrap_or_default()));
+        placed.push((comp.clone(), pos, bounds));
     }
 
     // Pack the parts in rows, biggest first, trying many row widths and
@@ -646,6 +711,7 @@ fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) ->
             aspect,
             fill: true,
             whole: true,
+            turn: false,
         };
         shape_of(graph, &place_rounds(graph, Start::DepthFirst, target))
     };
@@ -669,21 +735,14 @@ fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) ->
     f
 }
 
-/// What not filling the view costs a candidate, in score points (a
-/// crossing costs 10): leaving half the view blank costs as much as 3
-/// crossings, a third more than the fewest any candidate has, and one more
-/// for every 24 lines. A layout that fills the view wins unless it has
-/// clearly more crossings.
-fn fill_cost(graph: &Graph, layout: &Layout, aspect: f64, least_crossings: usize) -> f64 {
-    let b = layout.bounds(graph);
-    let shape = b.w.max(1) as f64 / b.h.max(1) as f64;
-    fit_cost(graph, shape, aspect, least_crossings)
-}
-
-/// [`fill_cost`] of a drawing of width : height `shape`.
-fn fit_cost(graph: &Graph, shape: f64, aspect: f64, least_crossings: usize) -> f64 {
-    let crossings = 3.0 + least_crossings as f64 / 3.0 + graph.edges.len() as f64 / 24.0;
-    10.0 * crossings * misfit(shape, aspect) / std::f64::consts::LN_2
+/// How much worse a candidate counts for not filling the view: its
+/// score times 1 + 2 × the [`misfit`] beyond nine tenths of the view
+/// filled ([`FITS`]). Leaving half the view blank makes it count about
+/// twice its score, at any size of diagram, so a layout that fills the
+/// view wins over one with a few fewer crossings or shorter lines; near
+/// the view's shape, the score alone decides.
+fn fit_factor(shape: f64, aspect: f64) -> f64 {
+    1.0 + 2.0 * (misfit(shape, aspect) - FITS).max(0.0)
 }
 
 /// Memory the routing of candidates may take at once, in bytes.
@@ -813,6 +872,9 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             aspect: opts.aspect,
             fill: true,
             whole: fill,
+            // Every other candidate from the third may turn parts sideways;
+            // the fit to the view decides.
+            turn: fill && i >= 2 && i % 2 == 0,
         };
         Some(Layout {
             nodes: place_rounds(graph, starts[i], target),
@@ -834,15 +896,15 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             .iter()
             .map(|l| l.as_ref().map(|l| straight_crossings(graph, &l.nodes)))
             .collect();
-        let least = straight.iter().flatten().copied().min().unwrap_or(0);
         let cost = |i: usize| {
             let l = placed[i].as_ref()?;
-            let fit = if fill {
-                fit_cost(graph, shape_of(graph, &l.nodes), opts.aspect, least)
+            // Straight crossings, plus the lines so that none is free.
+            let base = 10.0 * straight[i]? as f64 + graph.edges.len() as f64;
+            Some(if fill {
+                base * fit_factor(shape_of(graph, &l.nodes), opts.aspect)
             } else {
-                0.0
-            };
-            Some(10.0 * straight[i]? as f64 + fit)
+                base
+            })
         };
         let best = (0..placed.len())
             .filter_map(|i| cost(i).map(|c| (c, i)))
@@ -873,14 +935,14 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
     // fill the view; the winner is routed again with the thorough router,
     // which only ever lowers its cost.
     let results: Vec<Layout> = results.into_iter().flatten().collect();
-    let least = results.iter().map(|l| l.stats.crossings).min().unwrap_or(0);
     let cost = |l: &Layout| {
-        let fit = if fill {
-            fill_cost(graph, l, opts.aspect, least)
+        if fill {
+            let b = l.bounds(graph);
+            let shape = b.w.max(1) as f64 / b.h.max(1) as f64;
+            l.stats.score() * fit_factor(shape, opts.aspect)
         } else {
-            0.0
-        };
-        l.stats.score() + fit
+            l.stats.score()
+        }
     };
     let best = results
         .into_iter()
