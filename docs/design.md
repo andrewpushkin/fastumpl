@@ -234,6 +234,8 @@ Input: boxes with sizes, edges with kinds, groups, and optionally some fixed pos
 5. **Assign coordinates.** Place boxes so long lines run straight and parents sit centred over their children (Brandes–Köpf method), respecting real box sizes and minimum gaps. Snap everything to the grid.
 6. **Route.** Section 6.5.
 7. **Place labels.** Multiplicities and role names sit next to their line end; a relation name sits on the longest segment of its line. Each label picks, from a few candidate spots, the first that overlaps nothing.
+8. **Compete.** Several candidates (different starting orders and layer widths) go through steps 3–7 in parallel, and the best wins.
+9. **Fit the view.** The drawing should fill the canvas it opens in, not leave part of it blank. Before the candidates, the layer width is calibrated: placed at the usual width, the drawing's width : height is measured, and the width is scaled by the square root of what is missing (with the area fixed, width : height grows as the square of the layer width), up to three times while it gets closer. The first candidate keeps the usual width, the next takes the calibrated one and the third the width halfway; the winner is chosen by score plus a cost for not filling the view: leaving half of it blank costs as much as 3 crossings, a third more than the fewest any candidate has, and one more per 24 lines. A package that is all there is at its level (a diagram drawn inside one package) fills the view too; other packages stay compact.
 
 ### 6.5 The router
 
@@ -298,6 +300,8 @@ Changes to the engine were judged on 52 generated class diagrams of 40 to 150 cl
 
 On 2026-11-18 the layout was made to fill the view (packing of loose parts, section 6.4 step 1, and children folding into rows, step 3). On the same 52 diagrams, extended into a test (section 10): 2808 → 2798 crossings, score 83161 → 83053, median width : height of the drawings 2.60 → 2.07, and drawings wider than 3:1 21 → 15. Sixty subclasses of one class went from a 34:1 strip to 4:1; 80 unconnected classes from one row to 1.6:1. The folded rows are still ragged (boxes of one row at a few heights, since compaction lets each rise until it meets a box above it); placing a large family of siblings as a grid would look cleaner.
 
+On 2026-11-19 the drawing as a whole was made to take the shape of the view (section 6.4, step 9). A drawing whose layers fill up to the old width limit, 1.8 times the side of a square of its area, comes out about 1.8² ≈ 3 times wider than the view; measured on 1725 PlantUML corpus files laid out for a 16:10 view, the median drawing was 1.96:1 and filled 70 % of the view, and only a third filled 80 % or more. Now: median 1.77:1 filling 77 %, 800 instead of 574 files filling 80 % or more (diagrams of four boxes or more: median 86–88 %), for 0.9 % more crossings in all. Most drawings still far from the view's shape have one to three boxes, which fit-to-view zooms in on only to 200 % anyway. In the quality corpus, banking and library now fill their views (1.03 → 1.48, 2.21 → 1.67) with the same crossings; the 200-class diagram goes from 2.38:1 to 1.53:1 at 211 → 257 crossings.
+
 Tried and rejected, so they need not be tried again:
 
 - **A truer cost for same-layer lines** (counting the lines of the boxes they pass instead of the boxes): no gain overall, and worse on small diagrams with packages.
@@ -305,6 +309,8 @@ Tried and rejected, so they need not be tried again:
 - **More restarts for small diagrams:** lower ordering cost, but no fewer crossings once routed. The ordering's count is only a model of the drawing.
 - **A smaller wider-search area, or a limit on its steps:** saved little time and lost much of its effect.
 - **Packing every scope to fill the view**, including the parts inside packages: banking's score rose from 199 to 221 and the 200-class diagram gained crossings. A package box should stay compact; only the top level fills the view.
+- **Lines from one box sharing their stand-ins in the layers between** (a trunk, so that a long row of children folds into rows without one stand-in per line in each row): 1 more point of median fill, but 3.7 % more crossings on the PlantUML corpus.
+- **Weighing the fit more** (half the view blank worth half again the crossings instead of a third): 13 more of 1725 files filling 80 %, for 2.4 % more crossings.
 - **Folding children inside packages at the usual width:** small families of three or four subclasses split into rows for no gain (banking 199 → 220, same crossings).
 - **Bounded routing by line count (over 300 lines):** the 972-class diagram, which routes fully in 1.7 s, got 1692 shared lanes. Only the grid size predicts the cost.
 

@@ -378,6 +378,21 @@ fn side_towards(r: &Rect, c: (f64, f64)) -> GhostSide {
     }
 }
 
+/// Whether `scope` should fill the view: the top, or a package that is
+/// all there is in a scope that fills it (a diagram drawn inside one
+/// package). Other packages pack tight, to keep their boxes compact.
+fn fills_view(graph: &Graph, scope: Option<usize>) -> bool {
+    let mut scope = scope;
+    while let Some(g) = scope {
+        let parent = graph.groups[g].parent;
+        if scope_items(graph, parent).len() != 1 {
+            return false;
+        }
+        scope = parent;
+    }
+    true
+}
+
 /// Computes node positions for one candidate. With `prev` (positions from
 /// an earlier round), the order starts from those positions and each
 /// package sees where its outside lines go.
@@ -456,7 +471,7 @@ fn place_all(
             (s, _) => s,
         };
         let scope_target = Target {
-            fill: scope.is_none(),
+            fill: fills_view(graph, scope),
             ..target
         };
         let pos = layout_scope(
@@ -538,21 +553,96 @@ fn place_rounds(graph: &Graph, start: Start, target: Target) -> Vec<(i32, i32)> 
 /// anything after it.
 const WIDTHS: [f64; 4] = [0.75, 1.35, 0.6, 1.7];
 
-/// Layer width of a candidate. The hint and depth-first candidates and
-/// every other random one keep the usual width, so a tidy diagram is found
-/// again; the remaining random ones try the `WIDTHS`.
-fn width_of(start: Start, seed: u64) -> f64 {
-    match start {
-        Start::Random(s) => {
-            let k = s.wrapping_sub(seed);
-            if k % 2 == 1 {
-                1.0
-            } else {
-                WIDTHS[((k / 2 - 1) % WIDTHS.len() as u64) as usize]
-            }
-        }
-        _ => 1.0,
+/// Layer width of candidate `i`, given the width `base` at which the
+/// drawing has the view's shape. The first candidate (the current layout's
+/// order, or depth first) keeps the usual width, so a tidy diagram is
+/// found again and the fewest crossings are on offer; the next takes
+/// `base` and the one after the width halfway, so that the choice weighs
+/// crossings against filling the view. The rest try every other one
+/// `base`, else the `WIDTHS` around it.
+fn width_for(i: usize, base: f64) -> f64 {
+    match i {
+        0 => 1.0,
+        1 => base,
+        2 => base.sqrt(),
+        _ if (i - 3).is_multiple_of(2) => base,
+        _ => base * WIDTHS[((i - 3) / 2) % WIDTHS.len()],
     }
+}
+
+/// Width : height of placed nodes with their packages.
+fn shape_of(graph: &Graph, nodes: &[(i32, i32)]) -> f64 {
+    let mut r: Option<Rect> = None;
+    let mut add = |o: Rect| r = Some(r.map_or(o, |r| r.union(&o)));
+    for (i, &(x, y)) in nodes.iter().enumerate() {
+        add(Rect::new(x, y, graph.nodes[i].w, graph.nodes[i].h));
+    }
+    for g in group_rects(graph, nodes) {
+        add(g);
+    }
+    let r = r.unwrap_or_default();
+    r.w.max(1) as f64 / r.h.max(1) as f64
+}
+
+/// How far a drawing of width : height `shape` is from filling a view of
+/// width : height `aspect`: 0 when it fills it, ln 2 when half the view
+/// stays blank (a strip twice too wide or too tall).
+fn misfit(shape: f64, aspect: f64) -> f64 {
+    (shape / aspect).ln().abs()
+}
+
+/// Close enough to the view's shape: nine tenths of the view filled.
+const FITS: f64 = 0.105;
+
+/// The layer width, as a factor of the usual, at which the drawing gets
+/// the view's shape. Wider layers make a wider, lower drawing: with the
+/// same area, width : height grows about as the square of the factor, so
+/// each step scales it by the square root of what is missing. A few
+/// steps; a chain of boxes, which no width makes wider, stops them early.
+fn calibrated_width(graph: &Graph, aspect: f64, cancelled: &dyn Fn() -> bool) -> f64 {
+    let shape = |f: f64| {
+        let target = Target {
+            width: f,
+            aspect,
+            fill: true,
+        };
+        shape_of(graph, &place_rounds(graph, Start::DepthFirst, target))
+    };
+    let mut f = 1.0;
+    let mut r = shape(f);
+    for _ in 0..3 {
+        if misfit(r, aspect) < FITS || cancelled() {
+            break;
+        }
+        let next = (f * (aspect / r).sqrt()).clamp(0.2, 4.0);
+        if (next / f).ln().abs() < 0.02 {
+            break;
+        }
+        let rn = shape(next);
+        if misfit(rn, aspect) >= misfit(r, aspect) {
+            break;
+        }
+        f = next;
+        r = rn;
+    }
+    f
+}
+
+/// What not filling the view costs a candidate, in score points (a
+/// crossing costs 10): leaving half the view blank costs as much as 3
+/// crossings, a third more than the fewest any candidate has, and one more
+/// for every 24 lines. A layout that fills the view wins unless it has
+/// clearly more crossings.
+fn fill_cost(graph: &Graph, layout: &Layout, aspect: f64, least_crossings: usize) -> f64 {
+    let b = layout.bounds(graph);
+    let shape = b.w.max(1) as f64 / b.h.max(1) as f64;
+    fit_cost(graph, shape, aspect, least_crossings)
+}
+
+/// [`fill_cost`] of a drawing of width : height `shape`.
+fn fit_cost(graph: &Graph, shape: f64, aspect: f64, least_crossings: usize) -> f64 {
+    let crossings = 3.0 + least_crossings as f64 / 3.0 + graph.edges.len() as f64 / 24.0;
+    10.0 * crossings * misfit(shape, aspect) / std::f64::consts::LN_2
 }
 
 /// Memory the routing of candidates may take at once, in bytes.
@@ -660,6 +750,8 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             out
         };
 
+    // The layer width that gives the drawing the shape of the view.
+    let base = calibrated_width(graph, opts.aspect, &cancelled);
     // Placing is cheap; routing is not, and grows with the drawing.
     let placed: Vec<Option<Layout>> = in_parallel(starts.len(), threads, &|i| {
         // The first candidate always runs.
@@ -667,7 +759,7 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             return None;
         }
         let target = Target {
-            width: width_of(starts[i], opts.seed),
+            width: width_for(i, base),
             aspect: opts.aspect,
             fill: true,
         };
@@ -685,11 +777,22 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
             .flatten()
             .any(|l| crate::router::grid_cells(graph, &l.nodes) > crate::router::LARGE_CELLS);
     let chosen: Vec<usize> = if large {
-        let best = placed
+        // Straight crossings, and the fit of the boxes to the view, as the
+        // routed candidates are weighed below.
+        let straight: Vec<Option<usize>> = placed
             .iter()
-            .enumerate()
-            .filter_map(|(i, l)| l.as_ref().map(|l| (straight_crossings(graph, &l.nodes), i)))
-            .min()
+            .map(|l| l.as_ref().map(|l| straight_crossings(graph, &l.nodes)))
+            .collect();
+        let least = straight.iter().flatten().copied().min().unwrap_or(0);
+        let cost = |i: usize| {
+            let l = placed[i].as_ref()?;
+            let shape = shape_of(graph, &l.nodes);
+            let fit = fit_cost(graph, shape, opts.aspect, least);
+            Some(10.0 * straight[i]? as f64 + fit)
+        };
+        let best = (0..placed.len())
+            .filter_map(|i| cost(i).map(|c| (c, i)))
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
             .map(|(_, i)| i)
             .unwrap_or(0);
         vec![best]
@@ -712,13 +815,16 @@ pub fn layout_all(graph: &Graph, opts: &Options) -> Layout {
         let nodes = placed[i].as_ref()?.nodes.clone();
         Some(finalize_with(graph, nodes, false))
     });
-    // Candidates are compared with quick routing; the winner is routed
-    // again with the thorough router, which only ever lowers its cost.
+    // Candidates are compared with quick routing, and by how well they
+    // fill the view; the winner is routed again with the thorough router,
+    // which only ever lowers its cost.
+    let results: Vec<Layout> = results.into_iter().flatten().collect();
+    let least = results.iter().map(|l| l.stats.crossings).min().unwrap_or(0);
+    let cost = |l: &Layout| l.stats.score() + fill_cost(graph, l, opts.aspect, least);
     let best = results
         .into_iter()
-        .flatten()
         .enumerate()
-        .min_by(|(i, a), (j, b)| a.stats.score().total_cmp(&b.stats.score()).then(i.cmp(j)))
+        .min_by(|(i, a), (j, b)| cost(a).total_cmp(&cost(b)).then(i.cmp(j)))
         .map(|(_, l)| l)
         .unwrap_or_default();
     if cancelled() {
@@ -1076,6 +1182,35 @@ mod tests {
             assert!(
                 (w / h / aspect).ln().abs() < 0.5,
                 "aspect {aspect}: {w} x {h}"
+            );
+        }
+    }
+
+    /// One connected diagram (a base class with many subclasses, some with
+    /// helpers) takes the shape of the view: its layers fold or spread to
+    /// fit, as the choice of candidates weighs the fit.
+    #[test]
+    fn a_connected_diagram_fills_the_view() {
+        for aspect in [1.0, 1.6, 2.4] {
+            let mut g = Graph::default();
+            let base = g.add_node(16, 6);
+            for k in 0..24 {
+                let child = g.add_node(14, 6);
+                g.add_edge(child, base, EdgeKind::Hierarchy);
+                if k % 3 == 0 {
+                    let helper = g.add_node(12, 4);
+                    g.add_edge(child, helper, EdgeKind::Assoc);
+                }
+            }
+            let opts = Options { aspect, ..fast() };
+            let l = layout_all(&g, &opts);
+            let b = l.bounds(&g);
+            let shape = b.w as f64 / b.h as f64;
+            assert!(
+                misfit(shape, aspect) < 0.4,
+                "aspect {aspect}: {} x {}",
+                b.w,
+                b.h
             );
         }
     }

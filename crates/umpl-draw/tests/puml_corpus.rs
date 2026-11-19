@@ -296,6 +296,7 @@ fn opens_the_corpus() {
     let (mut read, mut clean, mut unclear, mut elements, mut relations) = (0, 0, 0, 0, 0);
     let mut failures = Vec::new();
     let mut shapes: Vec<(f32, PathBuf)> = Vec::new();
+    let mut crossings = 0usize;
     let mut slow: Vec<(u128, PathBuf, usize)> = Vec::new();
     let mut table = vec![
         "path\tkind\telements\trelations\tproblems\tnot_understood\tlayout_ms\tcrossings\twidth\theight"
@@ -384,6 +385,7 @@ fn opens_the_corpus() {
                 failures.push(format!("{p}: {} overlapping boxes", l.overlaps));
             }
             shapes.push((l.width / l.height.max(1.0), o.path.clone()));
+            crossings += l.crossings;
             slow.push((l.ms, o.path.clone(), o.elements));
         }
     }
@@ -458,6 +460,22 @@ fn opens_the_corpus() {
             q(0.5),
             q(0.1),
             q(0.9)
+        );
+        // How much of a 16:10 view (the layout's default) each drawing
+        // fills when zoomed to fit, and the crossings paid for it.
+        let aspect = umpl_layout::DEFAULT_ASPECT;
+        let mut fill: Vec<f64> = shapes
+            .iter()
+            .map(|s| (-((s.0 as f64) / aspect).ln().abs()).exp())
+            .collect();
+        fill.sort_by(|a, b| a.total_cmp(b));
+        let most = fill.iter().filter(|&&f| f >= 0.8).count();
+        println!(
+            "view filled: median {:.0} %, 10% of drawings under {:.0} %; {most} of {} fill 80 % or more; \
+             {crossings} crossings in all",
+            100.0 * fill[fill.len() / 2],
+            100.0 * fill[fill.len() / 10],
+            fill.len()
         );
         for (r, p) in shapes.iter().rev().take(5) {
             println!("  {r:6.2}  {}", p.display());

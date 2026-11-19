@@ -131,7 +131,12 @@ fn layout_quality_does_not_regress() {
         let s = d.layout.stats;
         assert_eq!(s.overlaps, 0, "{name}: boxes overlap");
         let score = (s.score() * 10.0).round() / 10.0;
-        println!("{name}: {} crossings, score {score}", s.crossings);
+        let b = d.layout.bounds(&d.graph);
+        let shape = b.w.max(1) as f64 / b.h.max(1) as f64;
+        println!(
+            "{name}: {} crossings, score {score}, width : height {shape:.2}",
+            s.crossings
+        );
         lines.push(format!("{name} {} {score:.1}", s.crossings));
         if let Some(&(c, sc)) = recorded.get(&name) {
             if s.crossings > c || score > sc + 0.05 {

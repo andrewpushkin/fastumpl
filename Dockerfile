@@ -126,11 +126,24 @@ RUN mkdir -p /opt/puml-samples \
     done \
     && chown -R ${USER_UID}:${USER_GID} /opt/puml-samples
 
-# PlantUML itself (and a JDK for it), as the reference the PlantUML import
-# is checked against: scripts/puml-check.sh asks it which corpus files have
-# errors of their own. Not part of fastumpl or its packages.
+USER ${USERNAME}
+
+WORKDIR /work
+CMD ["bash"]
+
+
+# ---------------------------------------------------------------------------
+# The dev image with PlantUML itself (and a JDK for it), as the reference the
+# PlantUML import is checked against: scripts/puml-check.sh asks it which
+# corpus files have errors of their own. scripts/dev.sh runs this image; the
+# packages are built in `dev`, without it. Not part of fastumpl or its
+# packages.
+FROM dev AS tools
+
+ARG USERNAME=dev
 ARG PLANTUML=1.2026.9
 ARG PLANTUML_SHA256=aa4a1d06f8911c4b842beff4828dd955be431692b631a312d04c0e9fab9581de
+USER root
 RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /opt/plantuml \
@@ -141,9 +154,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-hea
         > /usr/local/bin/plantuml \
     && chmod +x /usr/local/bin/plantuml
 USER ${USERNAME}
-
-WORKDIR /work
-CMD ["bash"]
 
 
 # ---------------------------------------------------------------------------
