@@ -1,0 +1,21 @@
+@startuml
+title A space of u32::MAX
+participant A
+participant B
+participant C
+A -> B : before
+||4294967295||
+A -> B : after 0
+B -> C : after 1
+C -> A : after 2
+A -> B : after 3
+B -> C : after 4
+C -> A : after 5
+A -> B : after 6
+B -> C : after 7
+C -> A : after 8
+A -> B : after 9
+B -> C : after 10
+C -> A : after 11
+note over A, C : a note after the space
+@enduml

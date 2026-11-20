@@ -1,0 +1,32 @@
+@startuml
+title Big numbers
+participant A
+participant B
+autonumber 9223372036854775806
+A -> B : max - 1
+B -> A : max
+A -> B : max + 1 (overflows)
+autonumber 1 9223372036854775807
+A -> B : 1
+B -> A : step = max
+A -> B : step overflow
+autonumber 10 -9223372036854775807
+A -> B : 10
+B -> A : 10 - max
+A -> B : underflows
+autonumber 99999999999999999999999
+A -> B : start too big for 64 bits
+autonumber 1 1 "<b>[0000000000000000000000000000000000000000]"
+A -> B : forty zeros
+autonumber 2147483646
+A -> B : int max - 1
+B -> A : int max
+A -> B : int max + 1
+autonumber stop
+A -> B : not numbered
+autonumber resume 1000000000000
+A -> B : resumed, step one trillion
+B -> A : next
+||100000||
+A -> B : after a space of 100000
+@enduml

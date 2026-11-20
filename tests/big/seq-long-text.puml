@@ -1,0 +1,126 @@
+@startuml
+title A sequence title far wider than the window A sequence title far wider than the window A sequence title far wider than the window A sequence title far wider than the window A sequence title far wider than the window 
+participant "A_participant_with_a_very_long_name_A_participant_with_a_very_long_name_A_participant_with_a_very_long_name_A_participant_with_a_very_long_name_" as L
+participant "Name line 0\nName line 1\nName line 2\nName line 3\nName line 4\nName line 5\nName line 6\nName line 7" as M
+actor "利用者 👩‍💻" as U
+database "Données naïves" as D
+participant S
+U -> L : a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on a message label that goes on and on 
+L -> L : a self call whose label is very long a self call whose label is very long a self call whose label is very long a self call whose label is very long a self call whose label is very long a self call whose label is very long a self call whose label is very long a self call whose label is very long 
+L -> M : label line 0\nlabel line 1\nlabel line 2\nlabel line 3\nlabel line 4\nlabel line 5\nlabel line 6\nlabel line 7\nlabel line 8\nlabel line 9\nlabel line 10\nlabel line 11\nlabel line 12\nlabel line 13\nlabel line 14\nlabel line 15\nlabel line 16\nlabel line 17\nlabel line 18\nlabel line 19\nlabel line 20\nlabel line 21\nlabel line 22\nlabel line 23\nlabel line 24
+M -> S : short
+S -> U : back across every lifeline back across every lifeline back across every lifeline back across every lifeline back across every lifeline back across every lifeline 
+note over L, S
+note line 0: text text text text text text text text text text text text text text text text text text text text 
+note line 1: text text text text text text text text text text text text text text text text text text text text 
+note line 2: text text text text text text text text text text text text text text text text text text text text 
+note line 3: text text text text text text text text text text text text text text text text text text text text 
+note line 4: text text text text text text text text text text text text text text text text text text text text 
+note line 5: text text text text text text text text text text text text text text text text text text text text 
+note line 6: text text text text text text text text text text text text text text text text text text text text 
+note line 7: text text text text text text text text text text text text text text text text text text text text 
+note line 8: text text text text text text text text text text text text text text text text text text text text 
+note line 9: text text text text text text text text text text text text text text text text text text text text 
+note line 10: text text text text text text text text text text text text text text text text text text text text 
+note line 11: text text text text text text text text text text text text text text text text text text text text 
+note line 12: text text text text text text text text text text text text text text text text text text text text 
+note line 13: text text text text text text text text text text text text text text text text text text text text 
+note line 14: text text text text text text text text text text text text text text text text text text text text 
+note line 15: text text text text text text text text text text text text text text text text text text text text 
+note line 16: text text text text text text text text text text text text text text text text text text text text 
+note line 17: text text text text text text text text text text text text text text text text text text text text 
+note line 18: text text text text text text text text text text text text text text text text text text text text 
+note line 19: text text text text text text text text text text text text text text text text text text text text 
+note line 20: text text text text text text text text text text text text text text text text text text text text 
+note line 21: text text text text text text text text text text text text text text text text text text text text 
+note line 22: text text text text text text text text text text text text text text text text text text text text 
+note line 23: text text text text text text text text text text text text text text text text text text text text 
+note line 24: text text text text text text text text text text text text text text text text text text text text 
+note line 25: text text text text text text text text text text text text text text text text text text text text 
+note line 26: text text text text text text text text text text text text text text text text text text text text 
+note line 27: text text text text text text text text text text text text text text text text text text text text 
+note line 28: text text text text text text text text text text text text text text text text text text text text 
+note line 29: text text text text text text text text text text text text text text text text text text text text 
+end note
+note left of U : a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide a left note that is wide 
+note right of S : a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide a right note that is wide 
+alt level 0 condition condition condition 
+  loop level 1 condition condition condition 
+    opt level 2 condition condition condition 
+      group level 3 condition condition condition 
+        alt level 4 condition condition condition 
+          loop level 5 condition condition condition 
+            opt level 6 condition condition condition 
+              group level 7 condition condition condition 
+                alt level 8 condition condition condition 
+                  loop level 9 condition condition condition 
+                    opt level 10 condition condition condition 
+                      group level 11 condition condition condition 
+                        alt level 12 condition condition condition 
+                          loop level 13 condition condition condition 
+                            opt level 14 condition condition condition 
+                              group level 15 condition condition condition 
+                                alt level 16 condition condition condition 
+                                  loop level 17 condition condition condition 
+                                    opt level 18 condition condition condition 
+                                      group level 19 condition condition condition 
+                                        alt level 20 condition condition condition 
+                                          loop level 21 condition condition condition 
+                                            opt level 22 condition condition condition 
+                                              group level 23 condition condition condition 
+                                                alt level 24 condition condition condition 
+                                                  loop level 25 condition condition condition 
+                                                    opt level 26 condition condition condition 
+                                                      group level 27 condition condition condition 
+                                                        alt level 28 condition condition condition 
+                                                          loop level 29 condition condition condition 
+                                                            U -> D : deep inside thirty fragments
+                                                          end
+                                                        else the other branch at level 28
+                                                          D -> U : else branch
+                                                        end
+                                                      end
+                                                    end
+                                                  end
+                                                else the other branch at level 24
+                                                  D -> U : else branch
+                                                end
+                                              end
+                                            end
+                                          end
+                                        else the other branch at level 20
+                                          D -> U : else branch
+                                        end
+                                      end
+                                    end
+                                  end
+                                else the other branch at level 16
+                                  D -> U : else branch
+                                end
+                              end
+                            end
+                          end
+                        else the other branch at level 12
+                          D -> U : else branch
+                        end
+                      end
+                    end
+                  end
+                else the other branch at level 8
+                  D -> U : else branch
+                end
+              end
+            end
+          end
+        else the other branch at level 4
+          D -> U : else branch
+        end
+      end
+    end
+  end
+end
+== a divider with a long text a divider with a long text a divider with a long text a divider with a long text a divider with a long text a divider with a long text a divider with a long text a divider with a long text ==
+... a delay with a long text a delay with a long text a delay with a long text a delay with a long text a delay with a long text a delay with a long text a delay with a long text a delay with a long text ...
+ref over U, S : a reference over every participant a reference over every participant a reference over every participant a reference over every participant a reference over every participant a reference over every participant 
+U -> D : 日本語のメッセージ、とても長いラベルU -> D : 日本語のメッセージ、とても長いラベルU -> D : 日本語のメッセージ、とても長いラベル
+@enduml

@@ -1,0 +1,327 @@
+diagram "Many classes: 40 elements, 80 relations"
+
+interface AccountHandlerPolicy {
+  +discount(queue: Audit, depot: Contract): Event
+  #discount(coupon: Session): Driver
+  ~invoice: Invoice
+}
+class DiscountOrderRegion {
+  ~schedule: Contract
+  ~discount(audit: Ledger, discount: Entry): Tenant
+  -tenant: Order
+}
+package core {
+  interface EntryAuditRule {
+    #shipment(): Report
+    -vehicle: User
+    #session: Permission
+    ~depot(): Depot
+    -rule: Permission
+    -order(contract: Route, handler: Handler, parcel: Invoice): Entry
+    -driver: Tariff
+    +price: Zone
+    -customer(basket: Event, token: Parcel): Contract
+  }
+  class ShipmentDiscountRule {
+    ~queue(event: Route): Zone
+    +route(schedule: Order): Vehicle
+    -shipment: Handler
+    +queue: Queue
+    ~handler(): Customer
+    -payment: Entry
+    ~role(): Warehouse
+    -basket(zone: Event, tenant: Zone, coupon: Queue): Handler
+    -session(token: Shipment): Role
+  }
+  class CustomerDiscount {
+    +route(account: Tariff, stock: Shipment, route: Audit): Basket
+    -region(entry: Session): Depot
+    -user: Zone
+    ~driver: Contract
+  }
+  abstract class AuditRouteEvent {
+    +supplier(): Handler
+    ~invoice: Report
+    #entry(zone: Account, shipment: Discount): Ledger
+    #vehicle: Product
+  }
+  package model {
+    class StockHandlerVehicle {
+      ~policy(session: Route, event: Zone): Region
+    }
+    class VehicleCoupon {
+      +vehicle: User
+      +invoice: Ledger
+      #discount: Account
+      #payment(order: Supplier, handler: Token, product: Parcel): Queue
+    }
+    class SessionRegion {
+      +stock(customer: Vehicle, driver: Stock): Queue
+      -zone: Vehicle
+    }
+    class ScheduleCustomer {
+      #handler(payment: Order, invoice: Zone): Driver
+      ~role: Entry
+      ~parcel(zone: Stock, tariff: Discount, supplier: Driver): Session
+    }
+  }
+  package io {
+    class PriceToken {
+      +account(): Basket
+      ~ledger: Report
+      #product(payment: Permission, vehicle: Depot): Role
+      +supplier: Handler
+    }
+    abstract class TariffPrice {
+      -stock: Tariff
+      #supplier: Report
+      +zone: Driver
+      -ledger(): Basket
+    }
+    interface HandlerProduct
+    class RouteLedger {
+      ~queue(invoice: Stock, stock: Discount, ledger: Rule): Route
+    }
+    class PriceOrder {
+      #zone(route: Price, route: Payment, zone: User): Parcel
+      +payment(ledger: Invoice): Parcel
+      #region(role: Handler, customer: Invoice, event: Coupon): Basket
+      +account: Zone
+      +tenant(): Basket
+      +permission(tariff: Discount): Region
+    }
+    abstract class PolicyWarehouse {
+      +price: Payment
+      -route: Supplier
+      #customer(policy: Parcel, order: Tenant): Region
+      #tariff(): Region
+      #handler(permission: Permission, permission: Shipment): Driver
+      #product(invoice: Price, permission: Account, zone: Role): Report
+    }
+    class TariffReport {
+      -ledger: Route
+      #product(schedule: Zone): Shipment
+    }
+  }
+}
+package billing {
+  enum DepotQueueInvoice { AUDIT, DISCOUNT, REGION, SESSION, INVOICE, DEPOT }
+}
+package shipping {
+  class RegionSupplierRole
+  class AccountLedger {
+    ~route: Token
+    #shipment: Supplier
+    +supplier: Session
+    +basket(order: Price): Audit
+    +rule: Account
+    #price(customer: Product, entry: Customer): Route
+    -session(zone: Warehouse, driver: Audit, user: Invoice): Handler
+    -token(): Role
+    -depot(region: Customer, handler: Parcel): Tenant
+  }
+}
+package catalog {
+  class EventEntry {
+    #basket: Basket
+    ~depot(tenant: Handler, session: Shipment): Depot
+    +region: Handler
+    -supplier: Role
+    ~driver: Coupon
+    +handler: Ledger
+  }
+}
+package identity {
+  class PaymentLedger {
+    -policy: Driver
+    +supplier(report: Token, queue: Tariff, report: Product): Customer
+    ~audit: Parcel
+    -coupon: Report
+  }
+  class LedgerHandler {
+    ~stock: Invoice
+    -tenant: Rule
+    ~session: Queue
+    ~route(entry: Discount): Route
+    +policy(ledger: Handler, payment: Order, parcel: Discount): Payment
+    #account(queue: User, shipment: Entry): Stock
+  }
+  class ShipmentZone {
+    ~schedule: Order
+    +handler(product: Warehouse, coupon: Tenant, queue: Coupon): Coupon
+  }
+  class RouteRegion
+  class CustomerPermissionHandler {
+    #driver: Region
+    ~discount: User
+    #payment: Supplier
+    ~session: Driver
+    +tariff(): Region
+    -driver: Discount
+  }
+}
+package reporting {
+  class PermissionRule {
+    -price: Entry
+    ~customer(region: Token): Schedule
+    -tariff(): Invoice
+    -customer: Vehicle
+    ~warehouse: Shipment
+    +payment(driver: Vehicle, queue: Permission): Stock
+    ~ledger(role: Depot, entry: Order): Product
+    +shipment: Handler
+    -stock: User
+  }
+  class AccountTariff
+  class ScheduleAudit
+  class PermissionTenant {
+    -role: Driver
+    #tenant: Invoice
+    ~session: Payment
+    ~account: Customer
+    #account: Schedule
+    #supplier: Payment
+    #account(product: Stock, order: Schedule): Invoice
+    -permission: Report
+    #schedule(parcel: Region, vehicle: Order, stock: Route): Coupon
+  }
+}
+package audit {
+  abstract class DriverAuditEntry {
+    #schedule: Ledger
+    -depot: Coupon
+    ~payment: Tenant
+    #user: Entry
+  }
+}
+package pricing {
+  class SupplierContract
+  class ContractDepot {
+    +token: Region
+    ~parcel: Token
+    ~price(event: Shipment): Price
+  }
+}
+package inventory {
+  class RouteSession {
+    #basket: Driver
+    ~coupon: Coupon
+    -rule: Driver
+  }
+  class CustomerTariffRegion {
+    +coupon: Zone
+    -permission(): Payment
+    +discount: Role
+    #price: Discount
+  }
+  class AccountCustomerStock
+  class RolePriceReport
+  interface ProductTokenContract {
+    -basket(zone: Vehicle, role: Schedule): Order
+    +route(tariff: Payment, audit: Supplier): Payment
+  }
+  class EntryTenant {
+    #tariff: Order
+    #audit: Vehicle
+  }
+}
+package notify {
+  class EntrySupplier {
+    +region: Handler
+    ~entry: Session
+    -depot(): Session
+  }
+}
+
+shipping.AccountLedger "1" *-- "*" shipping.RegionSupplierRole
+core.model.SessionRegion "0..1" *-- "0..*" core.model.VehicleCoupon : order
+core.io.PriceOrder ..> core.io.PriceToken
+core.io.HandlerProduct "1" o-- "0..*" core.io.PriceToken : audit
+core.model.ScheduleCustomer --|> core.model.StockHandlerVehicle
+core.ShipmentDiscountRule --|> core.EntryAuditRule
+identity.PaymentLedger ..> identity.LedgerHandler
+inventory.ProductTokenContract --|> reporting.PermissionRule
+identity.RouteRegion -- shipping.RegionSupplierRole : tariff
+identity.PaymentLedger "1" *-- "1..*" identity.CustomerPermissionHandler
+pricing.ContractDepot --|> pricing.SupplierContract
+inventory.RolePriceReport "0..1" -- "1..*" inventory.AccountCustomerStock : region
+identity.CustomerPermissionHandler ..|> AccountHandlerPolicy
+core.io.RouteLedger --|> core.io.PriceOrder
+core.io.PolicyWarehouse "1" o-- "*" identity.PaymentLedger
+core.model.ScheduleCustomer --|> inventory.ProductTokenContract
+audit.DriverAuditEntry --|> core.ShipmentDiscountRule
+core.model.StockHandlerVehicle ..|> core.io.HandlerProduct
+reporting.PermissionRule --> identity.RouteRegion : contract
+pricing.SupplierContract --|> shipping.AccountLedger
+identity.CustomerPermissionHandler --|> identity.RouteRegion : basket
+core.model.ScheduleCustomer ..|> AccountHandlerPolicy
+shipping.AccountLedger --> reporting.PermissionRule
+core.io.PolicyWarehouse "*" -- "0..*" core.io.PriceToken
+core.io.HandlerProduct ..|> AccountHandlerPolicy
+core.CustomerDiscount o-- core.AuditRouteEvent : queue
+pricing.SupplierContract *-- notify.EntrySupplier
+inventory.RouteSession --> inventory.RolePriceReport
+audit.DriverAuditEntry "1" o-- "1" core.AuditRouteEvent : contract
+inventory.RolePriceReport --|> inventory.CustomerTariffRegion
+inventory.RolePriceReport -- inventory.EntryTenant : order
+AccountHandlerPolicy --> DiscountOrderRegion
+identity.LedgerHandler "*" -- "0..*" identity.RouteRegion
+catalog.EventEntry --> AccountHandlerPolicy : order
+identity.PaymentLedger --|> identity.ShipmentZone : customer
+inventory.CustomerTariffRegion "0..1" *-- "1..*" inventory.EntryTenant
+core.ShipmentDiscountRule *-- core.AuditRouteEvent
+inventory.RouteSession "*" *-- "0..*" inventory.ProductTokenContract : entry
+pricing.SupplierContract ..|> core.io.HandlerProduct
+shipping.AccountLedger -- catalog.EventEntry : tariff
+core.CustomerDiscount ..> core.ShipmentDiscountRule
+shipping.RegionSupplierRole ..> pricing.ContractDepot : report
+core.io.TariffPrice -- core.io.TariffReport
+core.io.TariffReport o-- inventory.RouteSession
+core.io.RouteLedger "1" -- "1" core.io.TariffPrice : depot
+core.model.SessionRegion ..> core.EntryAuditRule : payment
+core.io.HandlerProduct ..|> core.EntryAuditRule
+identity.PaymentLedger --|> core.CustomerDiscount
+inventory.AccountCustomerStock "0..1" o-- "0..*" inventory.CustomerTariffRegion : contract
+pricing.ContractDepot --> inventory.EntryTenant
+core.EntryAuditRule --> core.AuditRouteEvent
+core.model.SessionRegion "1" o-- "*" core.model.ScheduleCustomer : order
+catalog.EventEntry ..|> core.EntryAuditRule
+core.io.PriceToken o-- core.model.VehicleCoupon
+identity.RouteRegion "*" o-- "1" identity.PaymentLedger
+core.model.SessionRegion --|> core.CustomerDiscount
+core.EntryAuditRule *-- core.CustomerDiscount
+inventory.ProductTokenContract ..> identity.CustomerPermissionHandler : schedule
+catalog.EventEntry --|> core.io.PolicyWarehouse
+notify.EntrySupplier ..|> inventory.ProductTokenContract
+inventory.CustomerTariffRegion ..> billing.DepotQueueInvoice
+reporting.PermissionRule ..|> core.EntryAuditRule : entry
+shipping.RegionSupplierRole *-- inventory.RolePriceReport
+inventory.CustomerTariffRegion ..|> AccountHandlerPolicy
+core.io.PriceOrder --> core.io.TariffReport
+identity.RouteRegion --> notify.EntrySupplier
+AccountHandlerPolicy --> reporting.PermissionRule : user
+inventory.EntryTenant "*" o-- "1..*" DiscountOrderRegion
+core.io.TariffReport ..|> core.io.HandlerProduct
+core.io.RouteLedger "1" o-- "*" core.AuditRouteEvent : session
+identity.LedgerHandler --|> identity.CustomerPermissionHandler
+core.io.RouteLedger o-- core.io.PriceToken
+core.model.SessionRegion --> DiscountOrderRegion
+inventory.AccountCustomerStock --> inventory.EntryTenant
+identity.RouteRegion ..|> inventory.ProductTokenContract
+inventory.EntryTenant --|> shipping.AccountLedger
+inventory.ProductTokenContract --|> pricing.ContractDepot
+audit.DriverAuditEntry "1" -- "1" core.model.SessionRegion : account
+inventory.AccountCustomerStock ..|> AccountHandlerPolicy : role
+core.io.TariffReport --|> billing.DepotQueueInvoice
+note N0 "Note 0: ledger handler stock driver region tariff queue ledger"
+N0 .. core.io.PolicyWarehouse
+note N1 "Note 1: shipment handler shipment basket token discount parcel tenant"
+N1 .. reporting.AccountTariff
+note N2 "Note 2: handler customer tenant permission route region coupon region"
+N2 .. reporting.PermissionRule
+note N3 "Note 3: event schedule order depot warehouse permission policy region"
+N3 .. inventory.AccountCustomerStock
+note N4 "Note 4: permission audit user token account vehicle audit invoice"
+N4 .. core.EntryAuditRule
+note N5 "Note 5: payment supplier entry zone tenant region route payment"
+N5 .. identity.ShipmentZone

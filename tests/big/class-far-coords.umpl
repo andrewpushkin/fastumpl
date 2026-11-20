@@ -1,0 +1,65 @@
+diagram "Far apart: positions at the 1,000,000 limit"
+
+class Origin {
+  +x: Int
+}
+class EastLimit {
+  +x: Int
+}
+class WestLimit {
+  +x: Int
+}
+class SouthLimit {
+  +x: Int
+}
+class NorthLimit {
+  +x: Int
+}
+class FarCorner {
+  +x: Int
+}
+class NegCorner {
+  +x: Int
+}
+class BeyondEast {
+  +x: Int
+}
+class BeyondSouth {
+  +x: Int
+}
+class HugeBox {
+  +x: Int
+}
+class TooHuge {
+  +x: Int
+}
+class Neighbour {
+  +x: Int
+}
+
+Origin --> EastLimit : one million east
+Origin --> WestLimit
+Origin --> SouthLimit : one million south
+Origin --> NorthLimit
+EastLimit --> FarCorner
+WestLimit --> NegCorner
+FarCorner ..> NegCorner : across the whole plane
+BeyondEast --> Origin
+BeyondSouth --> Origin
+HugeBox --> Neighbour
+TooHuge --> Neighbour
+
+layout {
+  Origin      at 0, 0
+  EastLimit   at 1000000, 0
+  WestLimit   at -1000000, 0
+  SouthLimit  at 0, 1000000
+  NorthLimit  at 0, -1000000
+  FarCorner   at 1000000, 1000000
+  NegCorner   at -1000000, -1000000
+  BeyondEast  at 1000001, 0
+  BeyondSouth at 0, 2147483648
+  HugeBox     at 40, 40 size 10000, 10000
+  TooHuge     at 40, -40 size 10001, 10
+  Neighbour   at 60, 0
+}

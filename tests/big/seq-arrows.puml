@@ -1,0 +1,21 @@
+@startuml
+participant A
+participant B
+A -> B : ->
+A --> B : -->
+A ->> B : ->>
+A -\ B : -\
+A -\\ B : -\\
+A -/ B : -/
+A -// B : -//
+A //-- B : //--
+A \\- B : \\-
+A ->x B : ->x
+A x-> B : x->
+A <-> B : <->
+A -[#red]> B : -[#red]>
+A ->o B : ->o
+A o-> B : o->
+A o->o B : o->o
+A <->o B : <->o
+@enduml

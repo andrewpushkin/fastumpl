@@ -1,0 +1,329 @@
+diagram "A diagram title that is much longer than the window is wide, A diagram title that is much longer than the window is wide, A diagram title that is much longer than the window is wide, A diagram title that is much longer than the window is wide, the end"
+
+class VeryLongClassNamePart00Part01Part02Part03Part04Part05Part06Part07Part08Part09Part10Part11Part12Part13Part14Part15Part16Part17Part18Part19Part20Part21Part22Part23Part24Part25 {
+  +xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: String
+  +f(arg0: Map<String, List<Option<Vec<u8>>>>, arg1: Map<String, List<Option<Vec<u8>>>>, arg2: Map<String, List<Option<Vec<u8>>>>, arg3: Map<String, List<Option<Vec<u8>>>>, arg4: Map<String, List<Option<Vec<u8>>>>, arg5: Map<String, List<Option<Vec<u8>>>>, arg6: Map<String, List<Option<Vec<u8>>>>, arg7: Map<String, List<Option<Vec<u8>>>>, arg8: Map<String, List<Option<Vec<u8>>>>, arg9: Map<String, List<Option<Vec<u8>>>>, arg10: Map<String, List<Option<Vec<u8>>>>, arg11: Map<String, List<Option<Vec<u8>>>>): Result<(), Box<dyn Error + Send + Sync + 'static>>
+}
+class TwoHundredMembers {
+  +member000: Type000
+  +member001: Type001
+  +member002: Type002
+  +member003: Type003
+  +member004: Type004
+  +member005: Type005
+  +member006: Type006
+  +member007: Type007
+  +member008: Type008
+  +member009: Type009
+  +member010: Type010
+  +member011: Type011
+  +member012: Type012
+  +member013: Type013
+  +member014: Type014
+  +member015: Type015
+  +member016: Type016
+  +member017: Type017
+  +member018: Type018
+  +member019: Type019
+  +member020: Type020
+  +member021: Type021
+  +member022: Type022
+  +member023: Type023
+  +member024: Type024
+  +member025: Type025
+  +member026: Type026
+  +member027: Type027
+  +member028: Type028
+  +member029: Type029
+  +member030: Type030
+  +member031: Type031
+  +member032: Type032
+  +member033: Type033
+  +member034: Type034
+  +member035: Type035
+  +member036: Type036
+  +member037: Type037
+  +member038: Type038
+  +member039: Type039
+  +member040: Type040
+  +member041: Type041
+  +member042: Type042
+  +member043: Type043
+  +member044: Type044
+  +member045: Type045
+  +member046: Type046
+  +member047: Type047
+  +member048: Type048
+  +member049: Type049
+  +member050: Type050
+  +member051: Type051
+  +member052: Type052
+  +member053: Type053
+  +member054: Type054
+  +member055: Type055
+  +member056: Type056
+  +member057: Type057
+  +member058: Type058
+  +member059: Type059
+  +member060: Type060
+  +member061: Type061
+  +member062: Type062
+  +member063: Type063
+  +member064: Type064
+  +member065: Type065
+  +member066: Type066
+  +member067: Type067
+  +member068: Type068
+  +member069: Type069
+  +member070: Type070
+  +member071: Type071
+  +member072: Type072
+  +member073: Type073
+  +member074: Type074
+  +member075: Type075
+  +member076: Type076
+  +member077: Type077
+  +member078: Type078
+  +member079: Type079
+  +member080: Type080
+  +member081: Type081
+  +member082: Type082
+  +member083: Type083
+  +member084: Type084
+  +member085: Type085
+  +member086: Type086
+  +member087: Type087
+  +member088: Type088
+  +member089: Type089
+  +member090: Type090
+  +member091: Type091
+  +member092: Type092
+  +member093: Type093
+  +member094: Type094
+  +member095: Type095
+  +member096: Type096
+  +member097: Type097
+  +member098: Type098
+  +member099: Type099
+  +member100: Type100
+  +member101: Type101
+  +member102: Type102
+  +member103: Type103
+  +member104: Type104
+  +member105: Type105
+  +member106: Type106
+  +member107: Type107
+  +member108: Type108
+  +member109: Type109
+  +member110: Type110
+  +member111: Type111
+  +member112: Type112
+  +member113: Type113
+  +member114: Type114
+  +member115: Type115
+  +member116: Type116
+  +member117: Type117
+  +member118: Type118
+  +member119: Type119
+  +member120: Type120
+  +member121: Type121
+  +member122: Type122
+  +member123: Type123
+  +member124: Type124
+  +member125: Type125
+  +member126: Type126
+  +member127: Type127
+  +member128: Type128
+  +member129: Type129
+  +member130: Type130
+  +member131: Type131
+  +member132: Type132
+  +member133: Type133
+  +member134: Type134
+  +member135: Type135
+  +member136: Type136
+  +member137: Type137
+  +member138: Type138
+  +member139: Type139
+  +member140: Type140
+  +member141: Type141
+  +member142: Type142
+  +member143: Type143
+  +member144: Type144
+  +member145: Type145
+  +member146: Type146
+  +member147: Type147
+  +member148: Type148
+  +member149: Type149
+  +member150: Type150
+  +member151: Type151
+  +member152: Type152
+  +member153: Type153
+  +member154: Type154
+  +member155: Type155
+  +member156: Type156
+  +member157: Type157
+  +member158: Type158
+  +member159: Type159
+  +member160: Type160
+  +member161: Type161
+  +member162: Type162
+  +member163: Type163
+  +member164: Type164
+  +member165: Type165
+  +member166: Type166
+  +member167: Type167
+  +member168: Type168
+  +member169: Type169
+  +member170: Type170
+  +member171: Type171
+  +member172: Type172
+  +member173: Type173
+  +member174: Type174
+  +member175: Type175
+  +member176: Type176
+  +member177: Type177
+  +member178: Type178
+  +member179: Type179
+  +member180: Type180
+  +member181: Type181
+  +member182: Type182
+  +member183: Type183
+  +member184: Type184
+  +member185: Type185
+  +member186: Type186
+  +member187: Type187
+  +member188: Type188
+  +member189: Type189
+  +member190: Type190
+  +member191: Type191
+  +member192: Type192
+  +member193: Type193
+  +member194: Type194
+  +member195: Type195
+  +member196: Type196
+  +member197: Type197
+  +member198: Type198
+  +member199: Type199
+}
+class ManyMethods {
+  +method00(a: Int, b: Int): Int
+  +method01(a: Int, b: Int): Int
+  +method02(a: Int, b: Int): Int
+  +method03(a: Int, b: Int): Int
+  +method04(a: Int, b: Int): Int
+  +method05(a: Int, b: Int): Int
+  +method06(a: Int, b: Int): Int
+  +method07(a: Int, b: Int): Int
+  +method08(a: Int, b: Int): Int
+  +method09(a: Int, b: Int): Int
+  +method10(a: Int, b: Int): Int
+  +method11(a: Int, b: Int): Int
+  +method12(a: Int, b: Int): Int
+  +method13(a: Int, b: Int): Int
+  +method14(a: Int, b: Int): Int
+  +method15(a: Int, b: Int): Int
+  +method16(a: Int, b: Int): Int
+  +method17(a: Int, b: Int): Int
+  +method18(a: Int, b: Int): Int
+  +method19(a: Int, b: Int): Int
+  +method20(a: Int, b: Int): Int
+  +method21(a: Int, b: Int): Int
+  +method22(a: Int, b: Int): Int
+  +method23(a: Int, b: Int): Int
+  +method24(a: Int, b: Int): Int
+  +method25(a: Int, b: Int): Int
+  +method26(a: Int, b: Int): Int
+  +method27(a: Int, b: Int): Int
+  +method28(a: Int, b: Int): Int
+  +method29(a: Int, b: Int): Int
+  +method30(a: Int, b: Int): Int
+  +method31(a: Int, b: Int): Int
+  +method32(a: Int, b: Int): Int
+  +method33(a: Int, b: Int): Int
+  +method34(a: Int, b: Int): Int
+  +method35(a: Int, b: Int): Int
+  +method36(a: Int, b: Int): Int
+  +method37(a: Int, b: Int): Int
+  +method38(a: Int, b: Int): Int
+  +method39(a: Int, b: Int): Int
+  +method40(a: Int, b: Int): Int
+  +method41(a: Int, b: Int): Int
+  +method42(a: Int, b: Int): Int
+  +method43(a: Int, b: Int): Int
+  +method44(a: Int, b: Int): Int
+  +method45(a: Int, b: Int): Int
+  +method46(a: Int, b: Int): Int
+  +method47(a: Int, b: Int): Int
+  +method48(a: Int, b: Int): Int
+  +method49(a: Int, b: Int): Int
+  +method50(a: Int, b: Int): Int
+  +method51(a: Int, b: Int): Int
+  +method52(a: Int, b: Int): Int
+  +method53(a: Int, b: Int): Int
+  +method54(a: Int, b: Int): Int
+  +method55(a: Int, b: Int): Int
+  +method56(a: Int, b: Int): Int
+  +method57(a: Int, b: Int): Int
+  +method58(a: Int, b: Int): Int
+  +method59(a: Int, b: Int): Int
+  +method60(a: Int, b: Int): Int
+  +method61(a: Int, b: Int): Int
+  +method62(a: Int, b: Int): Int
+  +method63(a: Int, b: Int): Int
+  +method64(a: Int, b: Int): Int
+  +method65(a: Int, b: Int): Int
+  +method66(a: Int, b: Int): Int
+  +method67(a: Int, b: Int): Int
+  +method68(a: Int, b: Int): Int
+  +method69(a: Int, b: Int): Int
+  +method70(a: Int, b: Int): Int
+  +method71(a: Int, b: Int): Int
+  +method72(a: Int, b: Int): Int
+  +method73(a: Int, b: Int): Int
+  +method74(a: Int, b: Int): Int
+  +method75(a: Int, b: Int): Int
+  +method76(a: Int, b: Int): Int
+  +method77(a: Int, b: Int): Int
+  +method78(a: Int, b: Int): Int
+  +method79(a: Int, b: Int): Int
+}
+enum ThreeHundredLiterals { LITERAL_000, LITERAL_001, LITERAL_002, LITERAL_003, LITERAL_004, LITERAL_005, LITERAL_006, LITERAL_007, LITERAL_008, LITERAL_009, LITERAL_010, LITERAL_011, LITERAL_012, LITERAL_013, LITERAL_014, LITERAL_015, LITERAL_016, LITERAL_017, LITERAL_018, LITERAL_019, LITERAL_020, LITERAL_021, LITERAL_022, LITERAL_023, LITERAL_024, LITERAL_025, LITERAL_026, LITERAL_027, LITERAL_028, LITERAL_029, LITERAL_030, LITERAL_031, LITERAL_032, LITERAL_033, LITERAL_034, LITERAL_035, LITERAL_036, LITERAL_037, LITERAL_038, LITERAL_039, LITERAL_040, LITERAL_041, LITERAL_042, LITERAL_043, LITERAL_044, LITERAL_045, LITERAL_046, LITERAL_047, LITERAL_048, LITERAL_049, LITERAL_050, LITERAL_051, LITERAL_052, LITERAL_053, LITERAL_054, LITERAL_055, LITERAL_056, LITERAL_057, LITERAL_058, LITERAL_059, LITERAL_060, LITERAL_061, LITERAL_062, LITERAL_063, LITERAL_064, LITERAL_065, LITERAL_066, LITERAL_067, LITERAL_068, LITERAL_069, LITERAL_070, LITERAL_071, LITERAL_072, LITERAL_073, LITERAL_074, LITERAL_075, LITERAL_076, LITERAL_077, LITERAL_078, LITERAL_079, LITERAL_080, LITERAL_081, LITERAL_082, LITERAL_083, LITERAL_084, LITERAL_085, LITERAL_086, LITERAL_087, LITERAL_088, LITERAL_089, LITERAL_090, LITERAL_091, LITERAL_092, LITERAL_093, LITERAL_094, LITERAL_095, LITERAL_096, LITERAL_097, LITERAL_098, LITERAL_099, LITERAL_100, LITERAL_101, LITERAL_102, LITERAL_103, LITERAL_104, LITERAL_105, LITERAL_106, LITERAL_107, LITERAL_108, LITERAL_109, LITERAL_110, LITERAL_111, LITERAL_112, LITERAL_113, LITERAL_114, LITERAL_115, LITERAL_116, LITERAL_117, LITERAL_118, LITERAL_119, LITERAL_120, LITERAL_121, LITERAL_122, LITERAL_123, LITERAL_124, LITERAL_125, LITERAL_126, LITERAL_127, LITERAL_128, LITERAL_129, LITERAL_130, LITERAL_131, LITERAL_132, LITERAL_133, LITERAL_134, LITERAL_135, LITERAL_136, LITERAL_137, LITERAL_138, LITERAL_139, LITERAL_140, LITERAL_141, LITERAL_142, LITERAL_143, LITERAL_144, LITERAL_145, LITERAL_146, LITERAL_147, LITERAL_148, LITERAL_149, LITERAL_150, LITERAL_151, LITERAL_152, LITERAL_153, LITERAL_154, LITERAL_155, LITERAL_156, LITERAL_157, LITERAL_158, LITERAL_159, LITERAL_160, LITERAL_161, LITERAL_162, LITERAL_163, LITERAL_164, LITERAL_165, LITERAL_166, LITERAL_167, LITERAL_168, LITERAL_169, LITERAL_170, LITERAL_171, LITERAL_172, LITERAL_173, LITERAL_174, LITERAL_175, LITERAL_176, LITERAL_177, LITERAL_178, LITERAL_179, LITERAL_180, LITERAL_181, LITERAL_182, LITERAL_183, LITERAL_184, LITERAL_185, LITERAL_186, LITERAL_187, LITERAL_188, LITERAL_189, LITERAL_190, LITERAL_191, LITERAL_192, LITERAL_193, LITERAL_194, LITERAL_195, LITERAL_196, LITERAL_197, LITERAL_198, LITERAL_199, LITERAL_200, LITERAL_201, LITERAL_202, LITERAL_203, LITERAL_204, LITERAL_205, LITERAL_206, LITERAL_207, LITERAL_208, LITERAL_209, LITERAL_210, LITERAL_211, LITERAL_212, LITERAL_213, LITERAL_214, LITERAL_215, LITERAL_216, LITERAL_217, LITERAL_218, LITERAL_219, LITERAL_220, LITERAL_221, LITERAL_222, LITERAL_223, LITERAL_224, LITERAL_225, LITERAL_226, LITERAL_227, LITERAL_228, LITERAL_229, LITERAL_230, LITERAL_231, LITERAL_232, LITERAL_233, LITERAL_234, LITERAL_235, LITERAL_236, LITERAL_237, LITERAL_238, LITERAL_239, LITERAL_240, LITERAL_241, LITERAL_242, LITERAL_243, LITERAL_244, LITERAL_245, LITERAL_246, LITERAL_247, LITERAL_248, LITERAL_249, LITERAL_250, LITERAL_251, LITERAL_252, LITERAL_253, LITERAL_254, LITERAL_255, LITERAL_256, LITERAL_257, LITERAL_258, LITERAL_259, LITERAL_260, LITERAL_261, LITERAL_262, LITERAL_263, LITERAL_264, LITERAL_265, LITERAL_266, LITERAL_267, LITERAL_268, LITERAL_269, LITERAL_270, LITERAL_271, LITERAL_272, LITERAL_273, LITERAL_274, LITERAL_275, LITERAL_276, LITERAL_277, LITERAL_278, LITERAL_279, LITERAL_280, LITERAL_281, LITERAL_282, LITERAL_283, LITERAL_284, LITERAL_285, LITERAL_286, LITERAL_287, LITERAL_288, LITERAL_289, LITERAL_290, LITERAL_291, LITERAL_292, LITERAL_293, LITERAL_294, LITERAL_295, LITERAL_296, LITERAL_297, LITERAL_298, LITERAL_299 }
+class 注文管理システム {
+  +顧客名: 文字列
+  +合計金額(): 金額
+}
+class EmojiRocket {
+  +status: 🟢🟡🔴
+}
+class Combining {
+  +naïve: Café
+  +z̷̢̛a̸l̵g̶o̴: String
+}
+package a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_end {
+  class Inner
+  class DeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeep
+}
+class Small0
+class Small1
+class Small2
+class Small3
+class Small4
+class Small5
+
+VeryLongClassNamePart00Part01Part02Part03Part04Part05Part06Part07Part08Part09Part10Part11Part12Part13Part14Part15Part16Part17Part18Part19Part20Part21Part22Part23Part24Part25 "0..2147483647" *-- "1..9223372036854775807 a_very_long_role_name_for_this_end" TwoHundredMembers : composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, composed of, end
+TwoHundredMembers --> ManyMethods : line 0 of a label written over many lines\nline 1 of a label written over many lines\nline 2 of a label written over many lines\nline 3 of a label written over many lines\nline 4 of a label written over many lines\nline 5 of a label written over many lines\nline 6 of a label written over many lines\nline 7 of a label written over many lines\nline 8 of a label written over many lines\nline 9 of a label written over many lines
+ManyMethods ..> ThreeHundredLiterals : uses
+注文管理システム --> EmojiRocket : 打ち上げ 🚀
+Combining --|> VeryLongClassNamePart00Part01Part02Part03Part04Part05Part06Part07Part08Part09Part10Part11Part12Part13Part14Part15Part16Part17Part18Part19Part20Part21Part22Part23Part24Part25
+a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_end.Inner --> a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_a_package_with_a_very_long_name_end.DeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeepDeep : deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep deep 
+Small0 "99999999999999999999" -- "**************************************************" Small1
+Small1 "999999999999999999999999999999" -- "**************************************************" Small2
+Small2 "9999999999999999999999999999999999999999" -- "**************************************************" Small3
+Small3 "99999999999999999999999999999999999999999999999999" -- "**************************************************" Small4
+Small4 "999999999999999999999999999999999999999999999999999999999999" -- "**************************************************" Small5
+Small5 "9999999999999999999999999999999999999999999999999999999999999999999999" -- "**************************************************" Small0
+note Tall "Note line 0: words words words words words words words words words words words words \nNote line 1: words words words words words words words words words words words words \nNote line 2: words words words words words words words words words words words words \nNote line 3: words words words words words words words words words words words words \nNote line 4: words words words words words words words words words words words words \nNote line 5: words words words words words words words words words words words words \nNote line 6: words words words words words words words words words words words words \nNote line 7: words words words words words words words words words words words words \nNote line 8: words words words words words words words words words words words words \nNote line 9: words words words words words words words words words words words words \nNote line 10: words words words words words words words words words words words words \nNote line 11: words words words words words words words words words words words words \nNote line 12: words words words words words words words words words words words words \nNote line 13: words words words words words words words words words words words words \nNote line 14: words words words words words words words words words words words words \nNote line 15: words words words words words words words words words words words words \nNote line 16: words words words words words words words words words words words words \nNote line 17: words words words words words words words words words words words words \nNote line 18: words words words words words words words words words words words words \nNote line 19: words words words words words words words words words words words words \nNote line 20: words words words words words words words words words words words words \nNote line 21: words words words words words words words words words words words words \nNote line 22: words words words words words words words words words words words words \nNote line 23: words words words words words words words words words words words words \nNote line 24: words words words words words words words words words words words words \nNote line 25: words words words words words words words words words words words words \nNote line 26: words words words words words words words words words words words words \nNote line 27: words words words words words words words words words words words words \nNote line 28: words words words words words words words words words words words words \nNote line 29: words words words words words words words words words words words words \nNote line 30: words words words words words words words words words words words words \nNote line 31: words words words words words words words words words words words words \nNote line 32: words words words words words words words words words words words words \nNote line 33: words words words words words words words words words words words words \nNote line 34: words words words words words words words words words words words words \nNote line 35: words words words words words words words words words words words words \nNote line 36: words words words words words words words words words words words words \nNote line 37: words words words words words words words words words words words words \nNote line 38: words words words words words words words words words words words words \nNote line 39: words words words words words words words words words words words words "
+Tall .. TwoHundredMembers
+note Wide "a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text a single very long line of note text "
+Wide .. VeryLongClassNamePart00Part01Part02Part03Part04Part05Part06Part07Part08Part09Part10Part11Part12Part13Part14Part15Part16Part17Part18Part19Part20Part21Part22Part23Part24Part25
