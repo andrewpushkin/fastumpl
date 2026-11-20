@@ -153,3 +153,42 @@ fn an_unsealed_drag_does_not_swallow_a_later_drag_after_undo() {
     ed.undo();
     assert_eq!(ed.doc.elements[&a].pos, Some(Pos::new(5, 0)));
 }
+
+/// QA-24: a state id names one document. Whenever the editor reports a
+/// state it reported before, the document is the same as it was then, so
+/// "unsaved" can be told by comparing states.
+#[test]
+fn one_state_is_one_document() {
+    use std::collections::HashMap;
+    for seed in 0..400u64 {
+        let mut rng = Rng(seed.wrapping_mul(0x2545_F491_4F6C_DD1D) | 1);
+        let mut ed = Editor::new(Document::new());
+        let merge = seed % 2 == 0;
+        let mut seen: HashMap<u64, String> = HashMap::new();
+        seen.insert(ed.state(), snapshot(&ed.doc));
+        let mut returns = 0;
+        for _ in 0..80 {
+            match rng.below(6) {
+                0 | 1 => {
+                    ed.undo();
+                }
+                2 => {
+                    ed.redo();
+                }
+                3 if rng.below(4) == 0 => ed.seal(),
+                _ => random_action(&mut ed, &mut rng, merge),
+            }
+            let now = snapshot(&ed.doc);
+            match seen.get(&ed.state()) {
+                Some(before) => {
+                    returns += 1;
+                    assert_eq!(*before, now, "seed {seed}: state {} changed", ed.state());
+                }
+                None => {
+                    seen.insert(ed.state(), now);
+                }
+            }
+        }
+        assert!(returns > 0, "seed {seed}: never came back to a state");
+    }
+}

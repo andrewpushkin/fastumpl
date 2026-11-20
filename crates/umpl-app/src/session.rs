@@ -15,8 +15,9 @@ pub const DEFER_ABOVE: usize = 150;
 pub struct Session {
     pub editor: Editor,
     pub path: Option<PathBuf>,
-    /// Revision of the editor when last saved (or opened).
-    saved_revision: u64,
+    /// State of the editor when last saved (or opened); `None` when it
+    /// has never been saved as it is (an import).
+    saved_state: Option<u64>,
     pub problems: Vec<Problem>,
     /// Modification time of the file when we last read or wrote it.
     disk_stamp: Option<SystemTime>,
@@ -34,7 +35,7 @@ impl Session {
         Session {
             editor: Editor::new(Document::new()),
             path: None,
-            saved_revision: 0,
+            saved_state: Some(0),
             problems: Vec::new(),
             disk_stamp: None,
             suggested_name: None,
@@ -127,11 +128,11 @@ impl Session {
             let ops = editor.position_changes(&diagram.positions());
             editor.apply_silently(ops);
         }
-        let saved_revision = editor.revision;
+        let saved_state = Some(editor.state());
         Session {
             editor,
             path: None,
-            saved_revision,
+            saved_state,
             problems: parsed.problems,
             disk_stamp: None,
             suggested_name: None,
@@ -156,16 +157,16 @@ impl Session {
         let ops = self.editor.position_changes(&known);
         self.editor.apply_silently(ops);
         if clean {
-            self.saved_revision = self.editor.revision;
+            self.saved_state = Some(self.editor.state());
         }
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.editor.revision != self.saved_revision
+        self.saved_state != Some(self.editor.state())
     }
 
     pub fn mark_dirty(&mut self) {
-        self.saved_revision = u64::MAX;
+        self.saved_state = None;
     }
 
     pub fn display_name(&self) -> String {
@@ -199,7 +200,7 @@ impl Session {
         write_atomic(path, self.text().as_bytes())
             .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
         self.path = Some(path.to_path_buf());
-        self.saved_revision = self.editor.revision;
+        self.saved_state = Some(self.editor.state());
         self.disk_stamp = mtime(path);
         Ok(())
     }

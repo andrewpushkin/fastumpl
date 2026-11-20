@@ -12,6 +12,8 @@ struct Group {
     key: Option<String>,
     /// What the action did, for menus: "Move Order", "Delete 3 items".
     label: String,
+    /// The state the document is in with this step done.
+    state: u64,
 }
 
 /// A document plus its undo history. All edits go through here.
@@ -22,6 +24,12 @@ pub struct Editor {
     redo: Vec<Group>,
     /// Increases on every change, including undo and redo.
     pub revision: u64,
+    /// The state with no step done.
+    base: u64,
+    /// The state the document is in now; see [`Editor::state`].
+    state: u64,
+    /// The last state id handed out.
+    states: u64,
 }
 
 impl Editor {
@@ -31,7 +39,23 @@ impl Editor {
             undo: Vec::new(),
             redo: Vec::new(),
             revision: 0,
+            base: 0,
+            state: 0,
+            states: 0,
         }
+    }
+
+    /// Names the document's contents as reached through the history: undo
+    /// back to a state gives its id again, any other change a new one. A
+    /// file is unchanged since it was saved while the state is the same.
+    pub fn state(&self) -> u64 {
+        self.state
+    }
+
+    fn new_state(&mut self) -> u64 {
+        self.states += 1;
+        self.state = self.states;
+        self.state
     }
 
     /// Applies `ops` as one undo step named `label`.
@@ -60,8 +84,10 @@ impl Editor {
         let inverse: Vec<Op> = ops.into_iter().map(|o| self.doc.apply(o)).collect();
         self.redo.clear();
         self.revision += 1;
+        let state = self.new_state();
         if let (Some(k), Some(last)) = (&key, self.undo.last_mut()) {
             if last.key.as_ref() == Some(k) {
+                last.state = state;
                 // Undo restores each slot to its value before the group, so
                 // only the first inverse per slot matters.
                 let seen: HashSet<Slot> = last.inverse.iter().map(Op::slot).collect();
@@ -74,6 +100,7 @@ impl Editor {
             inverse,
             key,
             label: label.to_string(),
+            state,
         });
     }
 
@@ -85,8 +112,10 @@ impl Editor {
         }
         let inverse: Vec<Op> = ops.into_iter().map(|o| self.doc.apply(o)).collect();
         self.revision += 1;
+        let state = self.new_state();
         match self.undo.last_mut() {
             Some(last) => {
+                last.state = state;
                 let seen: HashSet<Slot> = last.inverse.iter().map(Op::slot).collect();
                 last.inverse
                     .extend(inverse.into_iter().filter(|o| !seen.contains(&o.slot())));
@@ -95,6 +124,7 @@ impl Editor {
                 inverse,
                 key: None,
                 label: "Edit".into(),
+                state,
             }),
         }
     }
@@ -106,6 +136,15 @@ impl Editor {
             self.doc.apply(o);
         }
         self.revision += 1;
+        // Every state of the history now has these changes too: none is
+        // what it was.
+        self.states += 1;
+        self.base = self.states;
+        for g in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            self.states += 1;
+            g.state = self.states;
+        }
+        self.state = self.undo.last().map_or(self.base, |g| g.state);
     }
 
     /// Position ops for `positions`, skipping unchanged ones.
@@ -148,7 +187,9 @@ impl Editor {
             inverse: redo,
             key: None,
             label: g.label,
+            state: g.state,
         });
+        self.state = self.undo.last().map_or(self.base, |g| g.state);
         self.revision += 1;
         true
     }
@@ -167,7 +208,9 @@ impl Editor {
             inverse: undo,
             key: None,
             label: g.label,
+            state: g.state,
         });
+        self.state = g.state;
         self.revision += 1;
         true
     }
@@ -814,5 +857,40 @@ mod tests {
         assert_eq!(m.text, "count: int");
         assert_eq!(m.to_line(), "-count: int {static}");
         assert!(Member::parse_line("+total(): Money").is_operation());
+    }
+
+    /// QA-24: undoing back to a state gives that state's id again, so a
+    /// diagram undone to what was saved is not "unsaved".
+    #[test]
+    fn undo_and_redo_return_to_the_same_state() {
+        let (mut ed, a, _) = editor_with_two();
+        let saved = ed.state();
+        ed.move_elements(&[(a, Pos::new(4, 4))], Some("drag"));
+        let moved = ed.state();
+        assert_ne!(moved, saved);
+        // A merged part of the same drag changes the contents: a new state.
+        ed.move_elements(&[(a, Pos::new(8, 8))], Some("drag"));
+        let moved_more = ed.state();
+        assert_ne!(moved_more, moved);
+        assert!(ed.undo());
+        assert_eq!(ed.state(), saved);
+        assert!(ed.redo());
+        assert_eq!(ed.state(), moved_more);
+        // A change outside the history makes every state new.
+        ed.apply_silently(ed.position_changes(&[(a, Some(Pos::new(1, 1)))]));
+        assert_ne!(ed.state(), moved_more);
+        assert!(ed.undo());
+        assert_ne!(ed.state(), saved);
+    }
+
+    /// Undoing and making a different change does not land on an old state.
+    #[test]
+    fn a_new_change_after_undo_is_a_new_state() {
+        let (mut ed, a, _) = editor_with_two();
+        ed.move_elements(&[(a, Pos::new(4, 4))], None);
+        let moved = ed.state();
+        assert!(ed.undo());
+        ed.move_elements(&[(a, Pos::new(5, 5))], None);
+        assert_ne!(ed.state(), moved);
     }
 }

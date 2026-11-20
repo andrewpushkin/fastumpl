@@ -41,6 +41,9 @@ struct Glide {
 #[derive(Clone, PartialEq)]
 struct SceneKey {
     revision: u64,
+    /// The revision the layout drawn is of: it lags `revision` for the
+    /// rest of a frame in which the document changed after `sync`.
+    layout_revision: Option<u64>,
     selection: Selection,
     dark: bool,
     hide_members: bool,
@@ -208,6 +211,7 @@ impl View {
         let (glide_step, layout) = self.current_layout();
         let key = SceneKey {
             revision: ed.revision,
+            layout_revision: self.revision,
             selection: sel.clone(),
             dark: theme.dark,
             hide_members,
@@ -229,6 +233,12 @@ impl View {
             self.scene = Some((key, scene));
         }
         &self.scene.as_ref().unwrap().1
+    }
+
+    /// The scene last built, as it was painted (for tests).
+    #[cfg(test)]
+    pub fn painted(&self) -> Option<&Scene> {
+        self.scene.as_ref().map(|(_, s)| s)
     }
 
     /// Forgets everything (another document was opened).

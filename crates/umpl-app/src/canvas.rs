@@ -17,6 +17,9 @@ use crate::view::Selection;
 
 /// The kinds a new line between boxes can have, in the order the "Connect
 /// as" menu numbers them (keys 1 to 8). Note links are drawn from notes.
+/// Width of the card of tools floating over the canvas's left edge.
+pub const TOOLS_WIDTH: f32 = 56.0;
+
 const CONNECT_KINDS: [RelationKind; 8] = [
     RelationKind::Generalization,
     RelationKind::Realization,
@@ -482,17 +485,42 @@ impl App {
     }
 
     /// Adds an element centred on `world` and opens the inline editor.
+    /// Where a new box clicked at `world` goes: centred on the click, and
+    /// moved as little as needed to lie inside the visible canvas, clear of
+    /// the tools floating at its left.
+    fn new_box_pos(&self, world: (f32, f32), kind: ElementKind, name: &str) -> Pos {
+        let (w, h) = umpl_draw::box_content(&umpl_core::Element::new(kind, name)).size();
+        let mut x = (world.0 / GRID).round() as i32 - w / 2;
+        let mut y = (world.1 / GRID).round() as i32 - h / 2;
+        let r = self.canvas.rect;
+        if r.is_positive() {
+            let lo = self.camera.to_world(r.min + Vec2::new(TOOLS_WIDTH, 0.0));
+            let hi = self.camera.to_world(r.max);
+            let lo = (
+                (lo.0 / GRID).ceil() as i32 + 1,
+                (lo.1 / GRID).ceil() as i32 + 1,
+            );
+            let hi = (
+                (hi.0 / GRID).floor() as i32 - 1 - w,
+                (hi.1 / GRID).floor() as i32 - 1 - h,
+            );
+            // A view too small for the box keeps it on the click.
+            if lo.0 <= hi.0 {
+                x = x.clamp(lo.0, hi.0);
+            }
+            if lo.1 <= hi.1 {
+                y = y.clamp(lo.1, hi.1);
+            }
+        }
+        Pos::new(x, y)
+    }
+
     fn create_at(
         &mut self,
         kind: ElementKind,
         world: (f32, f32),
         pkg: Option<PackageId>,
     ) -> Option<ElementId> {
-        let s = self.session.as_mut()?;
-        let pos = Pos::new(
-            (world.0 / GRID).round() as i32 - 5,
-            (world.1 / GRID).round() as i32 - 2,
-        );
         let base = match kind {
             ElementKind::Note => "Note",
             ElementKind::Interface => "Interface",
@@ -501,6 +529,8 @@ impl App {
             ElementKind::Class => "Class",
             ElementKind::Diamond => "Diamond",
         };
+        let pos = self.new_box_pos(world, kind, base);
+        let s = self.session.as_mut()?;
         let id = s.editor.add_element(kind, base, pkg, Some(pos));
         if kind == ElementKind::Note {
             let mut el = s.editor.doc.elements[&id].clone();
@@ -569,12 +599,9 @@ impl App {
         let to = match to {
             Some(t) => t,
             None => {
+                let pos = self.new_box_pos(at, ElementKind::Class, "Class");
                 let Some(s) = &mut self.session else { return };
                 let pkg = s.editor.doc.element_package(from);
-                let pos = Pos::new(
-                    (at.0 / GRID).round() as i32 - 5,
-                    (at.1 / GRID).round() as i32 - 2,
-                );
                 s.editor
                     .add_element(ElementKind::Class, "Class", pkg, Some(pos))
             }
@@ -595,6 +622,9 @@ impl App {
         if self.session.is_none() {
             return;
         }
+        // Undo, Delete and the like may have changed the document since
+        // the frame began: draw it as it is now.
+        self.sync_view();
 
         // Camera: fit, zoom, pan.
         if self.fit_pending && rect.width() > 50.0 {
@@ -610,7 +640,7 @@ impl App {
                 let bounds = self.view.scene(&s.editor, &self.sel, &theme, false).bounds;
                 // Clear of the tools floating at the left.
                 let view = if rect.width() > 300.0 {
-                    rect.with_min_x(rect.min.x + 56.0)
+                    rect.with_min_x(rect.min.x + TOOLS_WIDTH)
                 } else {
                     rect
                 };
@@ -1313,12 +1343,9 @@ impl App {
             }
             Tool::Package => {
                 let parent = self.package_at(geo, world);
+                let pos = self.new_box_pos(world, ElementKind::Class, "Class");
                 if let Some(s) = &mut self.session {
                     let p = s.editor.add_package("package", parent);
-                    let pos = Pos::new(
-                        (world.0 / GRID).round() as i32 - 5,
-                        (world.1 / GRID).round() as i32 - 2,
-                    );
                     let el = s
                         .editor
                         .add_element(ElementKind::Class, "Class", Some(p), Some(pos));
@@ -1388,7 +1415,17 @@ impl App {
                             .hint_text("Name"),
                     );
                     if edit.focus {
+                        // The name selected: typing replaces it.
                         name.request_focus();
+                        let mut state =
+                            egui::TextEdit::load_state(ctx, name.id).unwrap_or_default();
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                egui::text::CCursor::new(edit.name.chars().count()),
+                            )));
+                        state.store(ctx, name.id);
                         edit.focus = false;
                     }
                     if let Some(err) = &edit.error {

@@ -54,8 +54,11 @@ pub struct SourceState {
     /// Lines tinted as the declaration of what is selected (1-based,
     /// inclusive).
     pub highlight: Vec<(usize, usize)>,
-    /// The selection as last followed; `None` follows it again.
+    /// The selection as last followed: the text cursor moves to an item
+    /// only when the selection differs from this.
     seen_sel: Option<Selection>,
+    /// The text generation `highlight` was worked out for.
+    tinted: Option<u64>,
     /// Where the text cursor was last looked up: line, text generation and
     /// document revision.
     cursor_seen: Option<(usize, u64, u64)>,
@@ -96,6 +99,7 @@ impl SourceState {
             generation: 0,
             highlight: Vec::new(),
             seen_sel: None,
+            tinted: None,
             cursor_seen: None,
             cursor_item: None,
             scroll_to: None,
@@ -108,9 +112,8 @@ impl SourceState {
     fn take_parse(&mut self, parsed: &Parsed) {
         self.problems = parsed.problems.clone();
         self.links = Links::new(parsed);
+        // Lines may have moved: the new generation tints them again.
         self.generation += 1;
-        // Lines may have moved: tint them again.
-        self.seen_sel = None;
     }
 
     /// Forgets the text (another diagram was opened); keeps visibility.
@@ -393,15 +396,14 @@ impl App {
     /// declare the selected items, scrolls to the first and puts the text
     /// cursor there. The keyboard stays with the canvas.
     fn follow_selection(&mut self, ctx: &Context) {
-        if self.source.seen_sel.as_ref() == Some(&self.sel) {
+        // Typing re-parses the text; that tints the lines again but must
+        // not move the cursor, which is where the typing is.
+        let changed = self.source.seen_sel.as_ref() != Some(&self.sel);
+        if !changed && self.source.tinted == Some(self.source.generation) {
             return;
         }
-        let changed = self
-            .source
-            .seen_sel
-            .as_ref()
-            .is_none_or(|seen| *seen != self.sel);
         self.source.seen_sel = Some(self.sel.clone());
+        self.source.tinted = Some(self.source.generation);
         let Some(s) = &self.session else { return };
         let doc = &s.editor.doc;
         let items = App::selection_items(&self.sel);

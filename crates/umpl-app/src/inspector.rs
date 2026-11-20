@@ -33,6 +33,31 @@ pub struct InspectorState {
     error: Option<String>,
 }
 
+impl InspectorState {
+    /// The name in the inspector's Name field (for tests).
+    #[cfg(test)]
+    pub fn shown_name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// The inspector's text fields, so it knows when the keyboard is in one of
+/// them (and not in the text panel, say).
+const FIELDS: [&str; 8] = [
+    "name",
+    "type_params",
+    "stereotype",
+    "members",
+    "rel_name",
+    "from_label",
+    "to_label",
+    "title",
+];
+
+fn field_id(field: &str) -> egui::Id {
+    egui::Id::new(("inspector", field))
+}
+
 fn error_ui(ui: &mut Ui, error: &Option<String>) {
     if let Some(e) = error {
         ui.colored_label(Color32::from_rgb(0xd9, 0x48, 0x3b), e);
@@ -92,7 +117,11 @@ impl App {
     pub fn inspector_ui(&mut self, ui: &mut Ui) {
         let target = self.inspector_target();
         let Some(s) = &self.session else { return };
-        let typing = ui.ctx().wants_keyboard_input();
+        // Typing in an inspector field: reloading would undo it.
+        let typing = ui
+            .ctx()
+            .memory(|m| m.focused())
+            .is_some_and(|f| FIELDS.iter().any(|&n| field_id(n) == f));
         if self.inspector.target != Some(target)
             || (self.inspector.revision != s.editor.revision && !typing)
         {
@@ -116,7 +145,11 @@ impl App {
         ui.add_space(6.0);
 
         ui.label("Name");
-        let r = ui.add(TextEdit::singleline(&mut self.inspector.name).desired_width(f32::INFINITY));
+        let r = ui.add(
+            TextEdit::singleline(&mut self.inspector.name)
+                .id(field_id("name"))
+                .desired_width(f32::INFINITY),
+        );
         if r.lost_focus() && self.inspector.name.trim() != el.name {
             match s.editor.rename(id, &self.inspector.name) {
                 Ok(()) => self.inspector.error = None,
@@ -147,6 +180,7 @@ impl App {
             ui.label("Type parameters");
             let r = ui.add(
                 TextEdit::singleline(&mut self.inspector.type_params)
+                    .id(field_id("type_params"))
                     .hint_text("e.g. K, V")
                     .desired_width(f32::INFINITY),
             );
@@ -161,6 +195,7 @@ impl App {
             ui.label("Stereotype");
             let r = ui.add(
                 TextEdit::singleline(&mut self.inspector.stereotype)
+                    .id(field_id("stereotype"))
                     .hint_text("e.g. entity")
                     .desired_width(f32::INFINITY),
             );
@@ -179,6 +214,7 @@ impl App {
         });
         let r = ui.add(
             TextEdit::multiline(&mut self.inspector.members)
+                .id(field_id("members"))
                 .font(egui::FontId::new(
                     self.prefs.ui(12.5),
                     crate::paint::family(false, false),
@@ -263,6 +299,7 @@ impl App {
         if ui
             .add(
                 TextEdit::multiline(&mut self.inspector.rel_name)
+                    .id(field_id("rel_name"))
                     .desired_rows(1)
                     .desired_width(f32::INFINITY),
             )
@@ -275,6 +312,7 @@ impl App {
         if ui
             .add(
                 TextEdit::singleline(&mut self.inspector.from_label)
+                    .id(field_id("from_label"))
                     .hint_text("multiplicity role, e.g. 1 owner")
                     .desired_width(f32::INFINITY),
             )
@@ -286,6 +324,7 @@ impl App {
         if ui
             .add(
                 TextEdit::singleline(&mut self.inspector.to_label)
+                    .id(field_id("to_label"))
                     .hint_text("e.g. 0..* items")
                     .desired_width(f32::INFINITY),
             )
@@ -325,7 +364,11 @@ impl App {
         ui.heading("Package");
         ui.add_space(6.0);
         ui.label("Name");
-        let r = ui.add(TextEdit::singleline(&mut self.inspector.name).desired_width(f32::INFINITY));
+        let r = ui.add(
+            TextEdit::singleline(&mut self.inspector.name)
+                .id(field_id("name"))
+                .desired_width(f32::INFINITY),
+        );
         if r.lost_focus() && self.inspector.name.trim() != p.name {
             match s.editor.rename_package(id, &self.inspector.name) {
                 Ok(()) => self.inspector.error = None,
@@ -386,7 +429,7 @@ impl App {
             ui.add_space(14.0);
             ui.label(RichText::new("Tips").strong());
             for tip in [
-                "Edit it in the text (View → Text or Both): the drawing follows.",
+                "Edit it in the text (View > Text or Both): the drawing follows.",
                 "Save keeps it as PlantUML text.",
                 "Right- or middle-drag pans; Ctrl+scroll zooms.",
             ] {
@@ -397,8 +440,11 @@ impl App {
         ui.heading("Diagram");
         ui.add_space(6.0);
         ui.label("Title");
-        let r =
-            ui.add(TextEdit::singleline(&mut self.inspector.title).desired_width(f32::INFINITY));
+        let r = ui.add(
+            TextEdit::singleline(&mut self.inspector.title)
+                .id(field_id("title"))
+                .desired_width(f32::INFINITY),
+        );
         if r.lost_focus() && opt(&self.inspector.title) != s.editor.doc.title {
             s.editor.set_title(opt(&self.inspector.title));
         }

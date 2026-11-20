@@ -1610,3 +1610,241 @@ fn a_file_that_is_not_utf8_opens_with_a_problem() {
         s.problems
     );
 }
+
+/// Where the last painted scene drew each box, and its texts.
+fn painted(h: &Harness<'static, App>) -> (Vec<(ElementId, RectF)>, Vec<String>) {
+    let scene = h.state().view.painted().expect("a scene was painted");
+    let texts = scene
+        .shapes
+        .iter()
+        .filter_map(|sh| match sh {
+            umpl_draw::Shape::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    (scene.elements.clone(), texts)
+}
+
+/// QA-20: after Undo the canvas draws the document as it now is, not as
+/// it was before the undo (the scene was cached under the new revision but
+/// built from the layout of the old one).
+#[test]
+fn undoing_a_move_redraws_the_box_where_it_now_is() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.move_elements(&[(a, Pos::new(20, 10))], None);
+    }
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    let (boxes, _) = painted(&h);
+    let drawn = boxes.iter().find(|(id, _)| *id == a).unwrap().1;
+    assert_eq!((drawn.x, drawn.y), (0.0, 0.0), "drawn at {drawn:?}");
+}
+
+#[test]
+fn undoing_an_add_or_a_rename_redraws_the_canvas() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.rename(a, "Renamed").unwrap();
+    }
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    let (_, texts) = painted(&h);
+    assert!(texts.iter().any(|t| t == "A"), "{texts:?}");
+    assert!(!texts.iter().any(|t| t == "Renamed"), "{texts:?}");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    let (boxes, texts) = painted(&h);
+    assert!(boxes.is_empty(), "{boxes:?}");
+    assert!(!texts.iter().any(|t| t == "A"), "{texts:?}");
+}
+
+#[test]
+fn deleting_a_box_removes_it_from_the_canvas() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    let at = screen(&h, rect_of(&h, a).center());
+    click(&mut h, at);
+    assert_eq!(h.state().sel.elements, vec![a]);
+    h.key_press(Key::Delete);
+    h.run_steps(3);
+    let (boxes, _) = painted(&h);
+    assert_eq!(boxes.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![b]);
+}
+
+/// Puts the text panel's cursor at character `c` and gives it the keyboard.
+fn text_cursor_to(h: &mut Harness<'static, App>, c: usize) {
+    let id = egui::Id::new(crate::source::EDITOR_ID);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    let mut state = egui::TextEdit::load_state(&h.ctx, id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::one(
+            egui::text::CCursor::new(c),
+        )));
+    egui::TextEdit::store_state(&h.ctx, id, state);
+    h.run_steps(2);
+}
+
+/// QA-21: Enter at the end of a declaration opens a new line and the
+/// typing goes there; the cursor does not jump back to the start of the
+/// selected item's line.
+#[test]
+fn typing_after_enter_goes_on_the_new_line() {
+    let mut h = app_with_text();
+    add(&mut h, "A", 0, 0);
+    let b = add(&mut h, "B", 30, 0);
+    settle(&mut h);
+    let text = source_text(&h);
+    let end_of_b = text.find("class B").unwrap() + "class B".len();
+    text_cursor_to(&mut h, end_of_b);
+    assert_eq!(h.state().sel.elements, vec![b], "the cursor selects B");
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    h.event(Event::Text("class C".into()));
+    h.run_steps(2);
+    let text = source_text(&h);
+    assert!(
+        text.lines().any(|l| l == "class B") && text.lines().any(|l| l == "class C"),
+        "{text}"
+    );
+}
+
+/// QA-21: typing on a line that declares nothing (a comment) stays there
+/// while a box is selected.
+#[test]
+fn typing_on_a_comment_line_stays_on_it() {
+    let mut h = app_with_text();
+    let a = add(&mut h, "A", 0, 0);
+    settle(&mut h);
+    retype(&mut h, "class A\n# note\n");
+    settle(&mut h);
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    h.run_steps(2);
+    let text = source_text(&h);
+    let end_of_note = text.find("# note").unwrap() + "# note".len();
+    text_cursor_to(&mut h, end_of_note);
+    h.event(Event::Text("s".into()));
+    h.run_steps(2);
+    h.event(Event::Text("!".into()));
+    h.run_steps(2);
+    let text = source_text(&h);
+    assert!(text.lines().any(|l| l == "# notes!"), "{text}");
+    assert!(text.lines().any(|l| l == "class A"), "{text}");
+}
+
+/// QA-25: every symbol a button shows is in the interface's fonts (the
+/// find bar's arrows and close cross were drawn as empty boxes).
+#[test]
+fn button_symbols_are_in_the_fonts() {
+    let h = new_app();
+    let missing: Vec<char> = "⏶⏷🗙⟲⟳«·—…−✨"
+        .chars()
+        .filter(|&c| {
+            !h.ctx
+                .fonts_mut(|f| f.has_glyph(&egui::FontId::proportional(14.0), c))
+        })
+        .collect();
+    assert!(missing.is_empty(), "no glyph for {missing:?}");
+}
+
+/// QA-22: the in-place editor opens with the name selected, so typing
+/// replaces the default name instead of adding to it.
+#[test]
+fn typing_in_a_new_class_replaces_its_default_name() {
+    let mut h = new_app();
+    let at = h.state().canvas.rect.center();
+    double_click(&mut h, at);
+    h.event(Event::Text("Foo".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().canvas.edit.as_ref().unwrap().name, "Foo");
+}
+
+/// QA-23: a rename typed in the text panel shows in the inspector while
+/// the text panel still has the keyboard.
+#[test]
+fn the_inspector_follows_a_rename_typed_in_the_text() {
+    let mut h = app_with_text();
+    let a = add(&mut h, "Order", 2, 2);
+    h.state_mut().sel = crate::view::Selection::only_element(a);
+    h.run_steps(2);
+    assert_eq!(h.state().inspector.shown_name(), "Order");
+    let text = source_text(&h).replace("Order", "Invoice");
+    retype(&mut h, &text);
+    settle(&mut h);
+    assert_eq!(doc_of(&h).find("Invoice"), Some(a));
+    assert_eq!(h.state().inspector.shown_name(), "Invoice");
+}
+
+/// QA-24: undoing back to what was saved leaves the diagram unchanged
+/// ("•" goes away); redoing makes it changed again.
+#[test]
+fn undoing_back_to_the_saved_state_is_not_unsaved() {
+    let mut h = new_app();
+    let a = add(&mut h, "A", 0, 0);
+    let dir = std::env::temp_dir().join(format!("fastumpl-clean-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("clean.umpl");
+    h.state_mut()
+        .session
+        .as_mut()
+        .unwrap()
+        .save_to(&path)
+        .unwrap();
+    let dirty = |h: &Harness<'static, App>| h.state().session.as_ref().unwrap().is_dirty();
+    assert!(!dirty(&h));
+    {
+        let s = h.state_mut().session.as_mut().unwrap();
+        s.editor.move_elements(&[(a, Pos::new(9, 9))], None);
+    }
+    h.run_steps(2);
+    assert!(dirty(&h));
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert!(!dirty(&h), "undone back to the saved diagram");
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    h.run_steps(2);
+    assert!(dirty(&h));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// QA-26: a class added by double-clicking near the edge of the view is
+/// placed wholly inside it, clear of the floating tools, and otherwise
+/// centred on the click.
+#[test]
+fn a_new_box_stays_inside_the_view() {
+    let mut h = new_app();
+    let r = h.state().canvas.rect;
+    // Just right of the tools, at the very top.
+    double_click(&mut h, r.min + Vec2::new(70.0, 4.0));
+    let id = h.state().canvas.edit.as_ref().unwrap().id;
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    let b = rect_of(&h, id);
+    let min = screen(&h, (b.x, b.y));
+    let max = screen(&h, (b.right(), b.bottom()));
+    assert!(
+        min.x >= r.min.x + 56.0 && min.y >= r.min.y,
+        "{min:?} in {r:?}"
+    );
+    assert!(max.x <= r.max.x && max.y <= r.max.y, "{max:?} in {r:?}");
+
+    // In the middle of the view the box is centred on the click (after a
+    // pause, so the clicks do not make a triple click).
+    h.run_steps(60);
+    let at = r.center();
+    double_click(&mut h, at);
+    let id = h.state().canvas.edit.as_ref().unwrap().id;
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    let c = screen(&h, rect_of(&h, id).center());
+    let grid = GRID * h.state().camera.zoom;
+    assert!((c - at).length() <= grid, "centre {c:?}, click {at:?}");
+}

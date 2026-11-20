@@ -1597,6 +1597,17 @@ impl App {
     }
 }
 
+impl App {
+    /// Brings the layout up to date with the document, unless the first
+    /// layout of a diagram is still being computed.
+    pub fn sync_view(&mut self) {
+        let laying_out = self.tidy.as_ref().is_some_and(|t| t.initial);
+        if let (Some(s), false) = (&mut self.session, laying_out) {
+            self.view.sync(&mut s.editor);
+        }
+    }
+}
+
 impl Selection {
     /// Drops ids that no longer exist (after undo or redo).
     pub fn retain_existing(&mut self, doc: &umpl_core::Document) {
@@ -1620,10 +1631,7 @@ impl eframe::App for App {
         self.poll_tidy(ctx);
         self.periodic(ctx);
         self.source_apply(ctx, false);
-        let laying_out = self.tidy.as_ref().is_some_and(|t| t.initial);
-        if let (Some(s), false) = (&mut self.session, laying_out) {
-            self.view.sync(&mut s.editor);
-        }
+        self.sync_view();
         self.source_refresh();
         self.keyboard(ctx);
         self.menu_bar(ctx);

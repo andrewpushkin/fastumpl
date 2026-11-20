@@ -283,20 +283,20 @@ impl App {
                 };
                 ui.label(RichText::new(status).color(color));
                 if ui
-                    .add_enabled(n > 0, egui::Button::new("▲"))
+                    .add_enabled(n > 0, egui::Button::new("⏶"))
                     .on_hover_text("Previous match (Shift+Enter, Shift+F3)")
                     .clicked()
                 {
                     self.step(-1);
                 }
                 if ui
-                    .add_enabled(n > 0, egui::Button::new("▼"))
+                    .add_enabled(n > 0, egui::Button::new("⏷"))
                     .on_hover_text("Next match (Enter, F3)")
                     .clicked()
                 {
                     self.step(1);
                 }
-                if ui.button("✕").on_hover_text("Close (Esc)").clicked() {
+                if ui.button("🗙").on_hover_text("Close (Esc)").clicked() {
                     self.close_find();
                 }
             });
